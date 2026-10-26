@@ -1,0 +1,19 @@
+[project]
+name = "sts-tools"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "nzmonzmp", email = "36000236+nzmonzmp@users.noreply.github.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "dnfile>=0.18.0",
+]
+
+[project.scripts]
+sts-tools = "sts_tools.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
