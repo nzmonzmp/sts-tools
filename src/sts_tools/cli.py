@@ -279,36 +279,46 @@ def relics(args: argparse.Namespace) -> None:
     print_by_character(runs, args, "Relique", ancient_choices, lambda r: {short(x["id"]) for x in r.me.get("relics", [])})
 
 
+def killer(run: Run) -> str:
+    d = run.data
+    if d.get("killed_by_encounter", "NONE.NONE") != "NONE.NONE":
+        return short(d["killed_by_encounter"])
+    if d.get("killed_by_event", "NONE.NONE") != "NONE.NONE":
+        return "EVENT " + short(d["killed_by_event"])
+    return "(abandon hors combat)"
+
+
 def deaths(args: argparse.Namespace) -> None:
     runs, label = selected_runs(args)
-    losses = [r for r in runs if not r.win]
-    by_killer: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
-    by_act: defaultdict[int, list[int]] = defaultdict(lambda: [0, 0])
-    by_floor: defaultdict[int, list[int]] = defaultdict(lambda: [0, 0])
-    for run in losses:
-        d = run.data
-        if d.get("killed_by_encounter", "NONE.NONE") != "NONE.NONE":
-            killer = short(d["killed_by_encounter"])
-        elif d.get("killed_by_event", "NONE.NONE") != "NONE.NONE":
-            killer = "EVENT " + short(d["killed_by_event"])
-        else:
-            killer = "(abandon hors combat)"
-        for stats, key in ((by_killer, killer), (by_act, run.act), (by_floor, run.floor)):
-            stats[key][0] += 1
-            stats[key][1] += run.abandoned
-
-    def rows(stats: dict, by_count: bool) -> list[list]:
-        items = sorted(stats.items(), key=(lambda kv: -kv[1][0]) if by_count else (lambda kv: kv[0]))
-        return [[k, n, pct(n, len(losses)), ab] for k, (n, ab) in items if n >= args.min]
-
     print(f"== Défaites - {label} ==")
-    print(f"{len(losses)} défaites, dont {sum(r.abandoned for r in losses)} abandons\n")
+    by_character: defaultdict[str, list[Run]] = defaultdict(list)
+    for run in runs:
+        by_character[run.character].append(run)
     headers = ["Défaites", "%", "dont abandons"]
-    print_table(["Tué par", *headers], rows(by_killer, True))
-    print()
-    print_table(["Acte", *headers], rows(by_act, False))
-    print()
-    print_table(["Étage", *headers], rows(by_floor, False))
+    for character, char_runs in sorted(by_character.items()):
+        losses = [r for r in char_runs if not r.win]
+        print(f"\n-- {character} - {summary(char_runs)} --")
+        print(f"{len(losses)} défaites, dont {sum(r.abandoned for r in losses)} abandons")
+        by_act: defaultdict[int, list[Run]] = defaultdict(list)
+        for run in losses:
+            by_act[run.act].append(run)
+        for act, act_losses in sorted(by_act.items()):
+            by_killer: defaultdict[str, list[int]] = defaultdict(lambda: [0, 0])
+            by_floor: defaultdict[int, list[int]] = defaultdict(lambda: [0, 0])
+            for run in act_losses:
+                for stats, key in ((by_killer, killer(run)), (by_floor, run.floor)):
+                    stats[key][0] += 1
+                    stats[key][1] += run.abandoned
+
+            def rows(stats: dict, by_count: bool) -> list[list]:
+                items = sorted(stats.items(), key=(lambda kv: -kv[1][0]) if by_count else (lambda kv: kv[0]))
+                return [[k, n, pct(n, len(losses)), ab] for k, (n, ab) in items if n >= args.min]
+
+            abandons = sum(r.abandoned for r in act_losses)
+            print(f"\n[Acte {act} - {len(act_losses)} défaites ({pct(len(act_losses), len(losses))}), dont {abandons} abandons]")
+            print_table(["Tué par", *headers], rows(by_killer, True))
+            print()
+            print_table(["Étage", *headers], rows(by_floor, False))
 
 
 def update_pools(args: argparse.Namespace) -> None:
@@ -316,14 +326,6 @@ def update_pools(args: argparse.Namespace) -> None:
     print(f"{len(card_pools)} cartes enregistrées dans {pools.POOLS_JSON}")
     for pool, n in sorted(Counter(card_pools.values()).items()):
         print(f"  {pool}: {n}")
-
-
-def add_min(parser: argparse.ArgumentParser, default: int) -> None:
-    # Pas dans un parser parent : argparse y partage les options, un défaut par commande y est impossible
-    parser.add_argument(
-        "-n", "--min", type=int, default=default,
-        help=f"nombre minimum de parties pour afficher une ligne (défaut : {default})",
-    )
 
 
 def main() -> None:
@@ -340,6 +342,10 @@ def main() -> None:
     filters = argparse.ArgumentParser(add_help=False, parents=[common])
     filters.add_argument("--coop", action="store_true", help="analyser les parties coop au lieu des parties solo")
     filters.add_argument("-c", "--character", help="filtrer sur un personnage (ex : defect)")
+    filters.add_argument(
+        "-n", "--min", type=int, default=1,
+        help="nombre minimum de parties pour afficher une ligne (défaut : 1)",
+    )
 
     sorting = argparse.ArgumentParser(add_help=False)
     sorting.add_argument(
@@ -351,15 +357,12 @@ def main() -> None:
     p.set_defaults(func=winrate)
 
     p = sub.add_parser("cards", parents=[filters, sorting], help="win%% par carte et taux de pick")
-    add_min(p, 1)
     p.set_defaults(func=cards, coop_ascension=10)
 
     p = sub.add_parser("relics", parents=[filters, sorting], help="win%% par relique et choix des Anciens")
-    add_min(p, 1)
     p.set_defaults(func=relics, coop_ascension=10)
 
     p = sub.add_parser("deaths", parents=[filters], help="défaites par ennemi, acte et étage")
-    add_min(p, 5)
     p.set_defaults(func=deaths)
 
     p = sub.add_parser("update-pools", help="extraire les pools de cartes de sts2.dll (après une mise à jour du jeu)")
