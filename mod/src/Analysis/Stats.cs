@@ -3,18 +3,23 @@ namespace StsTools.Analysis;
 /// <summary>Les quatre analyses : winrate, cartes, reliques, défaites. Portage de sts_tools/cli.py.</summary>
 public static class Stats
 {
-    public const string NoRows = "(aucune ligne, essayer un minimum plus petit)";
+    public const string NoRows = "(no rows, try a lower minimum)";
 
     public static string Pct(int w, int n) =>
         n == 0 ? "-" : $"{Math.Round(100.0 * w / n, MidpointRounding.ToEven):0}%";
 
+    /// <summary>1 run, 2 runs</summary>
+    public static string Plural(int n, string word) => $"{n} {word}{(n == 1 ? "" : "s")}";
+
+    private static string Losses(int n) => n == 1 ? "1 loss" : $"{n} losses";
+
     public static string Summary(IReadOnlyCollection<Run> runs)
     {
         var wins = runs.Count(r => r.Win);
-        return $"{runs.Count} parties, {wins}W ({Pct(wins, runs.Count)})";
+        return $"{Plural(runs.Count, "run")}, {wins}W ({Pct(wins, runs.Count)})";
     }
 
-    public static string AscensionLabel(int? asc) => asc is { } a ? $"A{a}" : "toutes ascensions";
+    public static string AscensionLabel(int? asc) => asc is { } a ? $"A{a}" : "all ascensions";
 
     private static bool MatchesMode(Run r, Filters f) =>
         (f.Ascension == null || r.Ascension == f.Ascension) && (f.GameMode == null || r.GameMode == f.GameMode);
@@ -54,16 +59,16 @@ public static class Stats
             }).ToList();
             sections.Add(new Section(
                 $"{(coop ? "Coop" : "Solo")} - {Summary(runs)}",
-                rows.Count == 0 ? ["(aucune partie)"] : [],
-                rows.Count == 0 ? [] : [new Table(null, ["Personnage", "V", "D", "Win%"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
+                rows.Count == 0 ? ["(no runs)"] : [],
+                rows.Count == 0 ? [] : [new Table(null, ["Character", "W", "L", "Win%"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
         }
         var label = string.Join(", ", new[] { AscensionLabel(f.Ascension), f.GameMode }.Where(p => p != null));
-        return new Report($"Victoires - {label}", [], sections);
+        return new Report($"Wins - {label}", [], sections);
     }
 
     // ---- cartes et reliques ----
 
-    private static readonly string[] ChoiceHeaders = ["Parties", "Win%", "Proposé", "Pick%", "Win% pris", "Win% passé"];
+    private static readonly string[] ChoiceHeaders = ["Runs", "Win%", "Offered", "Pick%", "Win% picked", "Win% skipped"];
 
     /// <summary>Par élément (carte, relique) : [victoires, parties] en fin de partie, quand proposé, quand pris.</summary>
     private sealed class Choices
@@ -150,43 +155,43 @@ public static class Stats
                 new ItemRef(ItemKind.Character, character)));
         }
         if (sections.Count == 0)
-            notes.Add("(aucune partie)");
+            notes.Add("(no runs)");
         return new Report($"{title} - {label}", notes, sections);
     }
 
     private static readonly Dictionary<string, (string Order, string Title)> PoolGroups = new()
     {
-        ["COLORLESS"] = ("2", "Incolores"),
-        ["EVENT"] = ("4", "Événements"),
-        ["QUEST"] = ("5", "Quêtes"),
+        ["COLORLESS"] = ("2", "Colorless"),
+        ["EVENT"] = ("4", "Events"),
+        ["QUEST"] = ("5", "Quests"),
         ["TOKEN"] = ("6", "Tokens"),
-        ["STATUS"] = ("7", "Statuts"),
-        ["CURSE"] = ("8", "Malédictions"),
+        ["STATUS"] = ("7", "Statuses"),
+        ["CURSE"] = ("8", "Curses"),
     };
 
     public static Report Cards(IReadOnlyList<Run> all, Filters f, IGameInfo game)
     {
         var notes = new List<string>
         {
-            "Parties : dans le deck final ; Proposé/Pick% : récompenses de cartes ; passé : proposée mais jamais prise",
+            "Runs: in the final deck; Offered/Pick%: card rewards; skipped: offered but never picked",
         };
         if (!game.HasCardPools)
-            notes.Add("(pools de cartes inconnus : les cartes ne sont pas regroupées)");
+            notes.Add("(card pools unknown: cards are not grouped)");
         Grouping group = (card, character) =>
         {
             if (!game.HasCardPools)
-                return ("0", "Cartes", game.CardName(card));
+                return ("0", "Cards", game.CardName(card));
             var pool = game.CardPool(card);
             if (pool == null)
                 return null; // carte retirée du jeu
             if (pool == character)
-                return ("1", $"Cartes {game.CharacterName(character)}", game.CardName(card));
+                return ("1", $"{game.CharacterName(character)} cards", game.CardName(card));
             if (game.Characters.Contains(pool))
-                return ("3", "Autres personnages", $"{game.CardName(card)} ({game.CharacterName(pool)})");
+                return ("3", "Other characters", $"{game.CardName(card)} ({game.CharacterName(pool)})");
             var (order, title) = PoolGroups.GetValueOrDefault(pool, ("9 " + pool, pool));
             return (order, title, game.CardName(card));
         };
-        return ByCharacterChoices("Cartes", notes, all, f, game, "Carte",
+        return ByCharacterChoices("Cards", notes, all, f, game, "Card",
             r => r.CardChoices(), r => r.DeckCards, group);
     }
 
@@ -194,15 +199,15 @@ public static class Stats
     {
         var notes = new List<string>
         {
-            "Parties : possédée en fin de partie ; Proposé/Pick% : choix des Anciens ; passé : proposée mais jamais prise",
+            "Runs: owned at the end of the run; Offered/Pick%: Ancient choices; skipped: offered but never picked",
         };
-        return ByCharacterChoices("Reliques", notes, all, f, game, "Relique",
-            r => r.AncientChoices(), r => r.Relics, (relic, _) => ("0", "Reliques", game.RelicName(relic)), ItemKind.Relic);
+        return ByCharacterChoices("Relics", notes, all, f, game, "Relic",
+            r => r.AncientChoices(), r => r.Relics, (relic, _) => ("0", "Relics", game.RelicName(relic)), ItemKind.Relic);
     }
 
     // ---- anciens ----
 
-    private static readonly string[] AncientHeaders = ["Option", "Proposé", "Pick%", "Win% pris", "Win% passé"];
+    private static readonly string[] AncientHeaders = ["Option", "Offered", "Pick%", "Win% picked", "Win% skipped"];
 
     /// <summary>
     /// Une section par Ancien du jeu, avec toutes les options qu'il peut proposer, même jamais vues.
@@ -274,8 +279,8 @@ public static class Stats
 
             var metRuns = met.GetValueOrDefault(ancient.Id) ?? [];
             sections.Add(new Section(
-                $"{game.AncientName(ancient.Id)} - rencontré dans {Summary(metRuns)}",
-                rows.Count == 0 ? ["(aucune option connue)"] : [],
+                $"{game.AncientName(ancient.Id)} - met in {Summary(metRuns)}",
+                rows.Count == 0 ? ["(no known options)"] : [],
                 rows.Count == 0 ? [] : [new Table(null, AncientHeaders, rows.Select(r => r.Row).ToList(),
                     rows.Select(r => r.Item).ToList(), rows.Select(r => r.Tooltip).ToList())],
                 new ItemRef(ItemKind.Ancient, ancient.Id),
@@ -283,17 +288,17 @@ public static class Stats
         }
         var notes = new List<string>
         {
-            "Proposé : parties où l'option a été proposée ; Win% pris / passé : victoires quand elle a été prise / proposée mais pas prise",
+            "Offered: runs where the option was offered; Win% picked / skipped: win rate when it was picked / offered but not picked",
         };
-        return new Report($"Anciens - {label}", notes, sections);
+        return new Report($"Ancients - {label}", notes, sections);
     }
 
-    /// <summary>[1] -> « Acte 1 », [2, 3] -> « Actes 2 et 3 », [] -> « Autres »</summary>
+    /// <summary>[1] -> "Act 1", [2, 3] -> "Acts 2 and 3", [] -> "Other"</summary>
     public static string ActLabel(IReadOnlyList<int> acts) => acts.Count switch
     {
-        0 => "Autres",
-        1 => $"Acte {acts[0]}",
-        _ => $"Actes {string.Join(", ", acts.Order().SkipLast(1))} et {acts.Max()}",
+        0 => "Other",
+        1 => $"Act {acts[0]}",
+        _ => $"Acts {string.Join(", ", acts.Order().SkipLast(1))} and {acts.Max()}",
     };
 
     // ---- défaites ----
@@ -302,14 +307,14 @@ public static class Stats
     {
         ("ENCOUNTER", var id) => game.EncounterName(id),
         (_, var id) => game.EventName(id),
-        null => "(abandon hors combat)",
+        null => "(abandoned outside combat)",
     };
 
     public static Report Deaths(IReadOnlyList<Run> all, Filters f, IGameInfo game)
     {
         var (runs, label) = Select(all, f, game);
         var sections = new List<Section>();
-        string[] tail = ["Défaites", "%", "dont abandons"];
+        string[] tail = ["Losses", "%", "Abandoned"];
         foreach (var (character, charRuns) in ByCharacter(runs))
         {
             var losses = charRuns.Where(r => !r.Win).ToList();
@@ -326,16 +331,16 @@ public static class Stats
                 }
                 var abandons = actLosses.Count(r => r.Abandoned);
                 tables.Add(new Table(
-                    $"Acte {act.Key} - {actLosses.Count} défaites ({Pct(actLosses.Count, losses.Count)}), dont {abandons} abandons",
-                    ["Tué par", .. tail], Rows(r => KillerName(r, game), true)));
-                tables.Add(new Table(null, ["Étage", .. tail], Rows(r => r.Floor, false)));
+                    $"Act {act.Key} - {Losses(actLosses.Count)} ({Pct(actLosses.Count, losses.Count)}), {abandons} abandoned",
+                    ["Killed by", .. tail], Rows(r => KillerName(r, game), true)));
+                tables.Add(new Table(null, ["Floor", .. tail], Rows(r => r.Floor, false)));
             }
             sections.Add(new Section(
                 $"{game.CharacterName(character)} - {Summary(charRuns)}",
-                [$"{losses.Count} défaites, dont {losses.Count(r => r.Abandoned)} abandons"],
+                [$"{Losses(losses.Count)}, {losses.Count(r => r.Abandoned)} abandoned"],
                 tables,
                 new ItemRef(ItemKind.Character, character)));
         }
-        return new Report($"Défaites - {label}", sections.Count == 0 ? ["(aucune partie)"] : [], sections);
+        return new Report($"Losses - {label}", sections.Count == 0 ? ["(no runs)"] : [], sections);
     }
 }

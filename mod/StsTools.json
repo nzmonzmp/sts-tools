@@ -2,7 +2,7 @@
   "id": "StsTools",
   "name": "STS Tools",
   "author": "nzmonzmp",
-  "description": "Statistiques sur l'historique des parties : victoires par personnage, cartes, reliques et causes de défaite.",
+  "description": "Statistics from your run history: win rate per character, cards, relics, Ancient choices and causes of defeat.",
   "version": "0.1.0",
   "has_dll": true,
   "has_pck": false,

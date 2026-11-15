@@ -13,6 +13,6 @@ public static class ModEntry
     public static void Init()
     {
         new Harmony("nzmonzmp." + Id).PatchAll(typeof(ModEntry).Assembly);
-        Log.Info($"[{Id}] initialisé");
+        Log.Info($"[{Id}] initialized");
     }
 }

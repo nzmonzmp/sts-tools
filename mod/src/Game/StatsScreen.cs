@@ -14,8 +14,8 @@ public sealed class StatsScreen
 {
     private enum Tab { Winrate, Cards, Relics, Ancients, Deaths }
 
-    private static readonly string[] TabNames = ["Victoires", "Cartes", "Reliques", "Anciens", "Défaites"];
-    private static readonly (string Label, SortKey Key)[] Sorts = [("Win%", SortKey.Win), ("Parties", SortKey.N), ("Pick%", SortKey.Pick)];
+    private static readonly string[] TabNames = ["Wins", "Cards", "Relics", "Ancients", "Losses"];
+    private static readonly (string Label, SortKey Key)[] Sorts = [("Win%", SortKey.Win), ("Runs", SortKey.N), ("Pick%", SortKey.Pick)];
     private const int DefaultAscension = 10;
 
     private static StatsScreen? _current;
@@ -48,7 +48,7 @@ public sealed class StatsScreen
         }
         catch (Exception e)
         {
-            Log.Error($"[{ModEntry.Id}] impossible d'ouvrir l'écran de statistiques : {e}");
+            Log.Error($"[{ModEntry.Id}] cannot open the stats screen: {e}");
         }
     }
 
@@ -107,10 +107,10 @@ public sealed class StatsScreen
             header.AddChild(b);
         }
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
-        var reload = new Button { Text = "Recharger" };
+        var reload = new Button { Text = "Reload" };
         reload.Pressed += () => { Load(); Refresh(); };
         header.AddChild(reload);
-        var close = new Button { Text = "Fermer" };
+        var close = new Button { Text = "Close" };
         close.Pressed += Close;
         header.AddChild(close);
 
@@ -118,12 +118,12 @@ public sealed class StatsScreen
         var filters = new HBoxContainer();
         filters.AddThemeConstantOverride("separation", 8);
         page.AddChild(filters);
-        AddFilter(filters, "Parties", _mode, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
+        AddFilter(filters, "Party", _mode, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Ascension", _ascension, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
-        AddFilter(filters, "Personnage", _character, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
+        AddFilter(filters, "Character", _character, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Mode", _gameMode, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
-        AddFilter(filters, "Min. parties", _min, [Tab.Cards, Tab.Relics, Tab.Deaths]);
-        AddFilter(filters, "Tri", _sort, [Tab.Cards, Tab.Relics, Tab.Ancients]);
+        AddFilter(filters, "Min. runs", _min, [Tab.Cards, Tab.Relics, Tab.Deaths]);
+        AddFilter(filters, "Sort", _sort, [Tab.Cards, Tab.Relics, Tab.Ancients]);
         _character.AddThemeConstantOverride("icon_max_width", 28);
         _character.GetPopup().AddThemeConstantOverride("icon_max_width", 28);
         _mode.AddItem("Solo");
@@ -202,25 +202,25 @@ public sealed class StatsScreen
             var errors = new List<string>();
             _runs = RunLoader.Load(dirs, playerId, errors);
             foreach (var e in errors)
-                Log.Warn($"[{ModEntry.Id}] fichier ignoré : {e}");
+                Log.Warn($"[{ModEntry.Id}] skipped file: {e}");
             _loadError = null;
         }
         catch (Exception e)
         {
-            Log.Error($"[{ModEntry.Id}] lecture de l'historique impossible : {e}");
+            Log.Error($"[{ModEntry.Id}] cannot read run history: {e}");
             _runs = [];
-            _loadError = $"Lecture de l'historique impossible : {e.Message}";
+            _loadError = $"Cannot read run history: {e.Message}";
         }
 
         var selectedChar = _character.Selected > 0 ? _characters[_character.Selected - 1] : null;
         _characters = _runs.Select(r => r.Character).Distinct().Order(StringComparer.Ordinal).ToList();
-        Fill(_character, ["Tous", .. _characters.Select(c => _game?.CharacterName(c) ?? c)],
+        Fill(_character, ["All", .. _characters.Select(c => _game?.CharacterName(c) ?? c)],
             selectedChar == null ? 0 : _characters.IndexOf(selectedChar) + 1,
             [null, .. _characters.Select(c => _game?.CharacterIcon(c))]);
 
         var selectedMode = _gameMode.Selected > 0 ? _gameModes[_gameMode.Selected - 1] : null;
         _gameModes = _runs.Select(r => r.GameMode).Distinct().Order(StringComparer.Ordinal).ToList();
-        Fill(_gameMode, ["Tous", .. _gameModes.Select(m => char.ToUpperInvariant(m[0]) + m[1..])],
+        Fill(_gameMode, ["All", .. _gameModes.Select(m => char.ToUpperInvariant(m[0]) + m[1..])],
             selectedMode == null ? 0 : _gameModes.IndexOf(selectedMode) + 1);
 
         FillAscensions();
@@ -235,7 +235,7 @@ public sealed class StatsScreen
         var max = SelectedGameMode() == "blitz" ? AscensionManager.maxAscensionAllowedBlitz : AscensionManager.maxAscensionAllowed;
         var selected = _ascension.ItemCount == 0 ? DefaultAscension : SelectedAscension(_ascension.Selected);
         _ascensions = Enumerable.Range(0, max + 1).ToList();
-        Fill(_ascension, ["Toutes", .. _ascensions.Select(a => $"A{a}")],
+        Fill(_ascension, ["All", .. _ascensions.Select(a => $"A{a}")],
             selected is { } a ? Math.Min(a, max) + 1 : 0);
     }
 
@@ -277,11 +277,11 @@ public sealed class StatsScreen
             child.QueueFree();
         }
         _scroll.ScrollVertical = 0;
-        _status.Text = $"{_runs.Count} parties dans l'historique";
+        _status.Text = $"{_runs.Count} runs in history";
 
         if (_loadError != null || _game == null)
         {
-            _content.AddChild(MakeLabel(_loadError ?? "Données du jeu indisponibles", 22, StsColors.red));
+            _content.AddChild(MakeLabel(_loadError ?? "Game data unavailable", 22, StsColors.red));
             return;
         }
         try
@@ -299,8 +299,8 @@ public sealed class StatsScreen
         }
         catch (Exception e)
         {
-            Log.Error($"[{ModEntry.Id}] erreur pendant l'analyse : {e}");
-            _content.AddChild(MakeLabel($"Erreur pendant l'analyse : {e.Message}", 22, StsColors.red));
+            Log.Error($"[{ModEntry.Id}] analysis failed: {e}");
+            _content.AddChild(MakeLabel($"Analysis failed: {e.Message}", 22, StsColors.red));
         }
     }
 

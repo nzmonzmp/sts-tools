@@ -43,7 +43,7 @@ public sealed class GameInfo : IGameInfo
                 : acts.Where(a => a.AllAncients.Contains(ancient)).Select(a => a.Index + 1).Distinct().Order().ToList();
             var actLabel = ancientActs.Count == 1
                 ? $"{Stats.ActLabel(ancientActs)} · {ActNames(ancientActs[0] - 1)}"
-                : ancientActs.Count > 1 ? $"{Stats.ActLabel(ancientActs)} · Ancien partagé" : null;
+                : ancientActs.Count > 1 ? $"{Stats.ActLabel(ancientActs)} · Shared Ancient" : null;
 
             var options = new List<AncientOption>();
             try
@@ -61,7 +61,7 @@ public sealed class GameInfo : IGameInfo
             }
             catch (Exception e)
             {
-                Log.Warn($"[{ModEntry.Id}] options de {ancient.Id} illisibles : {e.Message}");
+                Log.Warn($"[{ModEntry.Id}] cannot read options of {ancient.Id}: {e.Message}");
             }
             ancients.Add(new AncientInfo(ancient.Id.Entry, options, ancientActs, actLabel));
         }
@@ -88,8 +88,8 @@ public sealed class GameInfo : IGameInfo
     private static string PlainText(string bbcode)
     {
         var s = System.Text.RegularExpressions.Regex.Replace(bbcode, @"\[img[^\]]*\](.*?)\[/img\]", m =>
-            m.Groups[1].Value.Contains("energy", StringComparison.OrdinalIgnoreCase) ? "énergie"
-            : m.Groups[1].Value.Contains("star", StringComparison.OrdinalIgnoreCase) ? "étoile"
+            m.Groups[1].Value.Contains("energy", StringComparison.OrdinalIgnoreCase) ? "energy"
+            : m.Groups[1].Value.Contains("star", StringComparison.OrdinalIgnoreCase) ? "star"
             : "");
         s = System.Text.RegularExpressions.Regex.Replace(s, @"\[/?[a-zA-Z_]+[^\]]*\]", "");
         return System.Text.RegularExpressions.Regex.Replace(s, @"[ \t]+", " ").Trim();
@@ -108,7 +108,7 @@ public sealed class GameInfo : IGameInfo
         }
         catch (Exception e)
         {
-            Log.Warn($"[{ModEntry.Id}] icône introuvable pour {id}: {e.Message}");
+            Log.Warn($"[{ModEntry.Id}] icon not found for {id}: {e.Message}");
             icon = null;
         }
         return _icons["ANCIENT." + id] = icon;
@@ -133,7 +133,7 @@ public sealed class GameInfo : IGameInfo
             }
             catch (Exception e)
             {
-                Log.Warn($"[{ModEntry.Id}] pool inconnu pour {card.Id}: {e.Message}");
+                Log.Warn($"[{ModEntry.Id}] unknown pool for {card.Id}: {e.Message}");
             }
         }
     }
@@ -149,7 +149,7 @@ public sealed class GameInfo : IGameInfo
     public string CardName(string id) => Name<CardModel>("CARD", id, m => m.TitleLocString.GetFormattedText());
     public string RelicName(string id) => Name<RelicModel>("RELIC", id, m => m.Title.GetFormattedText());
     public string EncounterName(string id) => Name<EncounterModel>("ENCOUNTER", id, m => m.Title.GetFormattedText());
-    public string EventName(string id) => "Événement : " + Name<EventModel>("EVENT", id, m => m.Title.GetFormattedText());
+    public string EventName(string id) => "Event: " + Name<EventModel>("EVENT", id, m => m.Title.GetFormattedText());
 
     /// <summary>Tête du personnage, telle qu'affichée en haut à gauche pendant une partie ; null si introuvable.</summary>
     public Texture2D? CharacterIcon(string id)
@@ -162,7 +162,7 @@ public sealed class GameInfo : IGameInfo
         }
         catch (Exception e)
         {
-            Log.Warn($"[{ModEntry.Id}] icône introuvable pour {id}: {e.Message}");
+            Log.Warn($"[{ModEntry.Id}] icon not found for {id}: {e.Message}");
             icon = null;
         }
         return _icons[id] = icon;
@@ -180,7 +180,7 @@ public sealed class GameInfo : IGameInfo
         }
         catch (Exception e)
         {
-            Log.Warn($"[{ModEntry.Id}] icône introuvable pour {id}: {e.Message}");
+            Log.Warn($"[{ModEntry.Id}] icon not found for {id}: {e.Message}");
             icon = null;
         }
         return _icons["RELIC." + id] = icon;
