@@ -1,4 +1,9 @@
 using Godot;
+using MegaCrit.Sts2.Core.Random;
+using HarmonyLib;
+using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Rooms;
+using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Logging;
@@ -214,6 +219,83 @@ public sealed class GameInfo : IGameInfo
     }
 
     /// <summary>Couleur du nom du personnage, celle de l'écran Statistiques du jeu ; null si introuvable.</summary>
+    /// <summary>
+    /// Icône d'une rencontre, celle de l'écran Historique du jeu : la tête du boss pour un boss,
+    /// l'icône générique d'élite ou de monstre sinon.
+    /// </summary>
+    public Texture2D? EncounterIcon(string id)
+    {
+        if (_icons.TryGetValue("ENCOUNTER." + id, out var icon))
+            return icon;
+        var encounter = SafeModel<EncounterModel>("ENCOUNTER", id);
+        string? path = null;
+        try
+        {
+            path = encounter?.RoomType switch
+            {
+                RoomType.Boss => ImageHelper.GetRoomIconPath(MapPointType.Boss, RoomType.Boss, encounter.Id),
+                RoomType.Elite => ImageHelper.GetRoomIconPath(MapPointType.Elite, RoomType.Elite, null),
+                RoomType.Monster => ImageHelper.GetRoomIconPath(MapPointType.Monster, RoomType.Monster, null),
+                _ => null,
+            };
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] icon not found for {id}: {e.Message}");
+        }
+        return _icons["ENCOUNTER." + id] = LoadTexture(path);
+    }
+
+    /// <summary>Icône générique d'événement de l'écran Historique.</summary>
+    public Texture2D? EventIcon() =>
+        _icons.TryGetValue("EVENT", out var icon) ? icon
+            : _icons["EVENT"] = LoadTexture(ImageHelper.GetRoomIconPath(MapPointType.Unknown, RoomType.Event, null));
+
+    private static Texture2D? LoadTexture(string? path)
+    {
+        try
+        {
+            return path != null && ResourceLoader.Exists(path) ? ResourceLoader.Load<Texture2D>(path) : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Composition d'une rencontre comme en combat : une copie de la rencontre (pour sa scène d'emplacements,
+    /// si elle en a une) et ses monstres avec leur emplacement. GenerateMonsters est protégée et tire ses
+    /// variantes au hasard : on lui donne un générateur aléatoire et on l'appelle par réflexion.
+    /// En cas d'échec, tous les monstres possibles, sans emplacement. null si la rencontre n'existe plus.
+    /// </summary>
+    public (EncounterModel Encounter, List<(MonsterModel Monster, string? Slot)> Monsters)? EncounterPreview(string id)
+    {
+        var canonical = SafeModel<EncounterModel>("ENCOUNTER", id);
+        if (canonical == null)
+            return null;
+        try
+        {
+            var encounter = canonical.ToMutable();
+            AccessTools.Field(typeof(EncounterModel), "_rng").SetValue(encounter, new Rng((ulong)System.Random.Shared.NextInt64()));
+            var generated = (IReadOnlyList<(MonsterModel, string?)>)AccessTools.Method(typeof(EncounterModel), "GenerateMonsters")
+                .Invoke(encounter, null)!;
+            return (encounter, generated.Select(m => (m.Item1, m.Item2)).ToList());
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot generate {id}, showing all possible monsters: {e.Message}");
+            try
+            {
+                return (canonical, canonical.AllPossibleMonsters.Distinct().Select(m => (m, (string?)null)).ToList());
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+    }
+
     /// <summary>Couleur d'une carte de personnage : celle du nom du personnage ; null pour les autres pools.</summary>
     public Color? CardColor(string id) =>
         CardPool(id) is { } pool && Characters.Contains(pool) ? CharacterColor(pool) : null;
@@ -259,6 +341,9 @@ public sealed class GameInfo : IGameInfo
     /// Dossiers d'historique du profil courant. Le jeu moddé écrit ses parties dans un dossier séparé :
     /// on lit les deux pour avoir tout l'historique.
     /// </summary>
+    /// <summary>Dossier de parties de test, lu par le mod en plus de l'historique du jeu s'il existe.</summary>
+    public const string TestHistoryPath = "user://StsTools/test_history";
+
     public static (List<string> Dirs, ulong LocalPlayerId) HistorySource()
     {
         var profile = SaveManager.Instance.CurrentProfileId;
@@ -266,6 +351,8 @@ public sealed class GameInfo : IGameInfo
         var dirs = new[] { false, true }
             .Select(modded => ProjectSettings.GlobalizePath(account.PathJoin(RunHistorySaveManager.GetHistoryPath(profile, modded))))
             .ToList();
+        // Parties de test propres au mod (jamais lues par le jeu) : supprimer ce dossier pour les retirer
+        dirs.Add(ProjectSettings.GlobalizePath(TestHistoryPath));
         return (dirs, PlatformUtil.GetLocalPlayerId(PlatformUtil.PrimaryPlatform));
     }
 }

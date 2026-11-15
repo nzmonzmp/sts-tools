@@ -342,6 +342,14 @@ public static class Stats
         null => "(abandoned outside combat)",
     };
 
+    /// <summary>Rencontre ou événement qui a tué le joueur, pour son image ; null pour un abandon hors combat.</summary>
+    public static ItemRef? KillerItem(Run run) => run.Killer switch
+    {
+        ("ENCOUNTER", var id) => new ItemRef(ItemKind.Encounter, id),
+        (_, var id) => new ItemRef(ItemKind.Event, id),
+        null => null,
+    };
+
     public static Report Deaths(IReadOnlyList<Run> all, Filters f, IGameInfo game)
     {
         var (runs, label) = Select(all, f, game);
@@ -362,9 +370,14 @@ public static class Stats
                         .Select(s => new[] { s.Key.ToString()!, s.N.ToString(), Pct(s.N, losses.Count), s.Ab.ToString() }).ToList();
                 }
                 var abandons = actLosses.Count(r => r.Abandoned);
+                var killerRows = Rows(r => KillerName(r, game), true);
+                var killerItems = new Dictionary<string, ItemRef?>();
+                foreach (var run in actLosses)
+                    killerItems[KillerName(run, game)] = KillerItem(run);
                 tables.Add(new Table(
                     $"Act {act.Key} - {Losses(actLosses.Count)} ({Pct(actLosses.Count, losses.Count)}), {abandons} abandoned",
-                    ["Killed by", .. tail], Rows(r => KillerName(r, game), true), Subtitle: "Killed by"));
+                    ["Killed by", .. tail], killerRows, killerRows.Select(row => killerItems.GetValueOrDefault(row[0])).ToList(),
+                    Subtitle: "Killed by"));
                 tables.Add(new Table("Floor", ["Floor", .. tail], Rows(r => r.Floor, false)));
             }
             sections.Add(new Section(

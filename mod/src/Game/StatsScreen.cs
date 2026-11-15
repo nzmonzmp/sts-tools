@@ -1,4 +1,5 @@
 using Godot;
+using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Entities.Cards;
@@ -32,6 +33,10 @@ public sealed class StatsScreen
     /// <summary>Carte affichée au survol de son nom, créée à la première utilisation.</summary>
     private readonly Control _cardHover;
     private NCard? _cardNode;
+
+    /// <summary>Monstres d'une rencontre affichés au survol de son nom (onglet Losses).</summary>
+    private readonly Panel _monsterHover;
+    private const float MonsterHoverHeight = 260, MonsterHoverMaxWidth = 900, MonsterHoverPadding = 16;
     private const float CardHoverScale = 0.8f;
     private readonly Label _hoverText;
     private readonly OptionButton _mode = new(), _ascension = new(), _character = new(), _gameMode = new(), _sort = new();
@@ -233,6 +238,17 @@ public sealed class StatsScreen
             Size = NCard.defaultSize * CardHoverScale,
         };
         _root.AddChild(_cardHover);
+
+        // ClipContents : les particules de certains monstres (Soul Nexus) ne débordent pas du panneau
+        _monsterHover = new Panel { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, TopLevel = true, ClipContents = true };
+        _monsterHover.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.08f, 0.09f, 0.13f, 0.98f),
+            BorderColor = StsColors.gold,
+            BorderWidthLeft = 2, BorderWidthRight = 2, BorderWidthTop = 2, BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+        });
+        _root.AddChild(_monsterHover);
 
         parent.AddChild(_layer);
         // Loupe centrée sur le pointeur tant que l'écran est ouvert ; curseur du jeu rétabli à la fermeture
@@ -641,6 +657,18 @@ public sealed class StatsScreen
                             PlaceCard();
                     };
                 }
+                if (item is { Kind: ItemKind.Encounter } encounter)
+                {
+                    control.MouseFilter = Control.MouseFilterEnum.Pass;
+                    control.MouseDefaultCursorShape = Control.CursorShape.Help;
+                    control.MouseEntered += () => ShowMonsters(encounter.Id);
+                    control.MouseExited += HideHover;
+                    control.GuiInput += ev =>
+                    {
+                        if (ev is InputEventMouseMotion && _monsterHover.Visible)
+                            PlaceCard(_monsterHover);
+                    };
+                }
                 if (i == 0 && table.RowTooltips?.ElementAtOrDefault(r) is { } tooltip)
                 {
                     // Pass : le survol est détecté, et la molette fait toujours défiler la page.
@@ -732,6 +760,8 @@ public sealed class StatsScreen
         {
             ItemKind.Character => _game.CharacterIcon(item.Id),
             ItemKind.Ancient => _game.AncientIcon(item.Id),
+            ItemKind.Encounter => _game.EncounterIcon(item.Id),
+            ItemKind.Event => _game.EventIcon(),
             _ => _game.RelicIcon(item.Id),
         };
         if (icon != null)
@@ -868,21 +898,295 @@ public sealed class StatsScreen
     /// Place la carte en haut à droite de la souris. Près du bord droit elle passe à gauche de la souris,
     /// près du bord haut elle descend juste assez pour rester dans l'écran.
     /// </summary>
-    private void PlaceCard()
+    private void PlaceCard() => PlaceCard(_cardHover);
+
+    private void PlaceCard(Control panel)
     {
         const float gap = 12;
-        var size = _cardHover.Size;
+        var size = panel.Size;
         var screen = _root.GetViewportRect().Size;
         var mouse = _root.GetGlobalMousePosition();
         var x = mouse.X + gap;
         if (x + size.X > screen.X)
             x = Math.Max(0, mouse.X - size.X - gap);
         var y = Math.Clamp(mouse.Y - size.Y - gap, 0, Math.Max(0, screen.Y - size.Y));
-        _cardHover.GlobalPosition = new Vector2(x, y);
+        panel.GlobalPosition = new Vector2(x, y);
+    }
+
+    /// <summary>Numéro du survol en cours, pour ignorer une mise en page arrivée après la fin du survol.</summary>
+    private int _monsterHoverId;
+
+    /// <summary>
+    /// Affiche la rencontre au-dessus à droite de la souris, avec les visuels de combat de ses monstres.
+    /// Rencontre avec une scène d'emplacements (Decimillipede, Kaiser Crab...) : la scène est rendue en entier,
+    /// chaque monstre posé sur son emplacement comme en combat. Sinon, chaque monstre est rendu à part puis
+    /// placé côte à côte. Le rendu se fait dans des scènes à fond transparent (SubViewport) : on mesure ensuite
+    /// les pixels réellement dessinés et on n'affiche que cette zone, toujours animée.
+    /// </summary>
+    private void ShowMonsters(string encounterId)
+    {
+        ClearMonsters();
+        if (_game?.EncounterPreview(encounterId) is not { } preview)
+            return;
+        var hoverId = ++_monsterHoverId;
+        var viewports = new List<SubViewport>();
+        try
+        {
+            if (WholeCreatureScenes.TryGetValue(encounterId, out var scenePath))
+                viewports.Add(RenderScene(scenePath));
+            else if (preview.Encounter.HasScene && preview.Monsters.All(m => m.Slot != null))
+                viewports.Add(RenderEncounterScene(preview.Encounter, preview.Monsters));
+            else
+                foreach (var (monster, _) in preview.Monsters.Take(5))
+                    if (RenderMonster(monster) is { } viewport)
+                        viewports.Add(viewport);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot show encounter {encounterId}: {e.Message}");
+        }
+        if (viewports.Count == 0)
+            return;
+        // Quelques images pour que Spine pose les monstres et que les scènes soient rendues
+        _monsterHover.GetTree().CreateTimer(0.15).Timeout += () =>
+        {
+            if (hoverId == _monsterHoverId && GodotObject.IsInstanceValid(_monsterHover))
+                LayoutMonsters(viewports);
+        };
+    }
+
+    private SubViewport NewMonsterViewport(Vector2I size)
+    {
+        var viewport = new SubViewport
+        {
+            TransparentBg = true,
+            Disable3D = true,
+            RenderTargetUpdateMode = SubViewport.UpdateMode.Always,
+            Size = size,
+        };
+        _monsterHover.AddChild(viewport);
+        return viewport;
+    }
+
+    /// <summary>
+    /// Rencontres dont les monstres n'ont pas de dessin propre : la créature entière est une scène à part,
+    /// placée par le jeu dans le décor du combat (et dans le Bestiaire). Kaiser Crab : Crusher et Rocket ne sont
+    /// que les zones de ses pinces.
+    /// </summary>
+    private static readonly Dictionary<string, string> WholeCreatureScenes = new()
+    {
+        ["KAISER_CRAB_BOSS"] = "res://scenes/creature_visuals/kaiser_crab_boss_setup.tscn",
+    };
+
+    /// <summary>Visuels de combat d'un monstre, avec son apparence et son animation d'attente.</summary>
+    private static NCreatureVisuals AddVisuals(Node parent, MonsterModel monster)
+    {
+        var visuals = monster.CreateVisuals();
+        parent.AddChild(visuals);
+        try
+        {
+            // Apparence choisie à la création en combat (Scroll of Biting...) : sans elle, rien n'est dessiné.
+            // Certains monstres la calculent d'après leur créature de combat, absente ici (Phantasmal Gardeners).
+            visuals.SetUpSkin(monster);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] default skin for {monster.Id}: {e.Message}");
+        }
+        if (visuals.SpineBody?.GetSkeleton()?.GetData().HasAnimation("idle_loop") == true)
+            visuals.SpineBody.GetAnimationState().SetAnimation("idle_loop");
+        StopDeathParticles(visuals);
+        return visuals;
+    }
+
+    /// <summary>
+    /// Coupe les particules de mort (Infested Prism...) : Godot les émet dès la création, et leur nuage
+    /// agrandissait la zone dessinée.
+    /// </summary>
+    private static void StopDeathParticles(Node node)
+    {
+        foreach (var child in node.GetChildren())
+        {
+            if (child.Name.ToString().Contains("death", StringComparison.OrdinalIgnoreCase))
+            {
+                if (child is GpuParticles2D gpu)
+                {
+                    gpu.Emitting = false;
+                    gpu.Visible = false;
+                }
+                else if (child is CpuParticles2D cpu)
+                {
+                    cpu.Emitting = false;
+                    cpu.Visible = false;
+                }
+            }
+            StopDeathParticles(child);
+        }
+    }
+
+    /// <summary>Une scène de créature entière (voir WholeCreatureScenes), avec une marge autour.</summary>
+    private SubViewport RenderScene(string path)
+    {
+        // Grandes marges : la carapace et les pinces de Kaiser Crab dépassent largement le cadre de sa scène
+        var viewport = NewMonsterViewport(new Vector2I(1920 + 2400, 1080 + 1640));
+        var scene = ResourceLoader.Load<PackedScene>(path).Instantiate();
+        viewport.AddChild(scene);
+        // Le décor de Kaiser Crab se masque lui-même au démarrage ; le Bestiaire le réaffiche
+        if (scene is CanvasItem item)
+            item.Visible = true;
+        if (scene is Node2D node2D)
+            node2D.Position = new Vector2(1200, 1280);
+        else if (scene is Control control)
+            control.Position = new Vector2(1200, 1280);
+        StopDeathParticles(scene);
+        return viewport;
+    }
+
+    /// <summary>Un monstre seul, centré sur son cadre de combat dans une scène assez grande.</summary>
+    private SubViewport? RenderMonster(MonsterModel monster)
+    {
+        try
+        {
+            var viewport = NewMonsterViewport(new Vector2I(2048, 2048));
+            var visuals = AddVisuals(viewport, monster);
+            var bounds = visuals.Bounds.GetRect();
+            var size = new Vector2I(
+                (int)Math.Clamp(bounds.Size.X * 3, 512, 2048), (int)Math.Clamp(bounds.Size.Y * 3, 512, 2048));
+            viewport.Size = size;
+            visuals.Position = (Vector2)size / 2 - (bounds.Position + bounds.Size / 2);
+            return viewport;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot show monster {monster.Id}: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// La scène d'emplacements de la rencontre (taille d'écran de combat, 1920 × 1080), avec une marge autour,
+    /// et chaque monstre posé sur son emplacement comme dans NCombatRoom.
+    /// </summary>
+    private SubViewport RenderEncounterScene(EncounterModel encounter, List<(MonsterModel Monster, string? Slot)> monsters)
+    {
+        var margin = new Vector2(640, 360);
+        var viewport = NewMonsterViewport(new Vector2I(1920 + 1280, 1080 + 720));
+        var scene = encounter.CreateScene();
+        viewport.AddChild(scene);
+        scene.Position = margin;
+        foreach (var (monster, slot) in monsters)
+        {
+            var marker = scene.GetNodeOrNull<Marker2D>(slot!);
+            if (marker == null)
+                continue;
+            try
+            {
+                var visuals = AddVisuals(viewport, monster);
+                visuals.Position = marker.GlobalPosition;
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot show monster {monster.Id}: {e.Message}");
+            }
+        }
+        return viewport;
+    }
+
+    /// <summary>
+    /// Découpe chaque scène sur ses pixels dessinés, met chaque monstre à l'échelle (réduit s'il dépasse la
+    /// hauteur maximale, jamais agrandi), les aligne par les pieds et ajuste le panneau à son contenu.
+    /// </summary>
+    private void LayoutMonsters(List<SubViewport> viewports)
+    {
+        var shown = new List<(Texture2D Texture, Vector2 Size, float Scale)>();
+        foreach (var viewport in viewports)
+        {
+            if (!GodotObject.IsInstanceValid(viewport))
+                continue;
+            try
+            {
+                var used = OpaqueRect(viewport.GetTexture().GetImage());
+                if (used.Size.X <= 0 || used.Size.Y <= 0)
+                    continue;
+                // Petite marge pour ne pas rogner le contour
+                var region = new Rect2(used.Position - new Vector2I(4, 4), used.Size + new Vector2I(8, 8))
+                    .Intersection(new Rect2(Vector2.Zero, viewport.Size));
+                var texture = new AtlasTexture { Atlas = viewport.GetTexture(), Region = region };
+                shown.Add((texture, region.Size, Math.Min(1f, MonsterHoverHeight / region.Size.Y)));
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot measure monster: {e.Message}");
+            }
+        }
+        if (shown.Count == 0)
+            return;
+
+        var width = shown.Sum(m => m.Size.X * m.Scale) + MonsterHoverPadding * (shown.Count - 1);
+        var fit = Math.Min(1f, MonsterHoverMaxWidth / width);
+        var height = shown.Max(m => m.Size.Y * m.Scale) * fit;
+        var x = MonsterHoverPadding;
+        foreach (var (texture, size, scale) in shown)
+        {
+            var drawn = size * scale * fit;
+            _monsterHover.AddChild(new TextureRect
+            {
+                Texture = texture,
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.Scale,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+                // Bas du dessin posé sur le bas du panneau
+                Position = new Vector2(x, MonsterHoverPadding + height - drawn.Y),
+                Size = drawn,
+            });
+            x += drawn.X + MonsterHoverPadding;
+        }
+        _monsterHover.Size = new Vector2(x, height + 2 * MonsterHoverPadding);
+        PlaceCard(_monsterHover);
+        _monsterHover.Visible = true;
+    }
+
+    /// <summary>
+    /// Rectangle des pixels assez opaques de l'image. Image.GetUsedRect compte aussi les halos presque
+    /// transparents (Infested Prism), qui agrandissaient le panneau pour rien.
+    /// </summary>
+    private static Rect2I OpaqueRect(Image image, byte minAlpha = 40)
+    {
+        if (image.GetFormat() != Image.Format.Rgba8)
+            image.Convert(Image.Format.Rgba8);
+        int width = image.GetWidth(), height = image.GetHeight();
+        var data = image.GetData();
+        int minX = width, minY = height, maxX = -1, maxY = -1;
+        for (int y = 0; y < height; y++)
+        {
+            var row = y * width * 4;
+            for (int x = 0; x < width; x++)
+            {
+                if (data[row + x * 4 + 3] < minAlpha)
+                    continue;
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                maxY = y;
+            }
+        }
+        return maxX < 0 ? new Rect2I() : new Rect2I(minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    private void ClearMonsters()
+    {
+        foreach (var child in _monsterHover.GetChildren())
+        {
+            _monsterHover.RemoveChild(child);
+            child.QueueFree();
+        }
     }
 
     private void HideHover()
     {
+        _monsterHoverId++;
+        ClearMonsters();
+        _monsterHover.Visible = false;
         _hover.Visible = false;
         _cardHover.Visible = false;
     }
