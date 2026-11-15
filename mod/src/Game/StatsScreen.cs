@@ -44,6 +44,7 @@ public sealed class StatsScreen
     private readonly SpinBox _min = new() { MinValue = 1, MaxValue = 999, Value = 1 };
     private readonly Dictionary<Control, Tab[]> _filterTabs = new();
     private Tab _tab = Tab.Winrate;
+    private readonly List<(Tab Tab, TabButton Button)> _tabButtons = new();
 
     /// <summary>En-tête épinglé en haut de la zone de défilement quand l'en-tête d'origine en est sorti.</summary>
     private readonly PanelContainer _sticky;
@@ -146,14 +147,22 @@ public sealed class StatsScreen
         page.AddChild(header);
         header.AddChild(MakeLabel("STS Tools", 34, StsColors.gold));
         header.AddChild(new Control { CustomMinimumSize = new Vector2(32, 0) });
-        var group = new ButtonGroup();
         for (int i = 0; i < TabNames.Length; i++)
         {
             var tab = (Tab)i;
-            var b = new Button { Text = TabNames[i], ToggleMode = true, ButtonGroup = group, ButtonPressed = tab == _tab };
-            b.Pressed += () => { _tab = tab; Refresh(); };
-            header.AddChild(b);
+            var tabButton = new TabButton(TabNames[i]);
+            tabButton.Button.Pressed += () =>
+            {
+                _tab = tab;
+                foreach (var (t, other) in _tabButtons)
+                    other.SetSelected(t == _tab);
+                Refresh();
+            };
+            _tabButtons.Add((tab, tabButton));
+            header.AddChild(tabButton.Button);
         }
+        foreach (var (t, tabButton) in _tabButtons)
+            tabButton.SetSelected(t == _tab);
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         // Les pointes de sa bannière (à mi-hauteur) au milieu de la bannière rouge de Close. Celle-ci est dessinée
         // dans le bas de son bouton : mesuré sur une capture, son milieu est 8 px sous celui du bouton.
@@ -1340,5 +1349,88 @@ public sealed class StatsScreen
         label.AddThemeFontSizeOverride("font_size", size);
         label.AddThemeColorOverride("font_color", color);
         return label;
+    }
+
+    /// <summary>
+    /// Onglet dans le style des onglets des paramètres du jeu (NSettingsTab, scenes/screens/settings_tab.tscn) :
+    /// plaque sombre, contour cyan lumineux quand il est sélectionné, texte Kreon Bold crème (à moitié transparent
+    /// s'il n'est pas sélectionné, doré au survol). Bouton transparent qui contient les images et le texte.
+    /// </summary>
+    private sealed class TabButton
+    {
+        private const string PlatePath = "res://images/packed/common_ui/settings_tab_selected.png";
+        private const string StrokePath = "res://images/packed/common_ui/settings_tab_stroke.png";
+        private const string FontPath = "res://themes/kreon_bold_glyph_space_two.tres";
+        private static readonly Color StrokeColor = new(0.3648f, 0.9104f, 0.96f, 0.752941f);
+        private static readonly Color DimPlate = new(0.9f, 0.9f, 0.9f), BrightPlate = new(1.2f, 1.2f, 1.2f);
+
+        public Button Button { get; }
+        private readonly TextureRect _stroke, _plate;
+        private readonly Label _label;
+        private bool _selected, _hovered;
+
+        public TabButton(string text)
+        {
+            Button = new Button
+            {
+                CustomMinimumSize = new Vector2(176, 62),
+                FocusMode = Control.FocusModeEnum.None,
+                PivotOffset = new Vector2(88, 31),
+            };
+            foreach (var state in new[] { "normal", "hover", "pressed", "focus", "disabled" })
+                Button.AddThemeStyleboxOverride(state, new StyleBoxEmpty());
+            _stroke = Layer(StrokePath);
+            _stroke.Modulate = StrokeColor;
+            _stroke.Material = new CanvasItemMaterial { BlendMode = CanvasItemMaterial.BlendModeEnum.Add };
+            _plate = Layer(PlatePath);
+            _label = new Label
+            {
+                Text = text,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+            };
+            _label.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+            if (ResourceLoader.Exists(FontPath) && ResourceLoader.Load<Font>(FontPath) is { } font)
+                _label.AddThemeFontOverride("font", font);
+            _label.AddThemeFontSizeOverride("font_size", 26);
+            _label.AddThemeColorOverride("font_color", StsColors.cream);
+            _label.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.25098f));
+            _label.AddThemeConstantOverride("outline_size", 12);
+            Button.AddChild(_stroke);
+            Button.AddChild(_plate);
+            Button.AddChild(_label);
+            Button.MouseEntered += () => { _hovered = true; Update(); };
+            Button.MouseExited += () => { _hovered = false; Update(); };
+            Update();
+        }
+
+        private static TextureRect Layer(string path)
+        {
+            var rect = new TextureRect
+            {
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+            };
+            if (ResourceLoader.Exists(path))
+                rect.Texture = ResourceLoader.Load<Texture2D>(path);
+            rect.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+            return rect;
+        }
+
+        public void SetSelected(bool selected)
+        {
+            _selected = selected;
+            Update();
+        }
+
+        private void Update()
+        {
+            _stroke.Visible = _selected;
+            _plate.Modulate = _hovered ? BrightPlate : DimPlate;
+            _label.Modulate = _hovered ? StsColors.gold : _selected ? StsColors.cream : StsColors.halfTransparentCream;
+            Button.Scale = _hovered ? Vector2.One * 1.05f : Vector2.One;
+        }
     }
 }
