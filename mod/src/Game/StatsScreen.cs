@@ -18,7 +18,7 @@ public sealed class StatsScreen
     private enum Tab { Winrate, Cards, Relics, Ancients, Deaths }
 
     private static readonly string[] TabNames = ["Wins", "Cards", "Relics", "Ancients", "Losses"];
-    private static readonly (string Label, SortKey Key)[] Sorts = [("Win%", SortKey.Win), ("Runs", SortKey.N), ("Pick%", SortKey.Pick)];
+    private static readonly (string Label, SortKey Key)[] Sorts = [("Winrate", SortKey.Win), ("Runs", SortKey.N), ("Pickrate", SortKey.Pick)];
     private const int DefaultAscension = 10;
 
     private static StatsScreen? _current;
@@ -39,6 +39,24 @@ public sealed class StatsScreen
     private readonly SpinBox _min = new() { MinValue = 1, MaxValue = 999, Value = 1 };
     private readonly Dictionary<Control, Tab[]> _filterTabs = new();
     private Tab _tab = Tab.Winrate;
+
+    /// <summary>En-tête épinglé en haut de la zone de défilement quand l'en-tête d'origine en est sorti.</summary>
+    private readonly PanelContainer _sticky;
+    private string? _stickyKey;
+
+    /// <summary>Tableaux affichés : grille des lignes, clé de leurs colonnes, et le tableau.</summary>
+    private readonly List<(Control Rows, string Key, Table Table)> _tables = new();
+
+    /// <summary>Par clé de colonnes, l'en-tête affiché au-dessus du premier tableau qui les utilise.</summary>
+    private readonly Dictionary<string, Control> _firstHeaders = new();
+
+    /// <summary>Largeur commune de chaque colonne dans l'onglet, pour aligner tous les tableaux sur un seul en-tête.</summary>
+    private readonly Dictionary<string, float> _columnWidths = new();
+    private float _nameColumnWidth;
+
+    private const int CellFontSize = 20;
+    private const int TableMargin = 10;
+    private const int ColumnSeparation = 28;
 
     /// <summary>Colonnes masquées, par onglet et nom de colonne (communes à tous les tableaux de l'onglet).</summary>
     private readonly HashSet<(Tab, string)> _hiddenColumns = new();
@@ -88,7 +106,8 @@ public sealed class StatsScreen
             _tab = savedTab;
         foreach (var column in _saved.HiddenColumns)
             if (column.Split('/', 2) is [var t, var h] && Enum.TryParse<Tab>(t, out var tab))
-                _hiddenColumns.Add((tab, h));
+                // Anciens noms de colonnes : « Win% picked » et « Win rate picked » sont devenus « Winrate picked »
+                _hiddenColumns.Add((tab, h is "%" or "Rate" ? "%" : h.Replace("%", "rate").Replace(" rate", "rate")));
 
         var theme = new Theme { DefaultFontSize = 22 };
         if (font != null)
@@ -172,8 +191,22 @@ public sealed class StatsScreen
         _status = MakeLabel("", 18, StsColors.cream with { A = 0.6f });
         page.AddChild(_status);
 
-        _scroll = new ScrollContainer { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
-        page.AddChild(_scroll);
+        // Zone de défilement, avec l'en-tête épinglé posé par-dessus en haut
+        var scrollArea = new Control { SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        page.AddChild(scrollArea);
+        _scroll = new ScrollContainer();
+        _scroll.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        scrollArea.AddChild(_scroll);
+        _sticky = new PanelContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
+        _sticky.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.07f, 0.10f, 1f),
+            BorderColor = StsColors.gold with { A = 0.5f },
+            BorderWidthBottom = 2,
+            ContentMarginLeft = TableMargin, ContentMarginRight = 8, ContentMarginTop = 4, ContentMarginBottom = 6,
+        });
+        scrollArea.AddChild(_sticky);
+        _scroll.GetVScrollBar().ValueChanged += _ => UpdateSticky();
         _content = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _content.AddThemeConstantOverride("separation", 6);
         _scroll.AddChild(_content);
@@ -361,9 +394,21 @@ public sealed class StatsScreen
         HideHover();
         SaveSettings();
         var scroll = _scroll.ScrollVertical;
-        if (keepScroll)
-            // Après la mise en page des nouveaux tableaux, à la frame suivante
-            _scroll.GetTree().CreateTimer(0).Timeout += () => _scroll.ScrollVertical = scroll;
+        // Après la mise en page des nouveaux tableaux, à la frame suivante
+        _scroll.GetTree().CreateTimer(0).Timeout += () =>
+        {
+            if (!GodotObject.IsInstanceValid(_scroll))
+                return;
+            if (keepScroll)
+                _scroll.ScrollVertical = scroll;
+            UpdateSticky();
+        };
+        _tables.Clear();
+        _firstHeaders.Clear();
+        _stickyKey = null;
+        _sticky.Visible = false;
+        foreach (var child in _sticky.GetChildren())
+            child.QueueFree();
         foreach (var (item, tabs) in _filterTabs)
             item.Visible = tabs.Contains(_tab);
         foreach (var child in _content.GetChildren())
@@ -401,6 +446,7 @@ public sealed class StatsScreen
 
     private void Render(Report report)
     {
+        ComputeColumnWidths(report);
         _content.AddChild(MakeLabel(report.Title, 28, StsColors.gold));
         foreach (var note in report.Notes)
             _content.AddChild(MakeLabel(note, 18, StsColors.cream with { A = 0.6f }));
@@ -423,32 +469,83 @@ public sealed class StatsScreen
         }
     }
 
-    private void RenderTable(Table table)
+    /// <summary>
+    /// Clé des colonnes d'un tableau, sans la première (les noms) : dans Losses, les tableaux « Killed by » et
+    /// « Floor » partagent ainsi un seul en-tête.
+    /// </summary>
+    private static string ColumnsKey(Table table) => string.Join("\u001f", table.Headers.Skip(1));
+
+    /// <summary>Par clé de colonnes, le titre de la colonne des noms s'il est le même dans tous les tableaux, sinon null.</summary>
+    private readonly Dictionary<string, string?> _nameHeaders = new();
+
+    /// <summary>
+    /// Largeur de chaque colonne, mesurée sur tous les tableaux de l'onglet (en-têtes et cellules), pour que
+    /// les tableaux s'alignent sur un seul en-tête. La colonne des noms a une largeur commune à tous les tableaux.
+    /// </summary>
+    private void ComputeColumnWidths(Report report)
     {
-        if (table.Title != null)
+        _columnWidths.Clear();
+        _nameHeaders.Clear();
+        foreach (var table in report.Sections.SelectMany(s => s.Tables))
         {
-            _content.AddChild(new Control { CustomMinimumSize = new Vector2(0, 8) });
-            _content.AddChild(MakeLabel(table.Title, 21, StsColors.blue));
+            var key = ColumnsKey(table);
+            _nameHeaders[key] = !_nameHeaders.TryGetValue(key, out var name) || name == table.Headers[0] ? table.Headers[0] : null;
         }
-        if (table.Rows.Count == 0)
+        var font = _root.GetThemeFont("font", "Label");
+        float Measure(string text) => font.GetStringSize(text, HorizontalAlignment.Left, -1, CellFontSize).X + 12;
+        _nameColumnWidth = 200;
+        foreach (var table in report.Sections.SelectMany(s => s.Tables))
         {
-            _content.AddChild(MakeLabel(Stats.NoRows, 18, StsColors.cream with { A = 0.6f }));
-            return;
+            _nameColumnWidth = Math.Max(_nameColumnWidth, Measure(table.Headers[0]));
+            for (int r = 0; r < table.Rows.Count; r++)
+            {
+                // Image devant le nom (personnage, relique, Ancien) : 32 px plus l'espacement
+                var icon = table.RowItems?.ElementAtOrDefault(r) is { Kind: not ItemKind.Card } ? 40 : 0;
+                _nameColumnWidth = Math.Max(_nameColumnWidth, Measure(table.Rows[r][0]) + icon);
+            }
+            for (int i = 1; i < table.Headers.Length; i++)
+            {
+                var width = Math.Max(Measure(table.Headers[i]), CheckBoxSize);
+                foreach (var row in table.Rows)
+                    width = Math.Max(width, Measure(row[i]));
+                _columnWidths[table.Headers[i]] = Math.Max(_columnWidths.GetValueOrDefault(table.Headers[i]), width);
+            }
         }
-        // Ordre d'affichage : la colonne des noms, les colonnes affichées, puis les colonnes masquées à droite
+    }
+
+    private float ColumnWidth(Table table, int column) =>
+        column == 0 ? _nameColumnWidth : _columnWidths.GetValueOrDefault(table.Headers[column], 90);
+
+    /// <summary>Ordre d'affichage : la colonne des noms, les colonnes affichées, puis les colonnes masquées à droite.</summary>
+    private (bool[] Hidden, List<int> Order) ColumnOrder(Table table)
+    {
         var hidden = table.Headers.Select(h => _hiddenColumns.Contains((_tab, h))).ToArray();
         hidden[0] = false;
         var order = Enumerable.Range(0, table.Headers.Length).OrderBy(i => i == 0 ? 0 : hidden[i] ? 2 : 1).ToList();
+        return (hidden, order);
+    }
 
-        var grid = new GridContainer { Columns = table.Headers.Length };
-        grid.AddThemeConstantOverride("h_separation", 28);
+    private static GridContainer NewGrid(int columns)
+    {
+        var grid = new GridContainer { Columns = columns };
+        grid.AddThemeConstantOverride("h_separation", ColumnSeparation);
         grid.AddThemeConstantOverride("v_separation", 2);
-        // Ligne de cases à cocher, sans texte, centrées au-dessus de chaque colonne (sauf celle des noms)
+        return grid;
+    }
+
+    /// <summary>
+    /// En-tête d'un tableau : une case à cocher sans texte, centrée au-dessus de chaque colonne (sauf celle des
+    /// noms), puis les noms des colonnes. Mêmes largeurs que les lignes des tableaux.
+    /// </summary>
+    private GridContainer BuildHeader(Table table)
+    {
+        var (hidden, order) = ColumnOrder(table);
+        var grid = NewGrid(table.Headers.Length);
         foreach (var i in order)
         {
             if (i == 0)
             {
-                grid.AddChild(new Control());
+                grid.AddChild(new Control { CustomMinimumSize = new Vector2(ColumnWidth(table, 0), 0) });
                 continue;
             }
             var header = table.Headers[i];
@@ -471,19 +568,67 @@ public sealed class StatsScreen
             grid.AddChild(box);
         }
         foreach (var i in order)
-            grid.AddChild(Cell(table.Headers[i], i, hidden[i] ? StsColors.gold with { A = 0.35f } : StsColors.gold));
+        {
+            // Colonne des noms : titre seulement s'il est commun à tous les tableaux qui partagent cet en-tête
+            var title = i == 0 ? _nameHeaders.GetValueOrDefault(ColumnsKey(table)) ?? "" : table.Headers[i];
+            grid.AddChild(Cell(title, i, hidden[i] ? StsColors.gold with { A = 0.35f } : StsColors.gold,
+                ColumnWidth(table, i)));
+        }
+        return grid;
+    }
+
+    private static MarginContainer WithTableMargin(Control child)
+    {
+        // Marge à gauche : le contour des cartes rares déborde du texte et serait coupé par la zone de défilement
+        var margin = new MarginContainer();
+        margin.AddThemeConstantOverride("margin_left", TableMargin);
+        margin.AddChild(child);
+        return margin;
+    }
+
+    private void RenderTable(Table table)
+    {
+        if (table.Title != null)
+        {
+            _content.AddChild(new Control { CustomMinimumSize = new Vector2(0, 8) });
+            _content.AddChild(MakeLabel(table.Title, 21, StsColors.gold));
+        }
+        if (table.Rows.Count == 0)
+        {
+            if (table.Subtitle != null)
+                _content.AddChild(MakeLabel(table.Subtitle, 21, StsColors.gold));
+            _content.AddChild(MakeLabel(Stats.NoRows, 18, StsColors.cream with { A = 0.6f }));
+            return;
+        }
+        // En-tête affiché seulement au-dessus du premier tableau qui a ces colonnes,
+        // avant le sous-titre (« Killed by ») pour que celui-ci reste collé aux lignes
+        var key = ColumnsKey(table);
+        if (!_firstHeaders.ContainsKey(key))
+        {
+            var header = WithTableMargin(BuildHeader(table));
+            _firstHeaders[key] = header;
+            _content.AddChild(header);
+        }
+        if (table.Subtitle != null)
+            _content.AddChild(MakeLabel(table.Subtitle, 21, StsColors.gold));
+
+        var (hidden, order) = ColumnOrder(table);
+        var grid = NewGrid(table.Headers.Length);
         foreach (var (row, r) in table.Rows.Select((row, r) => (row, r)))
             foreach (var i in order)
             {
+                var width = ColumnWidth(table, i);
                 if (hidden[i])
                 {
                     // Colonne masquée : cellule vide, qui garde la hauteur de la ligne
-                    grid.AddChild(Cell("", i, StsColors.cream));
+                    grid.AddChild(Cell("", i, StsColors.cream, width));
                     continue;
                 }
-                var label = Cell(row[i], i, StsColors.cream);
                 var item = i == 0 ? table.RowItems?.ElementAtOrDefault(r) : null;
+                var label = Cell(row[i], i, StsColors.cream, item == null ? width : 0);
                 var control = item == null ? label : WithIcon(item, 32, label);
+                // Largeur fixe de la colonne, image comprise
+                control.CustomMinimumSize = new Vector2(width, control.CustomMinimumSize.Y);
                 if (item is { Kind: ItemKind.Card } card && _game?.Card(card.Id) is { } cardModel)
                 {
                     control.MouseFilter = Control.MouseFilterEnum.Pass;
@@ -513,11 +658,44 @@ public sealed class StatsScreen
                 }
                 grid.AddChild(control);
             }
-        // Marge à gauche : le contour des cartes rares déborde du texte et serait coupé par la zone de défilement
-        var margin = new MarginContainer();
-        margin.AddThemeConstantOverride("margin_left", 10);
-        margin.AddChild(grid);
-        _content.AddChild(margin);
+        _content.AddChild(WithTableMargin(grid));
+        _tables.Add((grid, key, table));
+    }
+
+    /// <summary>
+    /// Épingle en haut de la zone de défilement l'en-tête du tableau en cours de lecture, dès que son en-tête
+    /// d'origine (au-dessus du premier tableau qui a ces colonnes) est sorti de l'écran par le haut.
+    /// </summary>
+    private void UpdateSticky()
+    {
+        if (!GodotObject.IsInstanceValid(_sticky))
+            return;
+        var top = _scroll.GetGlobalRect().Position.Y;
+        // Dernier tableau dont les lignes ont commencé au-dessus du bas de l'en-tête épinglé. Entre deux tableaux
+        // (titre de section, bandeau d'acte...), on garde ainsi les colonnes du tableau précédent.
+        var probe = top + (_sticky.Visible ? _sticky.Size.Y : 40);
+        (Control Rows, string Key, Table Table)? current = null;
+        foreach (var entry in _tables)
+        {
+            if (!GodotObject.IsInstanceValid(entry.Rows))
+                continue;
+            if (entry.Rows.GetGlobalRect().Position.Y <= probe)
+                current = entry;
+        }
+        if (current is not { } table || !_firstHeaders.TryGetValue(table.Key, out var header)
+            || !GodotObject.IsInstanceValid(header) || header.GetGlobalRect().Position.Y >= top)
+        {
+            _sticky.Visible = false;
+            return;
+        }
+        if (_stickyKey != table.Key)
+        {
+            foreach (var child in _sticky.GetChildren())
+                child.QueueFree();
+            _sticky.AddChild(BuildHeader(table.Table));
+            _stickyKey = table.Key;
+        }
+        _sticky.Visible = true;
     }
 
     /// <summary>
@@ -727,11 +905,12 @@ public sealed class StatsScreen
         return banner;
     }
 
-    private static Label Cell(string text, int column, Color color)
+    /// <param name="width">largeur fixe de la colonne ; 0 si elle est donnée au conteneur de la cellule</param>
+    private static Label Cell(string text, int column, Color color, float width)
     {
-        var label = MakeLabel(text, 20, color);
+        var label = MakeLabel(text, CellFontSize, color);
         label.HorizontalAlignment = column == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        label.CustomMinimumSize = new Vector2(column == 0 ? 320 : 90, 0);
+        label.CustomMinimumSize = new Vector2(width, 0);
         return label;
     }
 

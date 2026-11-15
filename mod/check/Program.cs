@@ -50,6 +50,7 @@ foreach (var s in report.Sections)
     foreach (var t in s.Tables)
     {
         if (t.Title != null) Console.WriteLine($"\n[{t.Title}]");
+        if (t.Subtitle != null) Console.WriteLine($"[{t.Subtitle}]");
         if (t.Rows.Count == 0) { Console.WriteLine(Stats.NoRows); continue; }
         var widths = t.Headers.Select((h, i) => t.Rows.Select(r => r[i].Length).Append(h.Length).Max()).ToArray();
         string Fmt(string[] r) => string.Join("  ", r.Select((x, i) => i == 0 ? x.PadRight(widths[i]) : x.PadLeft(widths[i])));

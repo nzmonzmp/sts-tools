@@ -60,7 +60,7 @@ public static class Stats
             sections.Add(new Section(
                 $"{(coop ? "Coop" : "Solo")} - {Summary(runs)}",
                 rows.Count == 0 ? ["(no runs)"] : [],
-                rows.Count == 0 ? [] : [new Table(null, ["Character", "W", "L", "Win%"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
+                rows.Count == 0 ? [] : [new Table(null, ["Character", "W", "L", "Winrate"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
         }
         var label = string.Join(", ", new[] { AscensionLabel(f.Ascension), f.GameMode }.Where(p => p != null));
         return new Report($"Wins - {label}", [], sections);
@@ -68,10 +68,10 @@ public static class Stats
 
     // ---- cartes et reliques ----
 
-    private static readonly string[] ChoiceHeaders = ["Runs", "Win%", "Offered", "Pick%", "Win% picked", "Win% skipped"];
+    private static readonly string[] ChoiceHeaders = ["Runs", "Winrate", "Offered", "Pickrate", "Winrate picked", "Winrate skipped"];
 
-    /// <summary>Colonne ajoutée après Win% pour les cartes : Win% des parties où au moins un exemplaire est amélioré.</summary>
-    private const string UpgradedHeader = "Win% upgraded";
+    /// <summary>Colonne ajoutée après Winrate pour les cartes : Winrate des parties où au moins un exemplaire est amélioré.</summary>
+    private const string UpgradedHeader = "Winrate upgraded";
 
     /// <summary>Colonne ajoutée après Pick% pour les cartes : nombre moyen d'exemplaires dans le deck final.</summary>
     private const string CopiesHeader = "Copies";
@@ -199,7 +199,7 @@ public static class Stats
     {
         var notes = new List<string>
         {
-            "Runs: in the final deck; Win% upgraded: runs with at least one upgraded copy; Offered/Pick%: card rewards; Copies: average copies in the final deck; skipped: offered but never picked",
+            "Runs: in the final deck; Winrate upgraded: runs with at least one upgraded copy; Offered/Pickrate: card rewards; Copies: average copies in the final deck; skipped: offered but never picked",
         };
         if (!game.HasCardPools)
             notes.Add("(card pools unknown: cards are not grouped)");
@@ -226,7 +226,7 @@ public static class Stats
     {
         var notes = new List<string>
         {
-            "Runs: owned at the end of the run; Offered/Pick%: Ancient choices; skipped: offered but never picked",
+            "Runs: owned at the end of the run; Offered/Pickrate: Ancient choices; skipped: offered but never picked",
         };
         // Les reliques d'Anciens restent avec les autres ; l'option permet seulement de les masquer
         Grouping group = (relic, _) =>
@@ -239,7 +239,7 @@ public static class Stats
 
     // ---- anciens ----
 
-    private static readonly string[] AncientHeaders = ["Option", "Offered", "Pick%", "Win% picked", "Win% skipped"];
+    private static readonly string[] AncientHeaders = ["Option", "Offered", "Pickrate", "Winrate picked", "Winrate skipped"];
 
     /// <summary>
     /// Une section par Ancien du jeu, avec toutes les options qu'il peut proposer, même jamais vues.
@@ -320,7 +320,7 @@ public static class Stats
         }
         var notes = new List<string>
         {
-            "Offered: runs where the option was offered; Win% picked / skipped: win rate when it was picked / offered but not picked",
+            "Offered: runs where the option was offered; Winrate picked / skipped: win rate when it was picked / offered but not picked",
         };
         return new Report($"Ancients - {label}", notes, sections);
     }
@@ -364,8 +364,8 @@ public static class Stats
                 var abandons = actLosses.Count(r => r.Abandoned);
                 tables.Add(new Table(
                     $"Act {act.Key} - {Losses(actLosses.Count)} ({Pct(actLosses.Count, losses.Count)}), {abandons} abandoned",
-                    ["Killed by", .. tail], Rows(r => KillerName(r, game), true)));
-                tables.Add(new Table(null, ["Floor", .. tail], Rows(r => r.Floor, false)));
+                    ["Killed by", .. tail], Rows(r => KillerName(r, game), true), Subtitle: "Killed by"));
+                tables.Add(new Table("Floor", ["Floor", .. tail], Rows(r => r.Floor, false)));
             }
             sections.Add(new Section(
                 $"{game.CharacterName(character)} - {Summary(charRuns)}",

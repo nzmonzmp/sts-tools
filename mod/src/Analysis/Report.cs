@@ -10,8 +10,9 @@ public sealed record Section(string Title, List<string> Lines, List<Table> Table
 /// <summary>Tableau : la première colonne est alignée à gauche, les autres à droite.</summary>
 /// <param name="RowItems">élément du jeu nommé dans la première colonne de chaque ligne (pour afficher son image)</param>
 /// <param name="RowTooltips">texte affiché au survol de la première colonne de chaque ligne</param>
+/// <param name="Subtitle">texte affiché sous le titre, avec le même style (ex. « Killed by » sous l'acte)</param>
 public sealed record Table(string? Title, string[] Headers, List<string[]> Rows, List<ItemRef?>? RowItems = null,
-    List<string?>? RowTooltips = null);
+    List<string?>? RowTooltips = null, string? Subtitle = null);
 
 public enum ItemKind { Character, Relic, Ancient, Card }
 
