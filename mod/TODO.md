@@ -2,8 +2,7 @@
 
 ## Stats du deck en temps réel, pendant une partie
 
-Afficher, pendant une partie en cours, les statistiques des cartes du deck actuel (celles de l'onglet Cards :
-Winrate, Pickrate, Winrate upgraded, Copies…), calculées sur l'historique.
+Afficher, pendant une partie en cours, les statistiques des cartes du deck actuel, calculées sur l'historique.
 
 ## Multijoueur
 
