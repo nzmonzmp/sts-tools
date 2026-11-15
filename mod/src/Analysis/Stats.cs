@@ -124,7 +124,7 @@ public static class Stats
     private static Report ByCharacterChoices(
         string title, List<string> notes, IReadOnlyList<Run> all, Filters f, IGameInfo game, string column,
         Func<Run, IEnumerable<(string, bool)>> choices, Func<Run, IEnumerable<string>> final, Grouping group,
-        ItemKind? rowKind = null)
+        ItemKind? rowKind = null, Func<string, string?>? tooltip = null)
     {
         var (runs, label) = Select(all, f, game);
         var sections = new List<Section>();
@@ -137,21 +137,23 @@ public static class Stats
                 var c = choices(run).ToList();
                 stats.AddRun(run, final(run), c.Select(x => x.Item1), c.Where(x => x.Item2).Select(x => x.Item1));
             }
-            var groups = new SortedDictionary<string, (string Title, List<string[]> Rows, List<ItemRef?> Items)>(StringComparer.Ordinal);
+            var groups = new SortedDictionary<string, (string Title, List<string[]> Rows, List<ItemRef?> Items, List<string?> Tooltips)>(StringComparer.Ordinal);
             foreach (var row in stats.Rows(f.Min, f.Sort))
             {
                 if (group(row[0], character) is not { } g)
                     continue;
                 if (!groups.TryGetValue(g.Order, out var entry))
-                    groups[g.Order] = entry = (g.Title, [], []);
+                    groups[g.Order] = entry = (g.Title, [], [], []);
                 entry.Items.Add(rowKind is { } kind ? new ItemRef(kind, row[0]) : null);
+                entry.Tooltips.Add(tooltip?.Invoke(row[0]));
                 row[0] = g.Name;
                 entry.Rows.Add(row);
             }
             sections.Add(new Section(
                 $"{game.CharacterName(character)} - {Summary(charRuns)}",
                 groups.Count == 0 ? [NoRows] : [],
-                groups.Values.Select(g => new Table(g.Title, headers, g.Rows, rowKind == null ? null : g.Items)).ToList(),
+                groups.Values.Select(g => new Table(g.Title, headers, g.Rows, rowKind == null ? null : g.Items,
+                    tooltip == null ? null : g.Tooltips)).ToList(),
                 new ItemRef(ItemKind.Character, character)));
         }
         if (sections.Count == 0)
@@ -201,8 +203,13 @@ public static class Stats
         {
             "Runs: owned at the end of the run; Offered/Pick%: Ancient choices; skipped: offered but never picked",
         };
+        // Les reliques d'Anciens restent avec les autres ; l'option permet seulement de les masquer
+        Grouping group = (relic, _) =>
+            !f.ShowAncientRelics && game.IsAncientRelic(relic)
+                ? null
+                : ("0", "Relics", game.RelicName(relic));
         return ByCharacterChoices("Relics", notes, all, f, game, "Relic",
-            r => r.AncientChoices(), r => r.Relics, (relic, _) => ("0", "Relics", game.RelicName(relic)), ItemKind.Relic);
+            r => r.AncientChoices(), r => r.Relics, group, ItemKind.Relic, game.RelicDescription);
     }
 
     // ---- anciens ----

@@ -20,6 +20,7 @@ public sealed record ItemRef(ItemKind Kind, string Id);
 
 public enum SortKey { Win, N, Pick }
 
+
 public sealed record Filters
 {
     public bool Coop { get; init; }
@@ -37,6 +38,9 @@ public sealed record Filters
     public int Min { get; init; } = 1;
 
     public SortKey Sort { get; init; } = SortKey.Win;
+
+    /// <summary>afficher les reliques d'Anciens dans l'onglet Reliques</summary>
+    public bool ShowAncientRelics { get; init; } = true;
 }
 
 /// <summary>Informations venant du jeu : noms affichés et pools de cartes.</summary>
@@ -45,6 +49,12 @@ public interface IGameInfo
     string CharacterName(string id);
     string CardName(string id);
     string RelicName(string id);
+
+    /// <summary>Effet de la relique en texte brut, ou null si inconnu.</summary>
+    string? RelicDescription(string id);
+
+    /// <summary>Vrai pour une relique proposée par les Anciens (rareté Ancient).</summary>
+    bool IsAncientRelic(string id);
     string EncounterName(string id);
     string EventName(string id);
 
@@ -85,6 +95,8 @@ public class RawGameInfo : IGameInfo
     public virtual string CharacterName(string id) => id;
     public virtual string CardName(string id) => id;
     public virtual string RelicName(string id) => id;
+    public virtual string? RelicDescription(string id) => null;
+    public virtual bool IsAncientRelic(string id) => false;
     public virtual string EncounterName(string id) => id;
     public virtual string EventName(string id) => "EVENT " + id;
     public bool HasCardPools => _pools is { Count: > 0 };

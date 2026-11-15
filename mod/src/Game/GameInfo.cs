@@ -1,4 +1,5 @@
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Models;
 using MegaCrit.Sts2.Core.Platform;
@@ -148,6 +149,31 @@ public sealed class GameInfo : IGameInfo
     public string CharacterName(string id) => Name<CharacterModel>("CHARACTER", id, m => m.Title.GetFormattedText());
     public string CardName(string id) => Name<CardModel>("CARD", id, m => m.TitleLocString.GetFormattedText());
     public string RelicName(string id) => Name<RelicModel>("RELIC", id, m => m.Title.GetFormattedText());
+
+    private readonly Dictionary<string, string?> _relicDescriptions = new();
+
+    /// <summary>Effet de la relique, le texte affiché au survol en partie, en texte brut.</summary>
+    public string? RelicDescription(string id)
+    {
+        if (_relicDescriptions.TryGetValue(id, out var text))
+            return text;
+        var relic = SafeModel<RelicModel>("RELIC", id);
+        return _relicDescriptions[id] = relic == null ? null : SafeText(() => PlainText(relic.DynamicDescription.GetFormattedText()));
+    }
+
+    public bool IsAncientRelic(string id) => SafeModel<RelicModel>("RELIC", id)?.Rarity == RelicRarity.Ancient;
+
+    private static T? SafeModel<T>(string category, string id) where T : AbstractModel
+    {
+        try
+        {
+            return ModelDb.GetByIdOrNull<T>(new ModelId(category, id));
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
     public string EncounterName(string id) => Name<EncounterModel>("ENCOUNTER", id, m => m.Title.GetFormattedText());
     public string EventName(string id) => "Event: " + Name<EventModel>("EVENT", id, m => m.Title.GetFormattedText());
 

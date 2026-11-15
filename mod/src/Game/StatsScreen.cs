@@ -28,6 +28,7 @@ public sealed class StatsScreen
     private readonly PanelContainer _hover;
     private readonly Label _hoverText;
     private readonly OptionButton _mode = new(), _ascension = new(), _character = new(), _gameMode = new(), _sort = new();
+    private readonly CheckBox _ancientRelics = new() { Text = "Ancient relics", ButtonPressed = true };
     private readonly SpinBox _min = new() { MinValue = 1, MaxValue = 999, Value = 1 };
     private readonly Dictionary<Control, Tab[]> _filterTabs = new();
     private Tab _tab = Tab.Winrate;
@@ -124,12 +125,17 @@ public sealed class StatsScreen
         AddFilter(filters, "Mode", _gameMode, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Min. runs", _min, [Tab.Cards, Tab.Relics, Tab.Deaths]);
         AddFilter(filters, "Sort", _sort, [Tab.Cards, Tab.Relics, Tab.Ancients]);
+        AddFilter(filters, null, _ancientRelics, [Tab.Relics]);
         _character.AddThemeConstantOverride("icon_max_width", 28);
         _character.GetPopup().AddThemeConstantOverride("icon_max_width", 28);
         _mode.AddItem("Solo");
         _mode.AddItem("Coop");
         foreach (var (label, _) in Sorts)
             _sort.AddItem(label);
+        _ancientRelics.AddThemeColorOverride("font_color", StsColors.cream);
+        _ancientRelics.AddThemeFontSizeOverride("font_size", 22);
+        ScaleCheckBoxIcons(_ancientRelics, 1.2f);
+        _ancientRelics.Toggled += _ => Refresh();
         foreach (var option in new[] { _mode, _ascension, _character, _sort })
             option.ItemSelected += _ => Refresh();
         _gameMode.ItemSelected += _ => { FillAscensions(); Refresh(); };
@@ -166,11 +172,13 @@ public sealed class StatsScreen
         _root.CallDeferred(Control.MethodName.GrabFocus);
     }
 
-    private void AddFilter(HBoxContainer box, string label, Control control, Tab[] tabs)
+    /// <param name="label">libellé devant le contrôle, ou null (case à cocher, qui a son propre texte)</param>
+    private void AddFilter(HBoxContainer box, string? label, Control control, Tab[] tabs)
     {
         var item = new HBoxContainer();
         item.AddThemeConstantOverride("separation", 6);
-        item.AddChild(MakeLabel(label, 18, StsColors.cream));
+        if (label != null)
+            item.AddChild(MakeLabel(label, 18, StsColors.cream));
         item.AddChild(control);
         item.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
         box.AddChild(item);
@@ -264,6 +272,7 @@ public sealed class StatsScreen
         GameMode = SelectedGameMode(),
         Min = (int)_min.Value,
         Sort = Sorts[Math.Max(_sort.Selected, 0)].Key,
+        ShowAncientRelics = _ancientRelics.ButtonPressed,
     };
 
     private void Refresh()
@@ -416,6 +425,32 @@ public sealed class StatsScreen
         }
         box.AddChild(text);
         return box;
+    }
+
+    /// <summary>
+    /// Agrandit la case d'une CheckBox. Control.Scale ne compte pas dans la mise en page des conteneurs :
+    /// on remplace donc les icônes du thème par des copies redimensionnées.
+    /// </summary>
+    private static void ScaleCheckBoxIcons(CheckBox box, float factor)
+    {
+        foreach (var name in new[] { "checked", "unchecked", "checked_disabled", "unchecked_disabled" })
+        {
+            try
+            {
+                var image = box.GetThemeIcon(name)?.GetImage();
+                if (image == null || image.IsEmpty())
+                    continue;
+                if (image.IsCompressed())
+                    image.Decompress();
+                image.Resize((int)Math.Round(image.GetWidth() * factor), (int)Math.Round(image.GetHeight() * factor),
+                    Image.Interpolation.Lanczos);
+                box.AddThemeIconOverride(name, ImageTexture.CreateFromImage(image));
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot resize checkbox icon {name}: {e.Message}");
+            }
+        }
     }
 
     /// <summary>Affiche le panneau de description près de la souris, sans sortir de l'écran.</summary>
