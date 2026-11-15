@@ -34,14 +34,17 @@ var report = cmd switch
     "winrate" => Stats.Winrate(runs, f, game),
     "cards" => Stats.Cards(runs, f, game),
     "relics" => Stats.Relics(runs, f, game),
+    "ancients" => Stats.Ancients(runs, f, game),
     "deaths" => Stats.Deaths(runs, f, game),
     _ => throw new ArgumentException(cmd),
 };
 
 Console.WriteLine($"== {report.Title} ==");
 report.Notes.ForEach(Console.WriteLine);
+string? group = null;
 foreach (var s in report.Sections)
 {
+    if (s.Group != null && s.Group != group) Console.WriteLine($"\n######## {group = s.Group} ########");
     Console.WriteLine($"\n-- {s.Title} --");
     s.Lines.ForEach(Console.WriteLine);
     foreach (var t in s.Tables)

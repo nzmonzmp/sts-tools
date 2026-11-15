@@ -46,7 +46,8 @@ public static class Stats
         foreach (var coop in new[] { false, true })
         {
             var runs = all.Where(r => r.Coop == coop && MatchesMode(r, f)).ToList();
-            var rows = ByCharacter(runs).Select(g =>
+            var groups = ByCharacter(runs).ToList();
+            var rows = groups.Select(g =>
             {
                 int w = g.Runs.Count(r => r.Win), l = g.Runs.Count - w;
                 return new[] { game.CharacterName(g.Character), w.ToString(), l.ToString(), Pct(w, w + l) };
@@ -54,7 +55,7 @@ public static class Stats
             sections.Add(new Section(
                 $"{(coop ? "Coop" : "Solo")} - {Summary(runs)}",
                 rows.Count == 0 ? ["(aucune partie)"] : [],
-                rows.Count == 0 ? [] : [new Table(null, ["Personnage", "V", "D", "Win%"], rows)]));
+                rows.Count == 0 ? [] : [new Table(null, ["Personnage", "V", "D", "Win%"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
         }
         var label = string.Join(", ", new[] { AscensionLabel(f.Ascension), f.GameMode }.Where(p => p != null));
         return new Report($"Victoires - {label}", [], sections);
@@ -117,7 +118,8 @@ public static class Stats
 
     private static Report ByCharacterChoices(
         string title, List<string> notes, IReadOnlyList<Run> all, Filters f, IGameInfo game, string column,
-        Func<Run, IEnumerable<(string, bool)>> choices, Func<Run, IEnumerable<string>> final, Grouping group)
+        Func<Run, IEnumerable<(string, bool)>> choices, Func<Run, IEnumerable<string>> final, Grouping group,
+        ItemKind? rowKind = null)
     {
         var (runs, label) = Select(all, f, game);
         var sections = new List<Section>();
@@ -130,20 +132,22 @@ public static class Stats
                 var c = choices(run).ToList();
                 stats.AddRun(run, final(run), c.Select(x => x.Item1), c.Where(x => x.Item2).Select(x => x.Item1));
             }
-            var groups = new SortedDictionary<string, (string Title, List<string[]> Rows)>(StringComparer.Ordinal);
+            var groups = new SortedDictionary<string, (string Title, List<string[]> Rows, List<ItemRef?> Items)>(StringComparer.Ordinal);
             foreach (var row in stats.Rows(f.Min, f.Sort))
             {
                 if (group(row[0], character) is not { } g)
                     continue;
-                row[0] = g.Name;
                 if (!groups.TryGetValue(g.Order, out var entry))
-                    groups[g.Order] = entry = (g.Title, []);
+                    groups[g.Order] = entry = (g.Title, [], []);
+                entry.Items.Add(rowKind is { } kind ? new ItemRef(kind, row[0]) : null);
+                row[0] = g.Name;
                 entry.Rows.Add(row);
             }
             sections.Add(new Section(
                 $"{game.CharacterName(character)} - {Summary(charRuns)}",
                 groups.Count == 0 ? [NoRows] : [],
-                groups.Values.Select(g => new Table(g.Title, headers, g.Rows)).ToList()));
+                groups.Values.Select(g => new Table(g.Title, headers, g.Rows, rowKind == null ? null : g.Items)).ToList(),
+                new ItemRef(ItemKind.Character, character)));
         }
         if (sections.Count == 0)
             notes.Add("(aucune partie)");
@@ -193,8 +197,104 @@ public static class Stats
             "Parties : possédée en fin de partie ; Proposé/Pick% : choix des Anciens ; passé : proposée mais jamais prise",
         };
         return ByCharacterChoices("Reliques", notes, all, f, game, "Relique",
-            r => r.AncientChoices(), r => r.Relics, (relic, _) => ("0", "Reliques", game.RelicName(relic)));
+            r => r.AncientChoices(), r => r.Relics, (relic, _) => ("0", "Reliques", game.RelicName(relic)), ItemKind.Relic);
     }
+
+    // ---- anciens ----
+
+    private static readonly string[] AncientHeaders = ["Option", "Proposé", "Pick%", "Win% pris", "Win% passé"];
+
+    /// <summary>
+    /// Une section par Ancien du jeu, avec toutes les options qu'il peut proposer, même jamais vues.
+    /// Les comptes sont faits par partie : une option proposée deux fois dans la même partie compte une fois.
+    /// </summary>
+    public static Report Ancients(IReadOnlyList<Run> all, Filters f, IGameInfo game)
+    {
+        var (runs, label) = Select(all, f, game);
+        // Par Ancien : parties où il a été rencontré, et [victoires, parties] par option proposée / prise
+        var met = new Dictionary<string, List<Run>>();
+        var offered = new Dictionary<(string, string), int[]>();
+        var picked = new Dictionary<(string, string), int[]>();
+        foreach (var run in runs)
+        {
+            var encounters = run.AncientEncounters().ToList();
+            foreach (var ancient in encounters.Select(e => e.Ancient).Distinct())
+                (met.TryGetValue(ancient, out var l) ? l : met[ancient] = []).Add(run);
+            var choices = encounters.SelectMany(e => e.Choices.Select(c => (e.Ancient, c.Key, c.Picked))).ToList();
+            foreach (var (stats, items) in new[]
+                     {
+                         (offered, choices.Select(c => (c.Ancient, c.Key))),
+                         (picked, choices.Where(c => c.Picked).Select(c => (c.Ancient, c.Key))),
+                     })
+                foreach (var item in items.Distinct())
+                {
+                    var s = stats.TryGetValue(item, out var v) ? v : stats[item] = new int[2];
+                    s[0] += run.Win ? 1 : 0;
+                    s[1]++;
+                }
+        }
+
+        // Anciens triés par acte : ceux d'un seul acte dans l'ordre des actes, puis les Anciens partagés entre
+        // plusieurs actes, puis ceux qui n'existent plus mais figurent dans l'historique
+        var known = game.Ancients.Select(a => a.Id).ToHashSet();
+        var ancients = game.Ancients
+            .OrderBy(a => a.Acts.Count == 0 ? 2 : a.Acts.Count > 1 ? 1 : 0)
+            .ThenBy(a => a.Acts.Count == 0 ? 0 : a.Acts.Min())
+            .Concat(met.Keys.Where(id => !known.Contains(id)).Order(StringComparer.Ordinal)
+                .Select(id => new AncientInfo(id, [], [])))
+            .ToList();
+
+        var sections = new List<Section>();
+        foreach (var ancient in ancients)
+        {
+            var options = ancient.Options.ToList();
+            var keys = options.Select(o => o.Key).ToHashSet();
+            options.AddRange(offered.Keys.Where(k => k.Item1 == ancient.Id && !keys.Contains(k.Item2))
+                .Select(k => k.Item2).Order(StringComparer.Ordinal)
+                .Select(key => new AncientOption(key, game.RelicName(key), key)));
+
+            var rows = new List<((double, double) Key, string[] Row, ItemRef? Item, string? Tooltip)>();
+            foreach (var option in options)
+            {
+                var (ow, on) = offered.TryGetValue((ancient.Id, option.Key), out var o) ? (o[0], o[1]) : (0, 0);
+                var (pw, pn) = picked.TryGetValue((ancient.Id, option.Key), out var p) ? (p[0], p[1]) : (0, 0);
+                (double, double) key = f.Sort switch
+                {
+                    SortKey.Win => (pn > 0 ? (double)pw / pn : -1, pn),
+                    SortKey.N => (on, pn),
+                    _ => (on > 0 ? (double)pn / on : -1, on),
+                };
+                rows.Add((key,
+                    [option.Name, on.ToString(), Pct(pn, on), Pct(pw, pn), Pct(ow - pw, on - pn)],
+                    option.RelicId == null ? null : new ItemRef(ItemKind.Relic, option.RelicId),
+                    option.Description));
+            }
+            rows = rows.OrderByDescending(r => r.Key.Item1).ThenByDescending(r => r.Key.Item2)
+                .ThenBy(r => r.Row[0], StringComparer.Ordinal).ToList();
+
+            var metRuns = met.GetValueOrDefault(ancient.Id) ?? [];
+            sections.Add(new Section(
+                $"{game.AncientName(ancient.Id)} - rencontré dans {Summary(metRuns)}",
+                rows.Count == 0 ? ["(aucune option connue)"] : [],
+                rows.Count == 0 ? [] : [new Table(null, AncientHeaders, rows.Select(r => r.Row).ToList(),
+                    rows.Select(r => r.Item).ToList(), rows.Select(r => r.Tooltip).ToList())],
+                new ItemRef(ItemKind.Ancient, ancient.Id),
+                ancient.ActLabel ?? ActLabel(ancient.Acts)));
+        }
+        var notes = new List<string>
+        {
+            "Proposé : parties où l'option a été proposée ; Win% pris / passé : victoires quand elle a été prise / proposée mais pas prise",
+        };
+        return new Report($"Anciens - {label}", notes, sections);
+    }
+
+    /// <summary>[1] -> « Acte 1 », [2, 3] -> « Actes 2 et 3 », [] -> « Autres »</summary>
+    public static string ActLabel(IReadOnlyList<int> acts) => acts.Count switch
+    {
+        0 => "Autres",
+        1 => $"Acte {acts[0]}",
+        _ => $"Actes {string.Join(", ", acts.Order().SkipLast(1))} et {acts.Max()}",
+    };
 
     // ---- défaites ----
 
@@ -233,7 +333,8 @@ public static class Stats
             sections.Add(new Section(
                 $"{game.CharacterName(character)} - {Summary(charRuns)}",
                 [$"{losses.Count} défaites, dont {losses.Count(r => r.Abandoned)} abandons"],
-                tables));
+                tables,
+                new ItemRef(ItemKind.Character, character)));
         }
         return new Report($"Défaites - {label}", sections.Count == 0 ? ["(aucune partie)"] : [], sections);
     }

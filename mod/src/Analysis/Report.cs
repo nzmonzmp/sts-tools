@@ -3,10 +3,20 @@ namespace StsTools.Analysis;
 /// <summary>Résultat d'une analyse, indépendant de l'affichage (UI du jeu ou console).</summary>
 public sealed record Report(string Title, List<string> Notes, List<Section> Sections);
 
-public sealed record Section(string Title, List<string> Lines, List<Table> Tables);
+/// <param name="Item">élément du jeu dont parle la section (pour afficher son image), ou null</param>
+/// <param name="Group">groupe de la section (par exemple l'acte d'un Ancien) : un bandeau est affiché à chaque changement</param>
+public sealed record Section(string Title, List<string> Lines, List<Table> Tables, ItemRef? Item = null, string? Group = null);
 
 /// <summary>Tableau : la première colonne est alignée à gauche, les autres à droite.</summary>
-public sealed record Table(string? Title, string[] Headers, List<string[]> Rows);
+/// <param name="RowItems">élément du jeu nommé dans la première colonne de chaque ligne (pour afficher son image)</param>
+/// <param name="RowTooltips">texte affiché au survol de la première colonne de chaque ligne</param>
+public sealed record Table(string? Title, string[] Headers, List<string[]> Rows, List<ItemRef?>? RowItems = null,
+    List<string?>? RowTooltips = null);
+
+public enum ItemKind { Character, Relic, Ancient }
+
+/// <summary>Référence à un élément du jeu (personnage, relique) par son identifiant.</summary>
+public sealed record ItemRef(ItemKind Kind, string Id);
 
 public enum SortKey { Win, N, Pick }
 
@@ -49,7 +59,21 @@ public interface IGameInfo
 
     /// <summary>Identifiants des personnages jouables.</summary>
     IReadOnlySet<string> Characters { get; }
+
+    /// <summary>Anciens du jeu, dans l'ordre des actes, avec toutes les options qu'ils peuvent proposer.</summary>
+    IReadOnlyList<AncientInfo> Ancients { get; }
+
+    string AncientName(string id);
 }
+
+/// <param name="Key">clé de l'option dans les fichiers .run (TextKey)</param>
+/// <param name="RelicId">relique obtenue avec cette option, pour son icône</param>
+/// <param name="Description">effet de l'option, en texte brut</param>
+public sealed record AncientOption(string Key, string Name, string? RelicId, string? Description = null);
+
+/// <param name="Acts">numéros des actes où l'Ancien peut apparaître (1 = premier acte)</param>
+/// <param name="ActLabel">libellé de ces actes, par exemple avec leur nom ; null pour un libellé par défaut</param>
+public sealed record AncientInfo(string Id, IReadOnlyList<AncientOption> Options, IReadOnlyList<int> Acts, string? ActLabel = null);
 
 /// <summary>Sans le jeu : identifiants bruts.</summary>
 public class RawGameInfo : IGameInfo
@@ -68,4 +92,7 @@ public class RawGameInfo : IGameInfo
 
     public IReadOnlySet<string> Characters { get; } =
         new HashSet<string> { "DEFECT", "IRONCLAD", "NECROBINDER", "REGENT", "SILENT" };
+
+    public IReadOnlyList<AncientInfo> Ancients { get; } = [];
+    public virtual string AncientName(string id) => id;
 }

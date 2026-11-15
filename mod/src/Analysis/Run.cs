@@ -28,14 +28,34 @@ public sealed class Run
     public int Floor => Acts.Sum(act => act.GetArrayLength());
 
     /// <summary>Stats du joueur local pour chaque étage visité.</summary>
-    public IEnumerable<JsonElement> PlayerStats()
+    public IEnumerable<JsonElement> PlayerStats() =>
+        Acts.SelectMany(act => act.EnumerateArray()).SelectMany(MyStats);
+
+    /// <summary>Stats du joueur local à un étage.</summary>
+    private IEnumerable<JsonElement> MyStats(JsonElement point)
     {
         var myId = Me.TryGetProperty("id", out var id) ? id.ToString() : null;
-        foreach (var act in Acts)
-            foreach (var point in act.EnumerateArray())
-                foreach (var ps in Array(point, "player_stats"))
-                    if (ps.TryGetProperty("player_id", out var pid) && pid.ToString() == myId)
-                        yield return ps;
+        return Array(point, "player_stats")
+            .Where(ps => ps.TryGetProperty("player_id", out var pid) && pid.ToString() == myId);
+    }
+
+    /// <summary>Rencontres avec un Ancien : son identifiant, et les options proposées au joueur local.</summary>
+    public IEnumerable<(string Ancient, List<(string Key, bool Picked)> Choices)> AncientEncounters()
+    {
+        foreach (var point in Acts.SelectMany(act => act.EnumerateArray()))
+        {
+            if (Str(point, "map_point_type") != "ancient")
+                continue;
+            var room = Array(point, "rooms").Select(r => Str(r, "model_id")).FirstOrDefault(m => m != null);
+            if (room == null)
+                continue;
+            var choices = (from ps in MyStats(point)
+                           from choice in Array(ps, "ancient_choice")
+                           let key = Str(choice, "TextKey")
+                           where key != null
+                           select (key, Bool(choice, "was_chosen"))).ToList();
+            yield return (Ids.Short(room), choices);
+        }
     }
 
     public IEnumerable<string> DeckCards => Array(Me, "deck").Select(c => Ids.Short(Str(c, "id") ?? "?"));
