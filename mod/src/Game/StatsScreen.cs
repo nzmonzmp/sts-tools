@@ -1,4 +1,7 @@
 using Godot;
+using MegaCrit.Sts2.Core.Nodes.Cards;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Ascension;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Logging;
@@ -26,6 +29,10 @@ public sealed class StatsScreen
     private readonly ScrollContainer _scroll;
     private readonly Label _status;
     private readonly PanelContainer _hover;
+    /// <summary>Carte affichée au survol de son nom, créée à la première utilisation.</summary>
+    private readonly Control _cardHover;
+    private NCard? _cardNode;
+    private const float CardHoverScale = 0.8f;
     private readonly Label _hoverText;
     private readonly OptionButton _mode = new(), _ascension = new(), _character = new(), _gameMode = new(), _sort = new();
     private readonly CheckBox _ancientRelics = new() { Text = "Ancient relics", ButtonPressed = true };
@@ -33,19 +40,27 @@ public sealed class StatsScreen
     private readonly Dictionary<Control, Tab[]> _filterTabs = new();
     private Tab _tab = Tab.Winrate;
 
+    /// <summary>Colonnes masquées, par onglet et nom de colonne (communes à tous les tableaux de l'onglet).</summary>
+    private readonly HashSet<(Tab, string)> _hiddenColumns = new();
+
     private GameInfo? _game;
     private List<Run> _runs = [];
     private List<string> _characters = [], _gameModes = [];
     private List<int> _ascensions = [];
     private string? _loadError;
 
-    public static void Open(Node parent)
+    /// <summary>Réglages conservés entre les parties et les redémarrages du jeu.</summary>
+    private readonly SavedSettings _saved = SavedSettings.Load();
+
+    /// <param name="parent">nœud qui accueille l'écran (menu principal ou menu pause) ; l'écran disparaît avec lui</param>
+    /// <param name="font">police du jeu à utiliser ; par défaut, celle des boutons du menu principal</param>
+    public static void Open(Node parent, Font? font = null)
     {
         if (_current != null && GodotObject.IsInstanceValid(_current._layer))
             return;
         try
         {
-            _current = new StatsScreen(parent, FindGameFont(parent));
+            _current = new StatsScreen(parent, font ?? FindGameFont(parent));
         }
         catch (Exception e)
         {
@@ -68,11 +83,19 @@ public sealed class StatsScreen
 
     private StatsScreen(Node parent, Font? font)
     {
+        // Réglages sauvegardés : onglet et colonnes masquées tout de suite, filtres une fois les listes remplies
+        if (Enum.TryParse<Tab>(_saved.Tab, out var savedTab))
+            _tab = savedTab;
+        foreach (var column in _saved.HiddenColumns)
+            if (column.Split('/', 2) is [var t, var h] && Enum.TryParse<Tab>(t, out var tab))
+                _hiddenColumns.Add((tab, h));
+
         var theme = new Theme { DefaultFontSize = 22 };
         if (font != null)
             theme.DefaultFont = font;
 
-        _layer = new CanvasLayer { Layer = 100 };
+        // Always : l'écran reste utilisable même si le jeu met l'arbre en pause (menu pause)
+        _layer = new CanvasLayer { Layer = 100, ProcessMode = Node.ProcessModeEnum.Always };
         _root = new Control { Theme = theme, MouseFilter = Control.MouseFilterEnum.Stop, FocusMode = Control.FocusModeEnum.All };
         _root.SetAnchorsPreset(Control.LayoutPreset.FullRect);
         _root.GuiInput += OnInput;
@@ -132,9 +155,14 @@ public sealed class StatsScreen
         _mode.AddItem("Coop");
         foreach (var (label, _) in Sorts)
             _sort.AddItem(label);
+        // Avant de brancher les signaux, pour ne pas déclencher de rafraîchissement
+        _mode.Select(_saved.Coop ? 1 : 0);
+        _sort.Select(Math.Max(0, Array.FindIndex(Sorts, s => s.Key.ToString() == _saved.Sort)));
+        _min.Value = Math.Max(1, _saved.Min);
+        _ancientRelics.ButtonPressed = _saved.ShowAncientRelics;
         _ancientRelics.AddThemeColorOverride("font_color", StsColors.cream);
         _ancientRelics.AddThemeFontSizeOverride("font_size", 22);
-        ScaleCheckBoxIcons(_ancientRelics, 1.2f);
+        StyleCheckBox(_ancientRelics);
         _ancientRelics.Toggled += _ => Refresh();
         foreach (var option in new[] { _mode, _ascension, _character, _sort })
             option.ItemSelected += _ => Refresh();
@@ -166,7 +194,17 @@ public sealed class StatsScreen
         _hover.AddChild(_hoverText);
         _root.AddChild(_hover);
 
+        _cardHover = new Control
+        {
+            Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, TopLevel = true,
+            Size = NCard.defaultSize * CardHoverScale,
+        };
+        _root.AddChild(_cardHover);
+
         parent.AddChild(_layer);
+        // Loupe centrée sur le pointeur tant que l'écran est ouvert ; curseur du jeu rétabli à la fermeture
+        SetInspectCursorHotSpot(InspectLensCenter);
+        _layer.TreeExiting += () => SetInspectCursorHotSpot(GameInspectHotSpot);
         Load();
         Refresh();
         _root.CallDeferred(Control.MethodName.GrabFocus);
@@ -183,6 +221,28 @@ public sealed class StatsScreen
         item.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
         box.AddChild(item);
         _filterTabs[item] = tabs;
+    }
+
+    private const string InspectCursorPath = "res://images/packed/common_ui/cursor_inspect.png";
+
+    /// <summary>Point actif du curseur loupe dans le jeu (NCursorManager._inspectHotSpot) : bord de l'anneau.</summary>
+    private static readonly Vector2 GameInspectHotSpot = new(12, 12);
+
+    /// <summary>Centre du verre dans l'image 64 × 64 du curseur loupe (anneau doré de x = 5 à 40, y = 6 à 41).</summary>
+    private static readonly Vector2 InspectLensCenter = new(22, 23);
+
+    /// <summary>Réapplique l'image du curseur loupe du jeu avec un autre point actif.</summary>
+    private static void SetInspectCursorHotSpot(Vector2 hotSpot)
+    {
+        try
+        {
+            if (ResourceLoader.Load<Image>(InspectCursorPath) is { } image)
+                Input.SetCustomMouseCursor(image, Input.CursorShape.Help, hotSpot);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot set the inspect cursor: {e.Message}");
+        }
     }
 
     private void OnInput(InputEvent ev)
@@ -220,13 +280,15 @@ public sealed class StatsScreen
             _loadError = $"Cannot read run history: {e.Message}";
         }
 
-        var selectedChar = _character.Selected > 0 ? _characters[_character.Selected - 1] : null;
+        // Au premier remplissage, valeur sauvegardée ; ensuite, la sélection en cours
+        var selectedChar = _character.ItemCount == 0 ? _saved.Character
+            : _character.Selected > 0 ? _characters[_character.Selected - 1] : null;
         _characters = _runs.Select(r => r.Character).Distinct().Order(StringComparer.Ordinal).ToList();
         Fill(_character, ["All", .. _characters.Select(c => _game?.CharacterName(c) ?? c)],
             selectedChar == null ? 0 : _characters.IndexOf(selectedChar) + 1,
             [null, .. _characters.Select(c => _game?.CharacterIcon(c))]);
 
-        var selectedMode = _gameMode.Selected > 0 ? _gameModes[_gameMode.Selected - 1] : null;
+        var selectedMode = _gameMode.ItemCount == 0 ? _saved.GameMode : SelectedGameMode();
         _gameModes = _runs.Select(r => r.GameMode).Distinct().Order(StringComparer.Ordinal).ToList();
         Fill(_gameMode, ["All", .. _gameModes.Select(m => char.ToUpperInvariant(m[0]) + m[1..])],
             selectedMode == null ? 0 : _gameModes.IndexOf(selectedMode) + 1);
@@ -241,7 +303,9 @@ public sealed class StatsScreen
     private void FillAscensions()
     {
         var max = SelectedGameMode() == "blitz" ? AscensionManager.maxAscensionAllowedBlitz : AscensionManager.maxAscensionAllowed;
-        var selected = _ascension.ItemCount == 0 ? DefaultAscension : SelectedAscension(_ascension.Selected);
+        var selected = _ascension.ItemCount == 0
+            ? (_saved.Ascension == "all" ? null : int.TryParse(_saved.Ascension, out var savedAsc) ? savedAsc : DefaultAscension)
+            : SelectedAscension(_ascension.Selected);
         _ascensions = Enumerable.Range(0, max + 1).ToList();
         Fill(_ascension, ["All", .. _ascensions.Select(a => $"A{a}")],
             selected is { } a ? Math.Min(a, max) + 1 : 0);
@@ -264,6 +328,22 @@ public sealed class StatsScreen
         option.Select(Math.Max(selected, 0));
     }
 
+    /// <summary>Enregistre l'état de l'écran ; appelé à chaque changement (tout changement rafraîchit l'écran).</summary>
+    private void SaveSettings()
+    {
+        var f = CurrentFilters();
+        _saved.Tab = _tab.ToString();
+        _saved.Coop = f.Coop;
+        _saved.Ascension = f.Ascension?.ToString() ?? "all";
+        _saved.Character = f.Character;
+        _saved.GameMode = f.GameMode;
+        _saved.Min = f.Min;
+        _saved.Sort = f.Sort.ToString();
+        _saved.ShowAncientRelics = f.ShowAncientRelics;
+        _saved.HiddenColumns = _hiddenColumns.Select(c => $"{c.Item1}/{c.Item2}").Order(StringComparer.Ordinal).ToList();
+        _saved.Save();
+    }
+
     private Filters CurrentFilters() => new()
     {
         Coop = _mode.Selected == 1,
@@ -275,9 +355,15 @@ public sealed class StatsScreen
         ShowAncientRelics = _ancientRelics.ButtonPressed,
     };
 
-    private void Refresh()
+    /// <param name="keepScroll">garder la position de défilement (quand on masque ou réaffiche une colonne)</param>
+    private void Refresh(bool keepScroll = false)
     {
         HideHover();
+        SaveSettings();
+        var scroll = _scroll.ScrollVertical;
+        if (keepScroll)
+            // Après la mise en page des nouveaux tableaux, à la frame suivante
+            _scroll.GetTree().CreateTimer(0).Timeout += () => _scroll.ScrollVertical = scroll;
         foreach (var (item, tabs) in _filterTabs)
             item.Visible = tabs.Contains(_tab);
         foreach (var child in _content.GetChildren())
@@ -349,17 +435,67 @@ public sealed class StatsScreen
             _content.AddChild(MakeLabel(Stats.NoRows, 18, StsColors.cream with { A = 0.6f }));
             return;
         }
+        // Ordre d'affichage : la colonne des noms, les colonnes affichées, puis les colonnes masquées à droite
+        var hidden = table.Headers.Select(h => _hiddenColumns.Contains((_tab, h))).ToArray();
+        hidden[0] = false;
+        var order = Enumerable.Range(0, table.Headers.Length).OrderBy(i => i == 0 ? 0 : hidden[i] ? 2 : 1).ToList();
+
         var grid = new GridContainer { Columns = table.Headers.Length };
         grid.AddThemeConstantOverride("h_separation", 28);
         grid.AddThemeConstantOverride("v_separation", 2);
-        foreach (var (h, i) in table.Headers.Select((h, i) => (h, i)))
-            grid.AddChild(Cell(h, i, StsColors.gold));
-        foreach (var (row, r) in table.Rows.Select((row, r) => (row, r)))
-            foreach (var (cell, i) in row.Select((c, i) => (c, i)))
+        // Ligne de cases à cocher, sans texte, centrées au-dessus de chaque colonne (sauf celle des noms)
+        foreach (var i in order)
+        {
+            if (i == 0)
             {
-                var label = Cell(cell, i, StsColors.cream);
+                grid.AddChild(new Control());
+                continue;
+            }
+            var header = table.Headers[i];
+            var box = new CheckBox
+            {
+                ButtonPressed = !hidden[i],
+                FocusMode = Control.FocusModeEnum.None,
+                SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter,
+            };
+            StyleCheckBox(box);
+            box.Toggled += shown =>
+            {
+                if (shown)
+                    _hiddenColumns.Remove((_tab, header));
+                else
+                    _hiddenColumns.Add((_tab, header));
+                // Différé : la case est détruite par la reconstruction de l'écran
+                Callable.From(() => Refresh(keepScroll: true)).CallDeferred();
+            };
+            grid.AddChild(box);
+        }
+        foreach (var i in order)
+            grid.AddChild(Cell(table.Headers[i], i, hidden[i] ? StsColors.gold with { A = 0.35f } : StsColors.gold));
+        foreach (var (row, r) in table.Rows.Select((row, r) => (row, r)))
+            foreach (var i in order)
+            {
+                if (hidden[i])
+                {
+                    // Colonne masquée : cellule vide, qui garde la hauteur de la ligne
+                    grid.AddChild(Cell("", i, StsColors.cream));
+                    continue;
+                }
+                var label = Cell(row[i], i, StsColors.cream);
                 var item = i == 0 ? table.RowItems?.ElementAtOrDefault(r) : null;
                 var control = item == null ? label : WithIcon(item, 32, label);
+                if (item is { Kind: ItemKind.Card } card && _game?.Card(card.Id) is { } cardModel)
+                {
+                    control.MouseFilter = Control.MouseFilterEnum.Pass;
+                    control.MouseDefaultCursorShape = Control.CursorShape.Help;
+                    control.MouseEntered += () => ShowCard(cardModel);
+                    control.MouseExited += HideHover;
+                    control.GuiInput += ev =>
+                    {
+                        if (ev is InputEventMouseMotion && _cardHover.Visible)
+                            PlaceCard();
+                    };
+                }
                 if (i == 0 && table.RowTooltips?.ElementAtOrDefault(r) is { } tooltip)
                 {
                     // Pass : le survol est détecté, et la molette fait toujours défiler la page.
@@ -368,6 +504,12 @@ public sealed class StatsScreen
                     control.MouseDefaultCursorShape = Control.CursorShape.Help;
                     control.MouseEntered += () => ShowHover(tooltip);
                     control.MouseExited += HideHover;
+                    // Le panneau suit la souris tant qu'elle reste sur le nom
+                    control.GuiInput += ev =>
+                    {
+                        if (ev is InputEventMouseMotion && _hover.Visible)
+                            PlaceHover();
+                    };
                 }
                 grid.AddChild(control);
             }
@@ -393,14 +535,14 @@ public sealed class StatsScreen
                 label.AddThemeColorOverride("font_color", cardColor);
             if (_game.IsRareCard(item.Id))
             {
-                // Deux bords : un liseré noir d'environ 4 px (le contour), puis un anneau doré d'environ 2,5 px.
+                // Deux bords : un liseré noir d'environ 5 px (le contour), puis un anneau doré d'environ 2,5 px.
                 // Largeur visible du doré = (shadow_outline_size - outline_size) / 2.
                 // Un Label n'a qu'un contour : l'anneau doré est l'ombre, sans décalage, avec son propre contour,
                 // dessinée derrière le contour noir.
                 label.AddThemeColorOverride("font_outline_color", Colors.Black);
-                label.AddThemeConstantOverride("outline_size", 8);
+                label.AddThemeConstantOverride("outline_size", 10);
                 label.AddThemeColorOverride("font_shadow_color", StsColors.gold);
-                label.AddThemeConstantOverride("shadow_outline_size", 13);
+                label.AddThemeConstantOverride("shadow_outline_size", 15);
                 label.AddThemeConstantOverride("shadow_offset_x", 0);
                 label.AddThemeConstantOverride("shadow_offset_y", 0);
             }
@@ -451,30 +593,39 @@ public sealed class StatsScreen
         return box;
     }
 
+    private const int CheckBoxSize = 26;
+    private static Texture2D? _uncheckedIcon, _checkedIcon;
+
     /// <summary>
-    /// Agrandit la case d'une CheckBox. Control.Scale ne compte pas dans la mise en page des conteneurs :
-    /// on remplace donc les icônes du thème par des copies redimensionnées.
+    /// Icônes dessinées par le mod : contour blanc, intérieur doré si cochée. L'icône « décochée » du thème
+    /// du jeu est vide : une case sans texte était alors invisible et sans surface cliquable.
     /// </summary>
-    private static void ScaleCheckBoxIcons(CheckBox box, float factor)
+    private static void StyleCheckBox(CheckBox box)
     {
-        foreach (var name in new[] { "checked", "unchecked", "checked_disabled", "unchecked_disabled" })
-        {
-            try
+        _uncheckedIcon ??= CheckBoxIcon(false);
+        _checkedIcon ??= CheckBoxIcon(true);
+        foreach (var name in new[] { "unchecked", "unchecked_disabled" })
+            box.AddThemeIconOverride(name, _uncheckedIcon);
+        foreach (var name in new[] { "checked", "checked_disabled" })
+            box.AddThemeIconOverride(name, _checkedIcon);
+        box.CustomMinimumSize = new Vector2(CheckBoxSize, CheckBoxSize);
+    }
+
+    private static Texture2D CheckBoxIcon(bool isChecked)
+    {
+        const int border = 2, inset = 6;
+        var image = Image.CreateEmpty(CheckBoxSize, CheckBoxSize, false, Image.Format.Rgba8);
+        image.Fill(new Color(0, 0, 0, 0.35f));
+        for (int x = 0; x < CheckBoxSize; x++)
+            for (int y = 0; y < CheckBoxSize; y++)
             {
-                var image = box.GetThemeIcon(name)?.GetImage();
-                if (image == null || image.IsEmpty())
-                    continue;
-                if (image.IsCompressed())
-                    image.Decompress();
-                image.Resize((int)Math.Round(image.GetWidth() * factor), (int)Math.Round(image.GetHeight() * factor),
-                    Image.Interpolation.Lanczos);
-                box.AddThemeIconOverride(name, ImageTexture.CreateFromImage(image));
+                var edge = Math.Min(Math.Min(x, y), Math.Min(CheckBoxSize - 1 - x, CheckBoxSize - 1 - y));
+                if (edge < border)
+                    image.SetPixel(x, y, Colors.White);
+                else if (isChecked && edge >= inset)
+                    image.SetPixel(x, y, StsColors.gold);
             }
-            catch (Exception e)
-            {
-                Log.Warn($"[{ModEntry.Id}] cannot resize checkbox icon {name}: {e.Message}");
-            }
-        }
+        return ImageTexture.CreateFromImage(image);
     }
 
     /// <summary>Affiche le panneau de description près de la souris, sans sortir de l'écran.</summary>
@@ -482,18 +633,81 @@ public sealed class StatsScreen
     {
         _hoverText.Text = text;
         _hover.ResetSize();
-        var size = _hover.GetCombinedMinimumSize();
-        var screen = _root.GetViewportRect().Size;
-        var pos = _root.GetGlobalMousePosition() + new Vector2(24, 24);
-        if (pos.X + size.X > screen.X)
-            pos.X = Math.Max(0, pos.X - size.X - 48);
-        if (pos.Y + size.Y > screen.Y)
-            pos.Y = Math.Max(0, pos.Y - size.Y - 48);
-        _hover.GlobalPosition = pos;
+        PlaceHover();
         _hover.Visible = true;
     }
 
-    private void HideHover() => _hover.Visible = false;
+    /// <summary>
+    /// Place le panneau au-dessus de la souris, centré sur elle. Il reste dans l'écran ; s'il n'y a pas
+    /// la place au-dessus, il passe sous la souris.
+    /// </summary>
+    private void PlaceHover() => PlaceAboveMouse(_hover, _hover.GetCombinedMinimumSize());
+
+    private void PlaceAboveMouse(Control panel, Vector2 size)
+    {
+        var screen = _root.GetViewportRect().Size;
+        var mouse = _root.GetGlobalMousePosition();
+        var x = Math.Clamp(mouse.X - size.X / 2, 0, Math.Max(0, screen.X - size.X));
+        var y = mouse.Y - size.Y - 16;
+        if (y < 0)
+            y = Math.Min(mouse.Y + 28, Math.Max(0, screen.Y - size.Y));
+        panel.GlobalPosition = new Vector2(x, y);
+    }
+
+    /// <summary>
+    /// Affiche la carte au-dessus de la souris, avec le nœud de carte du jeu (comme dans sa bibliothèque de cartes).
+    /// Le nœud est centré sur sa position, d'où le décalage d'une demi-taille dans le conteneur.
+    /// </summary>
+    private void ShowCard(CardModel card)
+    {
+        try
+        {
+            if (_cardNode == null || !GodotObject.IsInstanceValid(_cardNode))
+            {
+                _cardNode = NCard.Create(card);
+                if (_cardNode == null)
+                    return;
+                _cardNode.MouseFilter = Control.MouseFilterEnum.Ignore;
+                _cardNode.Scale = Vector2.One * CardHoverScale;
+                _cardNode.Position = _cardHover.Size / 2;
+                _cardHover.AddChild(_cardNode);
+            }
+            else
+            {
+                _cardNode.Model = card;
+            }
+            _cardNode.UpdateVisuals(PileType.None, CardPreviewMode.Normal);
+            PlaceCard();
+            _cardHover.Visible = true;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot show card {card.Id}: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Place la carte en haut à droite de la souris. Près du bord droit elle passe à gauche de la souris,
+    /// près du bord haut elle descend juste assez pour rester dans l'écran.
+    /// </summary>
+    private void PlaceCard()
+    {
+        const float gap = 12;
+        var size = _cardHover.Size;
+        var screen = _root.GetViewportRect().Size;
+        var mouse = _root.GetGlobalMousePosition();
+        var x = mouse.X + gap;
+        if (x + size.X > screen.X)
+            x = Math.Max(0, mouse.X - size.X - gap);
+        var y = Math.Clamp(mouse.Y - size.Y - gap, 0, Math.Max(0, screen.Y - size.Y));
+        _cardHover.GlobalPosition = new Vector2(x, y);
+    }
+
+    private void HideHover()
+    {
+        _hover.Visible = false;
+        _cardHover.Visible = false;
+    }
 
     /// <summary>Bandeau pleine largeur annonçant un groupe de sections (l'acte des Anciens).</summary>
     private static Control GroupBanner(string text)

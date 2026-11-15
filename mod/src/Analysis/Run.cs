@@ -59,6 +59,11 @@ public sealed class Run
     }
 
     public IEnumerable<string> DeckCards => Array(Me, "deck").Select(c => Ids.Short(Str(c, "id") ?? "?"));
+
+    /// <summary>Cartes du deck final dont au moins un exemplaire est amélioré.</summary>
+    public IEnumerable<string> UpgradedDeckCards => Array(Me, "deck")
+        .Where(c => c.TryGetProperty("current_upgrade_level", out var l) && l.ValueKind == JsonValueKind.Number && l.GetInt32() > 0)
+        .Select(c => Ids.Short(Str(c, "id") ?? "?"));
     public IEnumerable<string> Relics => Array(Me, "relics").Select(r => Ids.Short(Str(r, "id") ?? "?"));
 
     /// <summary>Cartes proposées en récompense, et si elles ont été prises.</summary>

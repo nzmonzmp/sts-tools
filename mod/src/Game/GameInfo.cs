@@ -218,6 +218,9 @@ public sealed class GameInfo : IGameInfo
     public Color? CardColor(string id) =>
         CardPool(id) is { } pool && Characters.Contains(pool) ? CharacterColor(pool) : null;
 
+    /// <summary>Modèle de la carte (pour l'afficher), ou null si elle n'existe plus.</summary>
+    public CardModel? Card(string id) => SafeModel<CardModel>("CARD", id);
+
     /// <summary>Vrai pour une carte rare (cadre doré dans le jeu).</summary>
     public bool IsRareCard(string id) => SafeModel<CardModel>("CARD", id)?.Rarity == CardRarity.Rare;
 

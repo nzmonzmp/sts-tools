@@ -70,17 +70,33 @@ public static class Stats
 
     private static readonly string[] ChoiceHeaders = ["Runs", "Win%", "Offered", "Pick%", "Win% picked", "Win% skipped"];
 
-    /// <summary>Par élément (carte, relique) : [victoires, parties] en fin de partie, quand proposé, quand pris.</summary>
+    /// <summary>Colonne ajoutée après Win% pour les cartes : Win% des parties où au moins un exemplaire est amélioré.</summary>
+    private const string UpgradedHeader = "Win% upgraded";
+
+    /// <summary>Colonne ajoutée après Pick% pour les cartes : nombre moyen d'exemplaires dans le deck final.</summary>
+    private const string CopiesHeader = "Copies";
+
+    /// <summary>
+    /// Par élément (carte, relique) : [victoires, parties] en fin de partie, quand proposé, quand pris,
+    /// et en fin de partie avec au moins un exemplaire amélioré (cartes seulement).
+    /// </summary>
     private sealed class Choices
     {
-        private readonly Dictionary<string, int[]> _final = new(), _offered = new(), _picked = new();
+        private readonly Dictionary<string, int[]> _final = new(), _offered = new(), _picked = new(), _upgraded = new();
+
+        /// <summary>Exemplaires en fin de partie, cumulés sur toutes les parties</summary>
+        private readonly Dictionary<string, int> _copies = new();
 
         private static int[] Get(Dictionary<string, int[]> d, string k) =>
             d.TryGetValue(k, out var v) ? v : d[k] = new int[2];
 
-        public void AddRun(Run run, IEnumerable<string> final, IEnumerable<string> offered, IEnumerable<string> picked)
+        public void AddRun(Run run, IEnumerable<string> final, IEnumerable<string> offered, IEnumerable<string> picked,
+            IEnumerable<string>? upgraded = null)
         {
-            foreach (var (stats, items) in new[] { (_final, final), (_offered, offered), (_picked, picked) })
+            final = final.ToList();
+            foreach (var item in final)
+                _copies[item] = _copies.GetValueOrDefault(item) + 1;
+            foreach (var (stats, items) in new[] { (_final, final), (_offered, offered), (_picked, picked), (_upgraded, upgraded ?? []) })
                 foreach (var item in items.Distinct())
                 {
                     var s = Get(stats, item);
@@ -89,7 +105,8 @@ public static class Stats
                 }
         }
 
-        public List<string[]> Rows(int min, SortKey sort)
+        /// <param name="cardColumns">ajoute Win% upgraded après Win%, et Copies après Pick%</param>
+        public List<string[]> Rows(int min, SortKey sort, bool cardColumns = false)
         {
             var rows = new List<((double, double) Key, string[] Row)>();
             foreach (var item in _final.Keys.Union(_offered.Keys))
@@ -107,12 +124,18 @@ public static class Stats
                     SortKey.N => (fn, on),
                     _ => (on > 0 ? (double)pn / on : -1, on),
                 };
-                rows.Add((key, [item, fn.ToString(), Pct(fw, fn), on.ToString(), Pct(pn, on), Pct(pw, pn), Pct(ow - pw, on - pn)]));
+                var (uw, un) = Pair(_upgraded, item);
+                string[] upgraded = cardColumns ? [Pct(uw, un)] : [];
+                string[] copies = cardColumns ? [Average(_copies.GetValueOrDefault(item), fn)] : [];
+                rows.Add((key, [item, fn.ToString(), Pct(fw, fn), .. upgraded, on.ToString(), Pct(pn, on), .. copies, Pct(pw, pn), Pct(ow - pw, on - pn)]));
             }
             // Tri décroissant, puis par identifiant pour un ordre stable
             return rows.OrderByDescending(r => r.Key.Item1).ThenByDescending(r => r.Key.Item2)
                 .ThenBy(r => r.Row[0], StringComparer.Ordinal).Select(r => r.Row).ToList();
         }
+
+        private static string Average(int total, int n) =>
+            n == 0 ? "-" : (total / (double)n).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture);
 
         private static (int W, int N) Pair(Dictionary<string, int[]> d, string k) =>
             d.TryGetValue(k, out var v) ? (v[0], v[1]) : (0, 0);
@@ -124,21 +147,23 @@ public static class Stats
     private static Report ByCharacterChoices(
         string title, List<string> notes, IReadOnlyList<Run> all, Filters f, IGameInfo game, string column,
         Func<Run, IEnumerable<(string, bool)>> choices, Func<Run, IEnumerable<string>> final, Grouping group,
-        ItemKind? rowKind = null, Func<string, string?>? tooltip = null)
+        ItemKind? rowKind = null, Func<string, string?>? tooltip = null, Func<Run, IEnumerable<string>>? upgraded = null)
     {
         var (runs, label) = Select(all, f, game);
         var sections = new List<Section>();
-        string[] headers = [column, .. ChoiceHeaders];
+        string[] headers = upgraded == null
+            ? [column, .. ChoiceHeaders]
+            : [column, .. ChoiceHeaders[..2], UpgradedHeader, .. ChoiceHeaders[2..4], CopiesHeader, .. ChoiceHeaders[4..]];
         foreach (var (character, charRuns) in ByCharacter(runs))
         {
             var stats = new Choices();
             foreach (var run in charRuns)
             {
                 var c = choices(run).ToList();
-                stats.AddRun(run, final(run), c.Select(x => x.Item1), c.Where(x => x.Item2).Select(x => x.Item1));
+                stats.AddRun(run, final(run), c.Select(x => x.Item1), c.Where(x => x.Item2).Select(x => x.Item1), upgraded?.Invoke(run));
             }
             var groups = new SortedDictionary<string, (string Title, List<string[]> Rows, List<ItemRef?> Items, List<string?> Tooltips)>(StringComparer.Ordinal);
-            foreach (var row in stats.Rows(f.Min, f.Sort))
+            foreach (var row in stats.Rows(f.Min, f.Sort, upgraded != null))
             {
                 if (group(row[0], character) is not { } g)
                     continue;
@@ -174,7 +199,7 @@ public static class Stats
     {
         var notes = new List<string>
         {
-            "Runs: in the final deck; Offered/Pick%: card rewards; skipped: offered but never picked",
+            "Runs: in the final deck; Win% upgraded: runs with at least one upgraded copy; Offered/Pick%: card rewards; Copies: average copies in the final deck; skipped: offered but never picked",
         };
         if (!game.HasCardPools)
             notes.Add("(card pools unknown: cards are not grouped)");
@@ -194,7 +219,7 @@ public static class Stats
             return (order, title, game.CardName(card));
         };
         return ByCharacterChoices("Cards", notes, all, f, game, "Card",
-            r => r.CardChoices(), r => r.DeckCards, group, ItemKind.Card);
+            r => r.CardChoices(), r => r.DeckCards, group, ItemKind.Card, upgraded: r => r.UpgradedDeckCards);
     }
 
     public static Report Relics(IReadOnlyList<Run> all, Filters f, IGameInfo game)
