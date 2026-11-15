@@ -133,8 +133,11 @@ public sealed class StatsScreen
 
         var margin = new MarginContainer();
         margin.SetAnchorsPreset(Control.LayoutPreset.FullRect);
-        foreach (var side in new[] { "left", "right", "top", "bottom" })
-            margin.AddThemeConstantOverride("margin_" + side, 48);
+        foreach (var side in new[] { "left", "right", "bottom" })
+            margin.AddThemeConstantOverride("margin_" + side, PageMargin);
+        // Marge haute réduite, compensée par une barre d'onglets plus haute (PlaceActions) : les filtres ne bougent
+        // pas, et le titre et les onglets, centrés dans la barre, tombent au milieu entre le haut et les filtres
+        margin.AddThemeConstantOverride("margin_top", PageMarginTop);
         _root.AddChild(margin);
 
         var page = new VBoxContainer();
@@ -145,12 +148,15 @@ public sealed class StatsScreen
         var header = new HBoxContainer();
         header.AddThemeConstantOverride("separation", 12);
         page.AddChild(header);
-        header.AddChild(MakeLabel("STS Tools", 34, StsColors.gold));
+        var title = MakeLabel("STS Tools", 34, StsColors.gold);
+        title.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        header.AddChild(title);
         header.AddChild(new Control { CustomMinimumSize = new Vector2(32, 0) });
         for (int i = 0; i < TabNames.Length; i++)
         {
             var tab = (Tab)i;
             var tabButton = new TabButton(TabNames[i]);
+            tabButton.Button.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
             tabButton.Button.Pressed += () =>
             {
                 _tab = tab;
@@ -172,16 +178,27 @@ public sealed class StatsScreen
         var reloadOffset = new MarginContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         reloadOffset.AddThemeConstantOverride("margin_top", 2 * ReloadDropY);
         reloadOffset.AddChild(reload);
-        header.AddChild(reloadOffset);
-        var close = new Button { Text = "Close" };
+        var close = new Button { Text = "Close", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         StyleCloseButton(close);
         close.Pressed += Close;
-        header.AddChild(close);
+        // Reload et Close sont placés à part (PlaceActions) ; une case vide de même taille garde leur place
+        // dans la barre, pour que les onglets et les filtres ne bougent pas
+        var actions = new HBoxContainer();
+        actions.AddThemeConstantOverride("separation", 12);
+        actions.AddChild(reloadOffset);
+        actions.AddChild(close);
+        var actionsPlaceholder = new Control();
+        header.AddChild(actionsPlaceholder);
 
         // Filtres
         var filters = new HBoxContainer();
         filters.AddThemeConstantOverride("separation", 8);
         page.AddChild(filters);
+        _root.AddChild(actions);
+        void Place() => PlaceActions(actions, actionsPlaceholder, filters);
+        filters.Resized += Place;
+        _root.Resized += Place;
+        header.Resized += Place;
         AddFilter(filters, "Party", _mode, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Ascension", _ascension, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Character", _character, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
@@ -227,7 +244,8 @@ public sealed class StatsScreen
             ContentMarginLeft = TableMargin, ContentMarginRight = 8, ContentMarginTop = 4, ContentMarginBottom = 6,
         });
         scrollArea.AddChild(_sticky);
-        _scroll.GetVScrollBar().ValueChanged += _ => UpdateSticky();
+        // L'en-tête épinglé est mis à jour à chaque image (voir plus bas) : au signal de la barre de défilement,
+        // le contenu n'a pas encore été déplacé et les positions lues seraient celles d'avant le défilement
         _content = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _content.AddThemeConstantOverride("separation", 6);
         _scroll.AddChild(_content);
@@ -267,6 +285,12 @@ public sealed class StatsScreen
         _root.AddChild(_monsterHover);
 
         parent.AddChild(_layer);
+        var tree = _root.GetTree();
+        Action updateSticky = UpdateSticky;
+        tree.ProcessFrame += updateSticky;
+        _layer.TreeExiting += () => tree.ProcessFrame -= updateSticky;
+        // Positions fiables seulement après la première mise en page
+        _root.GetTree().CreateTimer(0).Timeout += Place;
         // Loupe centrée sur le pointeur tant que l'écran est ouvert ; curseur du jeu rétabli à la fermeture
         SetInspectCursorHotSpot(InspectLensCenter);
         _layer.TreeExiting += () => SetInspectCursorHotSpot(GameInspectHotSpot);
@@ -279,13 +303,158 @@ public sealed class StatsScreen
     private void AddFilter(HBoxContainer box, string? label, Control control, Tab[] tabs)
     {
         var item = new HBoxContainer();
-        item.AddThemeConstantOverride("separation", 6);
+        item.AddThemeConstantOverride("separation", 8);
         if (label != null)
-            item.AddChild(MakeLabel(label, 18, StsColors.cream));
+        {
+            var text = MakeLabel(label, 20, StsColors.cream);
+            if (GameFont(FilterFontPath) is { } font)
+                text.AddThemeFontOverride("font", font);
+            text.VerticalAlignment = VerticalAlignment.Center;
+            item.AddChild(text);
+        }
+        StyleFilterControl(control);
         item.AddChild(control);
         item.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
         box.AddChild(item);
         _filterTabs[item] = tabs;
+    }
+
+    // ---- style des filtres : listes déroulantes des paramètres du jeu (scenes/screens/settings_dropdown.tscn) ----
+
+    private const string FilterFontPath = "res://themes/kreon_bold_glyph_space_one.tres";
+    private const string DropdownArrowPath = "res://images/packed/common_ui/settings_tiny_left_arrow.png";
+    private static readonly Color DropdownFieldColor = new(0.172549f, 0.262745f, 0.309804f);
+    private static readonly Color DropdownHoverColor = new(0.172549f, 0.345098f, 0.439216f);
+    private static readonly Color DropdownListColor = new(0.0705882f, 0.129412f, 0.160784f);
+    private static readonly Color DropdownValueColor = new(0.937255f, 0.784314f, 0.317647f);
+    private static Texture2D? _dropdownArrow;
+
+    private static Font? GameFont(string path) =>
+        ResourceLoader.Exists(path) ? ResourceLoader.Load<Font>(path) : null;
+
+    private static StyleBoxFlat FilterBox(Color color, int marginX = 12, int? marginRight = null) => new()
+    {
+        BgColor = color,
+        ContentMarginLeft = marginX, ContentMarginRight = marginRight ?? marginX, ContentMarginTop = 4, ContentMarginBottom = 4,
+    };
+
+    private const int ArrowSize = 18, ArrowMargin = 10, ArrowSpace = ArrowSize + 2 * ArrowMargin;
+    private const double ArrowTurnDuration = 0.12;
+
+    /// <summary>
+    /// Flèche de la liste déroulante : vers la droite quand la liste est fermée, vers le bas quand elle est ouverte
+    /// (quart de tour dans le sens horaire), avec une courte rotation entre les deux.
+    /// La flèche intégrée d'OptionButton ne peut pas tourner : elle est remplacée par une image transparente, et
+    /// une image de la flèche du jeu est posée à droite du champ.
+    /// </summary>
+    private static void AddSpinningArrow(OptionButton option)
+    {
+        option.AddThemeIconOverride("arrow", ImageTexture.CreateFromImage(Image.CreateEmpty(1, 1, false, Image.Format.Rgba8)));
+        if (DropdownArrow() is not { } texture)
+            return;
+        var arrow = new TextureRect
+        {
+            Texture = texture,
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            CustomMinimumSize = new Vector2(ArrowSize, ArrowSize),
+            PivotOffset = new Vector2(ArrowSize, ArrowSize) / 2,
+        };
+        // Centré verticalement, collé au bord droit du champ
+        arrow.SetAnchorsPreset(Control.LayoutPreset.CenterRight);
+        arrow.OffsetLeft = -ArrowMargin - ArrowSize;
+        arrow.OffsetRight = -ArrowMargin;
+        arrow.OffsetTop = -ArrowSize / 2f;
+        arrow.OffsetBottom = ArrowSize / 2f;
+        option.AddChild(arrow);
+        Tween? tween = null;
+        void Turn(float degrees)
+        {
+            if (!arrow.IsInsideTree())
+                return;
+            tween?.Kill();
+            tween = arrow.CreateTween();
+            tween.TweenProperty(arrow, "rotation_degrees", degrees, ArrowTurnDuration)
+                .SetTrans(Tween.TransitionType.Cubic).SetEase(Tween.EaseType.Out);
+        }
+        var popup = option.GetPopup();
+        popup.AboutToPopup += () => Turn(90);
+        popup.PopupHide += () => Turn(0);
+    }
+
+    /// <summary>Flèche du jeu (vers la gauche) retournée vers la droite, pour les listes déroulantes.</summary>
+    private static Texture2D? DropdownArrow()
+    {
+        if (_dropdownArrow != null || !ResourceLoader.Exists(DropdownArrowPath))
+            return _dropdownArrow;
+        try
+        {
+            var image = ResourceLoader.Load<Texture2D>(DropdownArrowPath).GetImage();
+            if (image.IsCompressed())
+                image.Decompress();
+            image.Rotate180();
+            image.Resize(18, 18, Image.Interpolation.Lanczos);
+            _dropdownArrow = ImageTexture.CreateFromImage(image);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot load the dropdown arrow: {e.Message}");
+        }
+        return _dropdownArrow;
+    }
+
+    /// <summary>
+    /// Filtres dans le style des listes déroulantes des paramètres du jeu : case bleu-vert foncé, valeur dorée en
+    /// Kreon Bold, flèche du jeu ; liste dépliée bleu nuit, entrées crème, surbrillance bleue.
+    /// </summary>
+    private static void StyleFilterControl(Control control)
+    {
+        var font = GameFont(FilterFontPath);
+        switch (control)
+        {
+            case OptionButton option:
+                // Marge droite élargie : la place de la flèche animée (AddSpinningArrow)
+                option.AddThemeStyleboxOverride("normal", FilterBox(DropdownFieldColor, 12, ArrowSpace));
+                option.AddThemeStyleboxOverride("hover", FilterBox(DropdownHoverColor, 12, ArrowSpace));
+                option.AddThemeStyleboxOverride("pressed", FilterBox(DropdownHoverColor, 12, ArrowSpace));
+                option.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+                if (font != null)
+                    option.AddThemeFontOverride("font", font);
+                option.AddThemeFontSizeOverride("font_size", 22);
+                option.AddThemeColorOverride("font_color", DropdownValueColor);
+                option.AddThemeColorOverride("font_hover_color", StsColors.gold);
+                option.AddThemeColorOverride("font_pressed_color", StsColors.gold);
+                option.AddThemeColorOverride("font_focus_color", DropdownValueColor);
+                AddSpinningArrow(option);
+                var popup = option.GetPopup();
+                popup.AddThemeStyleboxOverride("panel", FilterBox(DropdownListColor, 6));
+                popup.AddThemeStyleboxOverride("hover", FilterBox(DropdownHoverColor, 6));
+                if (font != null)
+                    popup.AddThemeFontOverride("font", font);
+                popup.AddThemeFontSizeOverride("font_size", 22);
+                popup.AddThemeColorOverride("font_color", StsColors.cream);
+                popup.AddThemeColorOverride("font_hover_color", StsColors.cream);
+                popup.AddThemeConstantOverride("v_separation", 8);
+                break;
+            case SpinBox spin:
+                var edit = spin.GetLineEdit();
+                edit.AddThemeStyleboxOverride("normal", FilterBox(DropdownFieldColor));
+                edit.AddThemeStyleboxOverride("focus", FilterBox(DropdownHoverColor));
+                if (font != null)
+                    edit.AddThemeFontOverride("font", font);
+                edit.AddThemeFontSizeOverride("font_size", 22);
+                edit.AddThemeColorOverride("font_color", DropdownValueColor);
+                edit.AddThemeColorOverride("caret_color", StsColors.cream);
+                break;
+            case CheckBox check:
+                if (font != null)
+                    check.AddThemeFontOverride("font", font);
+                check.AddThemeColorOverride("font_hover_color", StsColors.gold);
+                check.AddThemeColorOverride("font_pressed_color", StsColors.cream);
+                check.AddThemeColorOverride("font_hover_pressed_color", StsColors.gold);
+                break;
+        }
     }
 
     private const string InspectCursorPath = "res://images/packed/common_ui/cursor_inspect.png";
@@ -920,6 +1089,27 @@ public sealed class StatsScreen
 
     /// <summary>Décalage vers le bas de Reload pour l'aligner sur la bannière rouge de Close (mesuré : 8 px).</summary>
     private const int ReloadDropY = 8;
+    private const int PageMargin = 48, PageMarginTop = 16;
+
+    /// <summary>
+    /// Place Reload et Close à droite, centrés verticalement entre le haut de la fenêtre et les filtres. Le centre
+    /// visible de la bannière rouge de Close est ReloadDropY sous le centre de son bouton (mesuré sur une capture).
+    /// </summary>
+    private void PlaceActions(Control actions, Control placeholder, Control filters)
+    {
+        if (!GodotObject.IsInstanceValid(actions) || !filters.IsInsideTree())
+            return;
+        // Taille naturelle des boutons, pour le conteneur comme pour la case vide de la barre
+        var size = actions.GetCombinedMinimumSize();
+        actions.Size = size;
+        // Case vide : largeur des boutons, et hauteur de barre agrandie de ce que la marge haute a perdu
+        var placeholderSize = new Vector2(size.X, size.Y + (PageMargin - PageMarginTop));
+        if (placeholder.CustomMinimumSize != placeholderSize)
+            placeholder.CustomMinimumSize = placeholderSize;
+        var middle = (filters.GetGlobalRect().Position.Y - _root.GetGlobalRect().Position.Y) / 2;
+        var right = placeholder.GetGlobalRect().End.X - _root.GetGlobalRect().Position.X;
+        actions.Position = new Vector2(right - actions.Size.X, middle - actions.Size.Y / 2 - ReloadDropY);
+    }
 
     private const string RefreshButtonTexture = "res://images/ui/reward_screen/reward_skip_button.png";
     private const string RefreshButtonFont = "res://themes/kreon_bold_glyph_space_one.tres";
