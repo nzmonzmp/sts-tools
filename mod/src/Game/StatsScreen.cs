@@ -155,10 +155,17 @@ public sealed class StatsScreen
             header.AddChild(b);
         }
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        // Les pointes de sa bannière (à mi-hauteur) au milieu de la bannière rouge de Close. Celle-ci est dessinée
+        // dans le bas de son bouton : mesuré sur une capture, son milieu est 8 px sous celui du bouton.
         var reload = new Button { Text = "Reload" };
+        StyleReloadButton(reload);
         reload.Pressed += () => { Load(); Refresh(); };
-        header.AddChild(reload);
+        var reloadOffset = new MarginContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+        reloadOffset.AddThemeConstantOverride("margin_top", 2 * ReloadDropY);
+        reloadOffset.AddChild(reload);
+        header.AddChild(reloadOffset);
         var close = new Button { Text = "Close" };
+        StyleCloseButton(close);
         close.Pressed += Close;
         header.AddChild(close);
 
@@ -800,6 +807,115 @@ public sealed class StatsScreen
         box.AddChild(text);
         return box;
     }
+
+    /// <summary>
+    /// Bouton Close dans le style du bouton retour du jeu (NBackButton) : sa texture rouge en fond, sa flèche
+    /// en icône, plus clair et texte doré au survol. Fond rouge uni si la texture est introuvable.
+    /// </summary>
+    private static void StyleCloseButton(Button button)
+    {
+        StyleBox Box(Color modulate)
+        {
+            if (ResourceLoader.Exists(BackButtonTexture) && ResourceLoader.Load<Texture2D>(BackButtonTexture) is { } texture)
+                return new StyleBoxTexture
+                {
+                    Texture = texture,
+                    ModulateColor = modulate,
+                    // Plus de marge en haut : la bannière de la texture est dessinée dans sa partie basse
+                    ContentMarginLeft = 39, ContentMarginRight = 51, ContentMarginTop = 21, ContentMarginBottom = 6,
+                };
+            return new StyleBoxFlat
+            {
+                BgColor = new Color("A8352C") * modulate,
+                CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+                ContentMarginLeft = 33, ContentMarginRight = 33, ContentMarginTop = 9, ContentMarginBottom = 9,
+            };
+        }
+        try
+        {
+            button.AddThemeStyleboxOverride("normal", Box(Colors.White));
+            button.AddThemeStyleboxOverride("hover", Box(new Color(1.2f, 1.2f, 1.2f)));
+            button.AddThemeStyleboxOverride("pressed", Box(Colors.Gray));
+            button.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+            // Même police que Reload (Kreon Bold du bouton Refresh du jeu), contour rouge foncé assorti à la bannière
+            if (ResourceLoader.Exists(RefreshButtonFont) && ResourceLoader.Load<Font>(RefreshButtonFont) is { } font)
+                button.AddThemeFontOverride("font", font);
+            button.AddThemeColorOverride("font_outline_color", new Color(0.28f, 0.07f, 0.06f));
+            button.AddThemeConstantOverride("outline_size", 11);
+            // Bouton une fois et demie plus grand que les autres boutons de l'écran
+            button.AddThemeFontSizeOverride("font_size", 33);
+            button.AddThemeColorOverride("font_color", StsColors.cream);
+            button.AddThemeColorOverride("font_hover_color", StsColors.gold);
+            button.AddThemeColorOverride("font_pressed_color", StsColors.cream);
+            if (ResourceLoader.Exists(BackArrowTexture) && ResourceLoader.Load<Texture2D>(BackArrowTexture) is { } arrow)
+            {
+                button.Icon = arrow;
+                button.AddThemeConstantOverride("icon_max_width", 39);
+                button.AddThemeColorOverride("icon_normal_color", StsColors.cream);
+                button.AddThemeColorOverride("icon_hover_color", StsColors.gold);
+                button.AddThemeColorOverride("icon_pressed_color", StsColors.cream);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot style the close button: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Bouton Reload dans le style du bouton Refresh du jeu (écran pour rejoindre un ami) : bannière teintée
+    /// bleu-gris, texte crème en Kreon Bold avec contour bleu-vert foncé et ombre. Même taille que Close.
+    /// </summary>
+    private static void StyleReloadButton(Button button)
+    {
+        var tint = new Color(0.430037f, 0.544539f, 0.572528f);
+        StyleBox Box(float brightness)
+        {
+            var color = new Color(tint.R * brightness, tint.G * brightness, tint.B * brightness);
+            if (ResourceLoader.Exists(RefreshButtonTexture) && ResourceLoader.Load<Texture2D>(RefreshButtonTexture) is { } texture)
+                return new StyleBoxTexture
+                {
+                    Texture = texture,
+                    ModulateColor = color,
+                    ContentMarginLeft = 36, ContentMarginRight = 36, ContentMarginTop = ReloadMarginY, ContentMarginBottom = ReloadMarginY,
+                };
+            return new StyleBoxFlat
+            {
+                BgColor = color,
+                CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+                ContentMarginLeft = 33, ContentMarginRight = 33, ContentMarginTop = 9, ContentMarginBottom = 9,
+            };
+        }
+        try
+        {
+            button.AddThemeStyleboxOverride("normal", Box(1f));
+            button.AddThemeStyleboxOverride("hover", Box(1.25f));
+            button.AddThemeStyleboxOverride("pressed", Box(0.7f));
+            button.AddThemeStyleboxOverride("focus", new StyleBoxEmpty());
+            if (ResourceLoader.Exists(RefreshButtonFont) && ResourceLoader.Load<Font>(RefreshButtonFont) is { } font)
+                button.AddThemeFontOverride("font", font);
+            button.AddThemeFontSizeOverride("font_size", 33);
+            button.AddThemeColorOverride("font_color", StsColors.cream);
+            button.AddThemeColorOverride("font_hover_color", StsColors.gold);
+            button.AddThemeColorOverride("font_pressed_color", StsColors.cream);
+            button.AddThemeColorOverride("font_outline_color", new Color(0.0672f, 0.23389333f, 0.28f));
+            button.AddThemeConstantOverride("outline_size", 11);
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot style the reload button: {e.Message}");
+        }
+    }
+
+    private const int ReloadMarginY = 12;
+
+    /// <summary>Décalage vers le bas de Reload pour l'aligner sur la bannière rouge de Close (mesuré : 8 px).</summary>
+    private const int ReloadDropY = 8;
+
+    private const string RefreshButtonTexture = "res://images/ui/reward_screen/reward_skip_button.png";
+    private const string RefreshButtonFont = "res://themes/kreon_bold_glyph_space_one.tres";
+    private const string BackButtonTexture = "res://images/atlases/ui_atlas.sprites/back_button.tres";
+    private const string BackArrowTexture = "res://images/atlases/compressed_atlas.sprites/back_button_arrow.tres";
 
     private const int CheckBoxSize = 26;
     private static Texture2D? _uncheckedIcon, _checkedIcon;

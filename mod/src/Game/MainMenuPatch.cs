@@ -6,12 +6,12 @@ using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 
 namespace StsTools.Game;
 
-/// <summary>Ajoute un bouton « Run Stats » au menu principal, sous « Compendium ».</summary>
+/// <summary>Ajoute un bouton « Stats » au menu principal, sous « Compendium ».</summary>
 [HarmonyPatch(typeof(NMainMenu), nameof(NMainMenu._Ready))]
 public static class MainMenuPatch
 {
     private const string ButtonName = "StsToolsButton";
-    private const string ButtonText = "Run Stats";
+    private const string ButtonText = "Stats";
 
     // Avant _Ready : le bouton profite ainsi de l'animation de survol branchée par le menu sur tous ses boutons
     public static void Prefix(NMainMenu __instance)

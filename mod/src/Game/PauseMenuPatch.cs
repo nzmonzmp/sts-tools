@@ -7,12 +7,12 @@ using MegaCrit.Sts2.Core.Nodes.Screens.PauseMenu;
 
 namespace StsTools.Game;
 
-/// <summary>Ajoute un bouton « Run Stats » au menu pause, sous « Compendium », avec le style des boutons du menu.</summary>
+/// <summary>Ajoute un bouton « Stats » au menu pause, sous « Compendium », avec le style des boutons du menu.</summary>
 [HarmonyPatch(typeof(NPauseMenu), nameof(NPauseMenu._Ready))]
 public static class PauseMenuPatch
 {
     private const string ButtonName = "StsToolsButton";
-    private const string ButtonText = "Run Stats";
+    private const string ButtonText = "Stats";
 
     // Avant _Ready, comme pour le menu principal : le bouton existe quand le menu se met en place
     public static void Prefix(NPauseMenu __instance)
