@@ -163,7 +163,6 @@ public static class Stats
 
     private static readonly Dictionary<string, (string Order, string Title)> PoolGroups = new()
     {
-        ["COLORLESS"] = ("2", "Colorless"),
         ["EVENT"] = ("4", "Events"),
         ["QUEST"] = ("5", "Quests"),
         ["TOKEN"] = ("6", "Tokens"),
@@ -186,15 +185,16 @@ public static class Stats
             var pool = game.CardPool(card);
             if (pool == null)
                 return null; // carte retirée du jeu
-            if (pool == character)
-                return ("1", $"{game.CharacterName(character)} cards", game.CardName(card));
+            // Cartes du personnage, incolores et des autres personnages dans un même tableau
+            if (pool == character || pool == "COLORLESS")
+                return ("1", "Cards", game.CardName(card));
             if (game.Characters.Contains(pool))
-                return ("3", "Other characters", $"{game.CardName(card)} ({game.CharacterName(pool)})");
+                return ("1", "Cards", $"{game.CardName(card)} ({game.CharacterName(pool)})");
             var (order, title) = PoolGroups.GetValueOrDefault(pool, ("9 " + pool, pool));
             return (order, title, game.CardName(card));
         };
         return ByCharacterChoices("Cards", notes, all, f, game, "Card",
-            r => r.CardChoices(), r => r.DeckCards, group);
+            r => r.CardChoices(), r => r.DeckCards, group, ItemKind.Card);
     }
 
     public static Report Relics(IReadOnlyList<Run> all, Filters f, IGameInfo game)

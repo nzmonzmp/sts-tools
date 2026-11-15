@@ -13,7 +13,7 @@ public sealed record Section(string Title, List<string> Lines, List<Table> Table
 public sealed record Table(string? Title, string[] Headers, List<string[]> Rows, List<ItemRef?>? RowItems = null,
     List<string?>? RowTooltips = null);
 
-public enum ItemKind { Character, Relic, Ancient }
+public enum ItemKind { Character, Relic, Ancient, Card }
 
 /// <summary>Référence à un élément du jeu (personnage, relique) par son identifiant.</summary>
 public sealed record ItemRef(ItemKind Kind, string Id);

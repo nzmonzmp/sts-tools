@@ -1,4 +1,5 @@
 using Godot;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Relics;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Models;
@@ -213,6 +214,13 @@ public sealed class GameInfo : IGameInfo
     }
 
     /// <summary>Couleur du nom du personnage, celle de l'écran Statistiques du jeu ; null si introuvable.</summary>
+    /// <summary>Couleur d'une carte de personnage : celle du nom du personnage ; null pour les autres pools.</summary>
+    public Color? CardColor(string id) =>
+        CardPool(id) is { } pool && Characters.Contains(pool) ? CharacterColor(pool) : null;
+
+    /// <summary>Vrai pour une carte rare (cadre doré dans le jeu).</summary>
+    public bool IsRareCard(string id) => SafeModel<CardModel>("CARD", id)?.Rarity == CardRarity.Rare;
+
     public Color? CharacterColor(string id)
     {
         try

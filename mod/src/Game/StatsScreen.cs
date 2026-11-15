@@ -371,7 +371,11 @@ public sealed class StatsScreen
                 }
                 grid.AddChild(control);
             }
-        _content.AddChild(grid);
+        // Marge à gauche : le contour des cartes rares déborde du texte et serait coupé par la zone de défilement
+        var margin = new MarginContainer();
+        margin.AddThemeConstantOverride("margin_left", 10);
+        margin.AddChild(grid);
+        _content.AddChild(margin);
     }
 
     /// <summary>
@@ -382,6 +386,26 @@ public sealed class StatsScreen
     {
         if (_game == null)
             return label;
+        if (item.Kind == ItemKind.Card)
+        {
+            // Pas d'image : nom dans la couleur du personnage, contour doré pour les cartes rares
+            if (_game.CardColor(item.Id) is { } cardColor)
+                label.AddThemeColorOverride("font_color", cardColor);
+            if (_game.IsRareCard(item.Id))
+            {
+                // Deux bords : un liseré noir d'environ 4 px (le contour), puis un anneau doré d'environ 2,5 px.
+                // Largeur visible du doré = (shadow_outline_size - outline_size) / 2.
+                // Un Label n'a qu'un contour : l'anneau doré est l'ombre, sans décalage, avec son propre contour,
+                // dessinée derrière le contour noir.
+                label.AddThemeColorOverride("font_outline_color", Colors.Black);
+                label.AddThemeConstantOverride("outline_size", 8);
+                label.AddThemeColorOverride("font_shadow_color", StsColors.gold);
+                label.AddThemeConstantOverride("shadow_outline_size", 13);
+                label.AddThemeConstantOverride("shadow_offset_x", 0);
+                label.AddThemeConstantOverride("shadow_offset_y", 0);
+            }
+            return label;
+        }
         var box = new HBoxContainer();
         box.AddThemeConstantOverride("separation", 8);
         var icon = item.Kind switch
