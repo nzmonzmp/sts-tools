@@ -1,0 +1,5 @@
+bin/
+obj/
+dist/
+# chemin du jeu propre à chaque machine
+StsTools.local.props

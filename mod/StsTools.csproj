@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Mod Slay the Spire 2 : DLL chargée par le ModManager du jeu.
+    Le dossier du jeu se règle avec StsDir (ligne de commande, variable d'environnement
+    ou fichier StsTools.local.props, ignoré par git).
+  -->
+  <Import Project="StsTools.local.props" Condition="Exists('StsTools.local.props')" />
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>StsTools</AssemblyName>
+    <RootNamespace>StsTools</RootNamespace>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <DebugType>embedded</DebugType>
+    <StsDir Condition="'$(StsDir)' == ''">$(HOME)/.local/share/Steam/steamapps/common/Slay the Spire 2</StsDir>
+    <StsData>$(StsDir)/data_sts2_linuxbsd_x86_64</StsData>
+    <ModOutDir>$(MSBuildThisFileDirectory)dist/StsTools</ModOutDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="check/**" />
+    <Compile Remove="dist/**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="sts2" HintPath="$(StsData)/sts2.dll" Private="false" />
+    <Reference Include="GodotSharp" HintPath="$(StsData)/GodotSharp.dll" Private="false" />
+    <Reference Include="0Harmony" HintPath="$(StsData)/0Harmony.dll" Private="false" />
+  </ItemGroup>
+
+  <!-- Dossier prêt à copier dans <jeu>/mods/ ou à publier sur le Workshop -->
+  <Target Name="PackageMod" AfterTargets="Build">
+    <MakeDir Directories="$(ModOutDir)" />
+    <Copy SourceFiles="$(TargetPath);StsTools.json" DestinationFolder="$(ModOutDir)" />
+  </Target>
+
+  <!-- dotnet build -t:Install : copie le mod dans le dossier mods du jeu -->
+  <Target Name="Install" DependsOnTargets="Build">
+    <MakeDir Directories="$(StsDir)/mods/StsTools" />
+    <Copy SourceFiles="$(ModOutDir)/StsTools.dll;$(ModOutDir)/StsTools.json" DestinationFolder="$(StsDir)/mods/StsTools" />
+    <Message Importance="high" Text="Mod installé dans $(StsDir)/mods/StsTools" />
+  </Target>
+
+</Project>
