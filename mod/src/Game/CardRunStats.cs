@@ -47,12 +47,17 @@ public sealed class CardRunStats
     public const string Healed = "HP healed";
     public const string EnergyGained = "Energy gained";
     public const string Gold = "Gold gained";
+    // Seulement dans l'onglet Combat : ce que le joueur a reçu, quelle que soit la source
+    public const string DamageTaken = "Damage taken";
+    public const string DamageBlocked = "Damage blocked";
+    public const string OstyTanked = "Tanked by Osty";
     public const string Summoned = "Summoned";
 
     /// <summary>Ordre d'affichage ; les pouvoirs (« Vulnerable applied », « Strength gained »…) viennent après.</summary>
     public static readonly string[] Order =
     [
-        Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, Block, Prevented, Healed, SelfDamage, Energy,
+        Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, DamageTaken, DamageBlocked, OstyTanked, Block, Prevented,
+        Healed, SelfDamage, Energy,
         EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
         CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
     ];
@@ -82,6 +87,9 @@ public sealed class CardRunStats
         [Healed] = "res://images/packed/intents/intent_heal.png",
         [EnergyGained] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
         [Gold] = "res://images/packed/sprite_fonts/gold_icon.png",
+        [DamageTaken] = "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+        [DamageBlocked] = "res://images/ui/combat/block.png",
+        [OstyTanked] = "res://images/atlases/relic_atlas.sprites/ostys_devotion.tres",
         [Summoned] = "res://images/packed/intents/intent_summon.png",
     };
 
@@ -128,11 +136,39 @@ public sealed class CardRunStats
         Values[name] = Values.GetValueOrDefault(name) + amount;
         // Une carte du joueur local : compte aussi pour le combat et le tour en cours (onglet Combat)
         if (_owner != null && _owner == _player)
+            AddToCombat(name, amount);
+    }
+
+    /// <summary>Compte pour le joueur local : combat et tour en cours (onglet Combat), partie entière (onglet Game).</summary>
+    private static void AddToCombat(string name, decimal amount)
+    {
+        if (amount == 0)
+            return;
+        RollTurn();
+        _combat.Values[name] = _combat[name] + amount;
+        _turnStats.Values[name] = _turnStats[name] + amount;
+        _run.Values[name] = _run[name] + amount;
+        Changed?.Invoke();
+    }
+
+    // ---- Partie entière (onglet Game), sauvegardée avec la partie ----
+
+    private static CardRunStats _run = new();
+    private static int _runCombats, _runTurns;
+
+    /// <summary>Stats du joueur local sur toute la partie.</summary>
+    public static CardRunStats RunTotals => _run;
+
+    /// <summary>Combats commencés dans la partie.</summary>
+    public static int RunCombats => _runCombats;
+
+    /// <summary>Tours joués dans la partie, tous combats confondus, le tour en cours compris.</summary>
+    public static int RunTurns
+    {
+        get
         {
             RollTurn();
-            _combat.Values[name] = _combat[name] + amount;
-            _turnStats.Values[name] = _turnStats[name] + amount;
-            Changed?.Invoke();
+            return _runTurns;
         }
     }
 
@@ -166,6 +202,7 @@ public sealed class CardRunStats
         {
             _turn = turn;
             _turnStats = new CardRunStats();
+            _runTurns++;
         }
         _combatTurns = Math.Max(_combatTurns, turn);
     }
@@ -230,7 +267,8 @@ public sealed class CardRunStats
     private sealed record SavedCard(int Index, string Id, string Title, int Combats, Dictionary<string, decimal>? Values,
         // Format de la première version, relu pour ne pas perdre une partie en cours
         int Played = 0, int Damage = 0, int Block = 0, int Drawn = 0);
-    private sealed record SavedRun(string Key, List<SavedCard> Cards, Dictionary<string, string>? Icons = null);
+    private sealed record SavedRun(string Key, List<SavedCard> Cards, Dictionary<string, string>? Icons = null,
+        Dictionary<string, decimal>? RunValues = null, int RunCombats = 0, int RunTurns = 0);
 
     /// <summary>
     /// Début ou reprise d'une partie : retient le joueur local et, si le fichier vient de cette même partie,
@@ -240,6 +278,12 @@ public sealed class CardRunStats
     {
         _player = player;
         _runKey = RunKey(runState);
+        // Nouvelle partie par défaut ; les totaux sont remis plus bas si le fichier vient de cette partie
+        _run = new CardRunStats();
+        _runCombats = _runTurns = 0;
+        _combat = new CardRunStats();
+        _turnStats = new CardRunStats();
+        _turn = _combatTurns = 0;
         try
         {
             if (!File.Exists(FilePath))
@@ -249,6 +293,9 @@ public sealed class CardRunStats
                 return;
             foreach (var (name, path) in saved.Icons ?? [])
                 PowerIcons[name] = path;
+            foreach (var (name, value) in saved.RunValues ?? [])
+                _run.Values[name] = value;
+            (_runCombats, _runTurns) = (saved.RunCombats, saved.RunTurns);
             Restore(PileType.Deck.GetPile(player).Cards, saved.Cards);
         }
         catch (Exception e)
@@ -328,7 +375,7 @@ public sealed class CardRunStats
                 if (Of(deck[i]) is { } s)
                     cards.Add(new SavedCard(i, deck[i].Id.ToString(), deck[i].Title, s.Combats, new(s.Values)));
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedRun(_runKey, cards, new(PowerIcons)), Json));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedRun(_runKey, cards, new(PowerIcons), new(_run.Values), _runCombats, _runTurns), Json));
         }
         catch (Exception e)
         {
@@ -370,6 +417,7 @@ public sealed class CardRunStats
                 _combat = new CardRunStats();
                 _turnStats = new CardRunStats();
                 _turn = _combatTurns = 0;
+                _runCombats++;
                 Changed?.Invoke();
                 foreach (var player in state.Players)
                     foreach (var card in PileType.Deck.GetPile(player).Cards)
@@ -542,6 +590,16 @@ public sealed class CardRunStats
                 return;
 
             case DamageReceivedEntry damage:
+                // Dégâts reçus par le joueur local, de toute source (ennemis, Poison, ses propres cartes) :
+                // PV perdus et dégâts absorbés par son Block
+                if (damage.Receiver.Player is { } hurt && hurt == _player)
+                {
+                    AddToCombat(DamageTaken, damage.Result.UnblockedDamage);
+                    AddToCombat(DamageBlocked, damage.Result.BlockedDamage);
+                }
+                // Dégâts encaissés par le familier du joueur (Osty, Necrobinder) à sa place
+                else if (damage.Receiver.PetOwner is { } owner && owner == _player)
+                    AddToCombat(OstyTanked, damage.Result.TotalDamage);
                 // La carte source, sinon ce qui agit (Poison donné par une carte, carte qui en joue une autre…)
                 RecordModifiers(damage);
                 var source = CreditFor(damage.CardSource) ?? Current;

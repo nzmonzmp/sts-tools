@@ -92,7 +92,7 @@ public sealed class RunPanel
         _panel = new PanelContainer { Name = NodeName, MouseFilter = Control.MouseFilterEnum.Stop };
         // Carte affichée au survol d'un nom de carte, comme dans l'écran Stats ; masquée avec le panneau
         var cardHover = new CardHover(_panel, centerCursor: true);
-        _tabs = [new DeckTab(cardHover), new CombatTab(), new ComingSoonTab("Relics")];
+        _tabs = [new DeckTab(cardHover), new GameTab(), new CombatTab()];
         var saved = SavedSettings.Load();
         _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab));
         _subTabs = new Dictionary<string, string>(saved.RunPanelSubTabs);
@@ -575,15 +575,37 @@ internal sealed class CombatTab : IRunPanelTab
     }
 }
 
-/// <summary>Onglet réservé à une fonctionnalité du TODO pas encore faite.</summary>
-internal sealed class ComingSoonTab(string title) : IRunPanelTab
+/// <summary>
+/// Partie entière : les mêmes stats que l'onglet Combat, sur toute la partie, avec le total, la moyenne par combat
+/// et la moyenne par tour (tous combats confondus).
+/// </summary>
+internal sealed class GameTab : IRunPanelTab
 {
-    public string Title => title;
+    public string Title => "Game";
 
-    public void Subscribe(Player player, Action changed) { }
+    public void Subscribe(Player player, Action changed) => CardRunStats.Changed += changed;
 
-    public void Unsubscribe(Player player, Action changed) { }
+    public void Unsubscribe(Player player, Action changed) => CardRunStats.Changed -= changed;
 
-    public void Fill(VBoxContainer content, Player player, string? subTab) =>
-        content.AddChild(RunPanel.Label("Coming soon.", 18, StsColors.halfTransparentCream));
+    public void Fill(VBoxContainer content, Player player, string? subTab)
+    {
+        var run = CardRunStats.RunTotals;
+        int combats = CardRunStats.RunCombats, turns = CardRunStats.RunTurns;
+        string Format(decimal value) => value.ToString("0.##");
+        var rows = run.DisplayNames()
+            .Select(name => new[]
+            {
+                name, Format(run[name]),
+                combats > 0 ? Format(run[name] / combats) : "-",
+                turns > 0 ? Format(run[name] / turns) : "-",
+            })
+            .ToList();
+        if (rows.Count == 0)
+        {
+            content.AddChild(RunPanel.Label("No stats for this game yet.", 18, StsColors.halfTransparentCream));
+            return;
+        }
+        content.AddChild(RunPanel.Label($"{combats} combats, {turns} turns", 18, StsColors.halfTransparentCream));
+        content.AddChild(StatsTable.Create([["", "Total", "Per combat", "Per turn"], .. rows]));
+    }
 }
