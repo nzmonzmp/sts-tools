@@ -285,8 +285,8 @@ public sealed class StatsScreen
         // Positions fiables seulement après la première mise en page
         _root.GetTree().CreateTimer(0).Timeout += Place;
         // Loupe centrée sur le pointeur tant que l'écran est ouvert ; curseur du jeu rétabli à la fermeture
-        SetInspectCursorHotSpot(InspectLensCenter);
-        _layer.TreeExiting += () => SetInspectCursorHotSpot(GameInspectHotSpot);
+        InspectCursor.CenterOnLens();
+        _layer.TreeExiting += InspectCursor.Restore;
         Load();
         Refresh();
         _root.CallDeferred(Control.MethodName.GrabFocus);
@@ -447,28 +447,6 @@ public sealed class StatsScreen
                 check.AddThemeColorOverride("font_pressed_color", StsColors.cream);
                 check.AddThemeColorOverride("font_hover_pressed_color", StsColors.gold);
                 break;
-        }
-    }
-
-    private const string InspectCursorPath = "res://images/packed/common_ui/cursor_inspect.png";
-
-    /// <summary>Point actif du curseur loupe dans le jeu (NCursorManager._inspectHotSpot) : bord de l'anneau.</summary>
-    private static readonly Vector2 GameInspectHotSpot = new(12, 12);
-
-    /// <summary>Centre du verre dans l'image 64 × 64 du curseur loupe (anneau doré de x = 5 à 40, y = 6 à 41).</summary>
-    private static readonly Vector2 InspectLensCenter = new(22, 23);
-
-    /// <summary>Réapplique l'image du curseur loupe du jeu avec un autre point actif.</summary>
-    private static void SetInspectCursorHotSpot(Vector2 hotSpot)
-    {
-        try
-        {
-            if (ResourceLoader.Load<Image>(InspectCursorPath) is { } image)
-                Input.SetCustomMouseCursor(image, Input.CursorShape.Help, hotSpot);
-        }
-        catch (Exception e)
-        {
-            Log.Warn($"[{ModEntry.Id}] cannot set the inspect cursor: {e.Message}");
         }
     }
 

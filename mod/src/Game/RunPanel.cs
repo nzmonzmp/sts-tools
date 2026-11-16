@@ -56,7 +56,8 @@ public sealed class RunPanel
     private readonly List<Button> _subTabButtons = [];
     /// <summary>Sous-onglet choisi dans chaque onglet, par titre d'onglet</summary>
     private readonly Dictionary<string, string> _subTabs;
-    private readonly Action _changed;
+    /// <summary>Par onglet : redessine le panneau si c'est l'onglet affiché qui a changé</summary>
+    private readonly Action[] _changed;
     private int _tab;
 
     /// <summary>Crée le panneau dans la barre du haut d'une partie, fermé ou ouvert selon le dernier état.</summary>
@@ -90,12 +91,17 @@ public sealed class RunPanel
         _player = player;
         _panel = new PanelContainer { Name = NodeName, MouseFilter = Control.MouseFilterEnum.Stop };
         // Carte affichée au survol d'un nom de carte, comme dans l'écran Stats ; masquée avec le panneau
-        var cardHover = new CardHover(_panel);
-        _tabs = [new DeckTab(cardHover), new ComingSoonTab("Combat"), new ComingSoonTab("Relics")];
+        var cardHover = new CardHover(_panel, centerCursor: true);
+        _tabs = [new DeckTab(cardHover), new CombatTab(), new ComingSoonTab("Relics")];
         var saved = SavedSettings.Load();
         _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab));
         _subTabs = new Dictionary<string, string>(saved.RunPanelSubTabs);
-        _changed = OnChanged;
+        _changed = _tabs.Select((_, i) => (Action)(() =>
+        {
+            // Pas de redessin pour un autre onglet : il ferait disparaître la carte survolée dans l'onglet affiché
+            if (_tab == i)
+                OnChanged();
+        })).ToArray();
 
         var theme = new Theme { DefaultFontSize = 20 };
         if (ResourceLoader.Exists(FontPath) && ResourceLoader.Load<Font>(FontPath) is { } font)
@@ -162,12 +168,12 @@ public sealed class RunPanel
         topBar.AddChild(_panel);
         topBar.MoveChild(_panel, 0);
 
-        foreach (var tab in _tabs)
-            tab.Subscribe(_player, _changed);
+        for (int i = 0; i < _tabs.Length; i++)
+            _tabs[i].Subscribe(_player, _changed[i]);
         _panel.TreeExiting += () =>
         {
-            foreach (var tab in _tabs)
-                tab.Unsubscribe(_player, _changed);
+            for (int i = 0; i < _tabs.Length; i++)
+                _tabs[i].Unsubscribe(_player, _changed[i]);
             if (_current == this)
                 _current = null;
         };
@@ -246,11 +252,18 @@ public sealed class RunPanel
     /// <summary>Les stats ont changé : redessine si le panneau est ouvert (sinon, ce sera fait à l'ouverture).</summary>
     private void OnChanged()
     {
-        if (!GodotObject.IsInstanceValid(_panel))
+        if (!GodotObject.IsInstanceValid(_panel) || !_panel.Visible || _refreshQueued)
             return;
-        if (_panel.Visible)
-            Callable.From(Refresh).CallDeferred();
+        // Un seul redessin par image, même si beaucoup de stats changent d'un coup (une attaque sur tous les ennemis)
+        _refreshQueued = true;
+        Callable.From(() =>
+        {
+            _refreshQueued = false;
+            Refresh();
+        }).CallDeferred();
     }
+
+    private bool _refreshQueued;
 
     private void Refresh()
     {
@@ -394,7 +407,7 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
 
     public string Title => "Deck";
 
-    public string[] SubTabs => ["Types", "Cards"];
+    public string[] SubTabs => ["Stats", "Cards"];
 
     public void Subscribe(Player player, Action changed) => PileType.Deck.GetPile(player).ContentsChanged += changed;
 
@@ -407,20 +420,30 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
         if (subTab == "Cards")
             FillCards(content, cards, cardHover);
         else
-            FillTypes(content, cards);
+            FillStats(content, cards, player.Relics);
     }
 
-    /// <summary>Une ligne par type, « Attacks : 12 (48%) », dans la couleur du type.</summary>
-    private static void FillTypes(VBoxContainer content, IReadOnlyList<CardModel> cards)
+    /// <summary>Nombre de cartes du deck par type et par effet (Block, dégâts, pioche, pouvoirs…), zéros compris.</summary>
+    private static void FillStats(VBoxContainer content, IReadOnlyList<CardModel> cards, IReadOnlyList<RelicModel> relics)
     {
-        foreach (var (type, name, color) in Types)
+        var rows = DeckStats.Compute(cards, relics);
+        // Première ligne : en-têtes ; puis chaque groupe sous son titre. Relics et Total : effets et pouvoirs seulement
+        List<string[]> table = [["", "Cards", "Relics", "Total"]];
+        // Lignes dont toutes les colonnes sont à 0 masquées, et les groupes vides avec elles
+        var shown = rows.Where(r => r.Count != 0 || (r.Relics ?? 0) != 0 || (r.Total ?? 0) != 0);
+        foreach (var group in shown.GroupBy(r => r.Group))
         {
-            int count = cards.Count(c => c.Type == type);
-            if (count == 0 && type is not (CardType.Attack or CardType.Skill or CardType.Power))
-                continue;
-            float share = cards.Count > 0 ? (float)count / cards.Count : 0;
-            content.AddChild(RunPanel.Label($"{name} : {count} ({share:P0})", 20, color));
+            table.Add([group.Key]);
+            // Total « - » quand aucune carte n'a l'effet (ligne affichée pour une relique seulement)
+            table.AddRange(group.Select(r => new[]
+            {
+                r.Name, r.Count.ToString(), r.Relics?.ToString() ?? "",
+                r.Total == null ? "" : r.Count == 0 ? "-" : r.Total.Value.ToString("0.##"),
+            }));
         }
+        // Lignes des types dans la couleur du type, comme dans Cards
+        content.AddChild(StatsTable.Create(table, name => DeckStats.IconFor(rows, name),
+            name => Array.Find(Types, t => t.Name == name) is { Name: not null } t ? t.Color : null));
     }
 
     /// <summary>
@@ -450,12 +473,36 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
                 row.AddChild(RunPanel.Label($"{group.Count()}× {group.Key.Title}", 18, color));
                 if (card.Enchantment is { } enchantment)
                     AddEnchantmentIcon(row, enchantment);
-                // La carte du deck elle-même : améliorations et enchantements de la partie compris
-                cardHover.Attach(row, card);
+                // La carte du deck elle-même : améliorations et enchantements de la partie compris ;
+                // à côté, les stats de la partie pour toutes les copies de la ligne
+                var copies = group.ToList();
+                cardHover.Attach(row, card, () => StatsRows(CardRunStats.Sum(copies), copies.Count));
                 list.AddChild(row);
             }
         }
         content.AddChild(list);
+    }
+
+    /// <summary>
+    /// Stats de la partie affichées au survol d'une ligne de cartes : pour chaque stat, le total de la partie, la
+    /// moyenne par combat, et l'apport moyen par combat d'une seule carte (total ÷ combats ÷ copies de la ligne).
+    /// Les stats à zéro ne sont pas affichées.
+    /// </summary>
+    private static IEnumerable<string[]> StatsRows(CardRunStats s, int copies)
+    {
+        string Format(decimal value) => value.ToString("0.##");
+        string PerCombat(decimal total) => s.Combats > 0 ? Format(total / s.Combats) : "-";
+        string PerCard(decimal total) => s.Combats > 0 && copies > 0 ? Format(total / s.Combats / copies) : "-";
+
+        // Seulement les stats non nulles ; aucune : pas de tableau, la carte s'affiche seule
+        var rows = s.DisplayNames()
+            .Select(name => new[] { name, Format(s[name]), PerCombat(s[name]), PerCard(s[name]) })
+            .ToList();
+        if (rows.Count == 0)
+            yield break;
+        yield return ["", "Total", "Per combat", "Per card"];
+        foreach (var row in rows)
+            yield return row;
     }
 
     private static string EnchantmentKey(CardModel card) =>
@@ -492,6 +539,37 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
 
     private static Color TypeColor(CardType type) =>
         Array.Find(Types, t => t.Type == type) is { Name: not null } t ? t.Color : StsColors.cream;
+}
+
+/// <summary>
+/// Combat en cours : les mêmes stats que pour une carte, pour toutes les cartes du joueur ensemble, avec le
+/// total du combat, le tour en cours et la moyenne par tour.
+/// </summary>
+internal sealed class CombatTab : IRunPanelTab
+{
+    public string Title => "Combat";
+
+    public void Subscribe(Player player, Action changed) => CardRunStats.Changed += changed;
+
+    public void Unsubscribe(Player player, Action changed) => CardRunStats.Changed -= changed;
+
+    public void Fill(VBoxContainer content, Player player, string? subTab)
+    {
+        var combat = CardRunStats.CombatTotals;
+        var turn = CardRunStats.TurnTotals;
+        int turns = CardRunStats.CombatTurns;
+        string Format(decimal value) => value.ToString("0.##");
+        var rows = combat.DisplayNames()
+            .Select(name => new[] { name, Format(combat[name]), Format(turn[name]), turns > 0 ? Format(combat[name] / turns) : "-" })
+            .ToList();
+        if (rows.Count == 0)
+        {
+            content.AddChild(RunPanel.Label("No stats for this combat yet.", 18, StsColors.halfTransparentCream));
+            return;
+        }
+        content.AddChild(RunPanel.Label(turns > 0 ? $"Turn {turns}" : "Last combat", 18, StsColors.halfTransparentCream));
+        content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows]));
+    }
 }
 
 /// <summary>Onglet réservé à une fonctionnalité du TODO pas encore faite.</summary>

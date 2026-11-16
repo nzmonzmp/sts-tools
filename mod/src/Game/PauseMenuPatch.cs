@@ -11,7 +11,7 @@ namespace StsTools.Game;
 [HarmonyPatch(typeof(NPauseMenu), nameof(NPauseMenu._Ready))]
 public static class PauseMenuPatch
 {
-    private const string ButtonName = "StsToolsButton";
+    internal const string ButtonName = "StsToolsButton";
     private const string ButtonText = "Stats";
 
     // Avant _Ready, comme pour le menu principal : le bouton existe quand le menu se met en place
@@ -71,6 +71,26 @@ public static class PauseMenuPatch
         {
             visible[i].FocusNeighborTop = visible[(i - 1 + visible.Count) % visible.Count].GetPath();
             visible[i].FocusNeighborBottom = visible[(i + 1) % visible.Count].GetPath();
+        }
+    }
+}
+
+/// <summary>
+/// « Save and Quit » grise tous les boutons du menu pause qu'il connaît ; on grise aussi le nôtre, sinon il reste
+/// seul allumé pendant le retour au menu principal.
+/// </summary>
+[HarmonyPatch(typeof(NPauseMenu), "OnSaveAndQuitButtonPressed")]
+public static class PauseMenuSaveAndQuitPatch
+{
+    public static void Postfix(NPauseMenu __instance)
+    {
+        try
+        {
+            __instance.GetNode<Control>("%ButtonContainer").GetNodeOrNull<NPauseMenuButton>(PauseMenuPatch.ButtonName)?.Disable();
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot disable the pause menu button: {e.Message}");
         }
     }
 }

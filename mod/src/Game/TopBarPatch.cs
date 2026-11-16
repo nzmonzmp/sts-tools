@@ -25,6 +25,7 @@ public static class TopBarPatch
             var player = LocalContext.GetMe(runState);
             if (player == null)
                 return;
+            CardRunStats.Track(runState, player);
             AddButton(__instance);
             RunPanel.Attach(__instance, player);
         }
