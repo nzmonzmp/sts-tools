@@ -5,6 +5,10 @@ using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Combat.History;
 using MegaCrit.Sts2.Core.Combat.History.Entries;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Hooks;
+using MegaCrit.Sts2.Core.ValueProps;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Logging;
@@ -38,12 +42,18 @@ public sealed class CardRunStats
     public const string StarsSpent = "Stars spent";
     public const string StarsGained = "Stars gained";
     public const string Orbs = "Orbs channeled";
+    public const string BonusDamage = "Bonus damage";
+    public const string Prevented = "Damage prevented";
+    public const string Healed = "HP healed";
+    public const string EnergyGained = "Energy gained";
+    public const string Gold = "Gold gained";
     public const string Summoned = "Summoned";
 
     /// <summary>Ordre d'affichage ; les pouvoirs (« Vulnerable applied », « Strength gained »…) viennent après.</summary>
     public static readonly string[] Order =
     [
-        Played, AutoPlayed, CardsPlayed, Damage, Kills, Block, SelfDamage, Energy, StarsSpent, StarsGained, Drawn, CardsDrawn,
+        Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, Block, Prevented, Healed, SelfDamage, Energy,
+        EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
         CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
     ];
 
@@ -67,6 +77,11 @@ public sealed class CardRunStats
         [CardsCreated] = "res://images/packed/sprite_fonts/card_icon.png",
         [Exhausted] = "res://images/packed/combat_ui/exhaust_pile.png",
         [Orbs] = "res://images/orbs/empty_orb.png",
+        [BonusDamage] = "res://images/atlases/power_atlas.sprites/strength_power.tres",
+        [Prevented] = "res://images/packed/intents/intent_defend.png",
+        [Healed] = "res://images/packed/intents/intent_heal.png",
+        [EnergyGained] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
+        [Gold] = "res://images/packed/sprite_fonts/gold_icon.png",
         [Summoned] = "res://images/packed/intents/intent_summon.png",
     };
 
@@ -350,6 +365,7 @@ public sealed class CardRunStats
             try
             {
                 _frames.Clear();
+                _pendingHits.Clear();
                 _pendingEnergy = _pendingStars = 0;
                 _combat = new CardRunStats();
                 _turnStats = new CardRunStats();
@@ -383,25 +399,46 @@ public sealed class CardRunStats
     private static readonly List<Frame> _frames = [];
 
     /// <summary>
-    /// Pouvoir → carte qui l'a donné (Demon Form, Poison…) : ses effets des tours suivants comptent pour la carte.
-    /// Un pouvoir déjà présent qu'une autre carte renforce passe à cette dernière.
+    /// Pouvoir → cartes qui l'ont donné, avec la quantité donnée par chacune (Poison posé par deux cartes) : ses
+    /// effets des tours suivants sont partagés entre elles au prorata.
     /// </summary>
-    private static readonly ConditionalWeakTable<PowerModel, CardRunStats> PowerSources = new();
+    private static readonly ConditionalWeakTable<PowerModel, Dictionary<CardRunStats, decimal>> PowerSources = new();
+
+    /// <summary>
+    /// Cartes à qui revient un effet, avec leur part (somme 1) : une seule carte, ou les cartes qui ont donné le
+    /// pouvoir qui agit.
+    /// </summary>
+    private sealed class Credit(IReadOnlyList<(CardRunStats Stats, decimal Share)> shares)
+    {
+        public IReadOnlyList<(CardRunStats Stats, decimal Share)> Shares { get; } = shares;
+
+        public static Credit One(CardRunStats stats) => new([(stats, 1m)]);
+
+        public void Add(string name, decimal amount)
+        {
+            foreach (var (stats, share) in Shares)
+                stats.Add(name, amount * share);
+        }
+    }
+
+    private static Credit? CreditFor(CardModel? card) => For(card) is { } stats ? Credit.One(stats) : null;
 
     /// <summary>Énergie et étoiles dépensées juste avant le début du jeu d'une carte : c'est son coût.</summary>
     private static decimal _pendingEnergy, _pendingStars;
 
     /// <summary>Carte à qui revient ce qui se passe maintenant ; calculée seulement quand un événement arrive.</summary>
-    private static CardRunStats? Current => _frames.Count == 0 ? null
-        : _frames[^1].PlayedCard is { } played ? For(played)
-        : _frames[^1].Listener is { } listener ? StatsOf(listener)
+    private static Credit? Current => _frames.Count == 0 ? null
+        : _frames[^1].PlayedCard is { } played ? CreditFor(played)
+        : _frames[^1].Listener is { } listener ? CreditOf(listener)
         : null;
 
-    /// <summary>Carte du deck à qui reviennent les effets d'un écouteur du jeu (pouvoir donné par une carte, carte).</summary>
-    private static CardRunStats? StatsOf(AbstractModel model) => model switch
+    /// <summary>Cartes du deck à qui reviennent les effets d'un écouteur du jeu (pouvoir donné par des cartes, carte).</summary>
+    private static Credit? CreditOf(AbstractModel model) => model switch
     {
-        PowerModel power => PowerSources.TryGetValue(power, out var stats) ? stats : null,
-        CardModel card => For(card),
+        PowerModel power => PowerSources.TryGetValue(power, out var sources) && sources.Count > 0
+            ? new Credit(sources.Select(s => (s.Key, s.Value / sources.Values.Sum())).ToList())
+            : null,
+        CardModel card => CreditFor(card),
         _ => null,
     };
 
@@ -483,7 +520,7 @@ public sealed class CardRunStats
                     Current?.Add(CardsPlayed, 1);
                 _frames.Add(new Frame { PlayedCard = start.CardPlay.Card });
                 // Une carte rejouée (double jeu) n'a pas de coût de plus
-                if (start.CardPlay.IsFirstInSeries && For(start.CardPlay.Card) is { } payer)
+                if (start.CardPlay.IsFirstInSeries && CreditFor(start.CardPlay.Card) is { } payer)
                 {
                     payer.Add(Energy, _pendingEnergy);
                     payer.Add(StarsSpent, _pendingStars);
@@ -495,7 +532,7 @@ public sealed class CardRunStats
                 if (index >= 0)
                     _frames.RemoveAt(index);
                 // Une carte rejouée ne compte qu'une fois
-                if (finish.CardPlay.IsFirstInSeries && For(finish.CardPlay.Card) is { } played)
+                if (finish.CardPlay.IsFirstInSeries && CreditFor(finish.CardPlay.Card) is { } played)
                 {
                     played.Add(Played, 1);
                     // Parmi ses jeux, ceux qui ne venaient pas du joueur
@@ -506,7 +543,8 @@ public sealed class CardRunStats
 
             case DamageReceivedEntry damage:
                 // La carte source, sinon ce qui agit (Poison donné par une carte, carte qui en joue une autre…)
-                var source = For(damage.CardSource) ?? Current;
+                RecordModifiers(damage);
+                var source = CreditFor(damage.CardSource) ?? Current;
                 if (source == null)
                     return;
                 if (damage.Receiver.IsEnemy)
@@ -521,7 +559,7 @@ public sealed class CardRunStats
                     source.Add(SelfDamage, damage.Result.UnblockedDamage);
                 return;
             case BlockGainedEntry block:
-                (For(block.CardPlay?.Card) ?? Current)?.Add(Block, block.Amount);
+                (CreditFor(block.CardPlay?.Card) ?? Current)?.Add(Block, block.Amount);
                 return;
 
             case CardDrawnEntry drawn:
@@ -558,9 +596,132 @@ public sealed class CardRunStats
                 var name = power.Power.Owner.IsEnemy ? $"{title} applied" : $"{title} gained";
                 PowerIcons[name] = power.Power.IconPath;
                 current.Add(name, power.Amount);
-                // Les effets futurs de ce pouvoir reviendront à la carte
-                PowerSources.AddOrUpdate(power.Power, current);
+                // Les effets futurs de ce pouvoir reviendront aux cartes qui l'ont donné, au prorata
+                var sources = PowerSources.GetOrCreateValue(power.Power);
+                foreach (var (stats, share) in current.Shares)
+                    sources[stats] = sources.GetValueOrDefault(stats) + power.Amount * share;
                 return;
+        }
+    }
+
+    // ---- Dégâts bonus et dégâts évités (Force, Vulnerable, Weak…) ----
+
+    /// <summary>Paramètres du dernier calcul de dégâts du jeu, et ceux des coups réels en attente, par cible.</summary>
+    private sealed record DamageCalc(IRunState RunState, ICombatState? CombatState, Creature? Target, Creature? Dealer,
+        decimal Damage, ValueProp Props, CardModel? CardSource, CardPlay? CardPlay, ModifyDamageHookType HookType);
+
+    private static DamageCalc? _lastCalc;
+    private static readonly Dictionary<Creature, DamageCalc> _pendingHits = new();
+
+    /// <summary>
+    /// Le jeu calcule les dégâts d'un coup (et aussi ceux affichés sur les cartes et les intentions) : on retient
+    /// seulement les paramètres, le calcul détaillé ne sera refait que pour un vrai coup.
+    /// </summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.ModifyDamage))]
+    public static class ModifyDamagePatch
+    {
+        public static void Postfix(IRunState runState, ICombatState? combatState, Creature? target, Creature? dealer,
+            decimal damage, ValueProp props, CardModel? cardSource, CardPlay? cardPlay, ModifyDamageHookType modifyDamageHookType,
+            CardPreviewMode previewMode)
+        {
+            if (previewMode == CardPreviewMode.None)
+                _lastCalc = new DamageCalc(runState, combatState, target, dealer, damage, props, cardSource, cardPlay, modifyDamageHookType);
+        }
+    }
+
+    /// <summary>Appelé seulement pour un vrai coup, juste après son calcul : le dernier calcul est celui-là.</summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterModifyingDamageAmount))]
+    public static class RealHitPatch
+    {
+        public static void Prefix()
+        {
+            if (_lastCalc is { Target: { } target } calc)
+                _pendingHits[target] = calc;
+            _lastCalc = null;
+        }
+    }
+
+    /// <summary>
+    /// Coup reçu : refait le calcul de ses dégâts écouteur par écouteur, comme le jeu, pour savoir ce que chacun a
+    /// ajouté ou retiré. Ce qu'un pouvoir donné par une carte a ajouté aux coups de son camp compte comme dégâts
+    /// bonus pour la carte (Force, Vulnerable) ; ce qu'il a retiré aux coups ennemis, comme dégâts évités (Weak).
+    /// </summary>
+    private static void RecordModifiers(DamageReceivedEntry damage)
+    {
+        var target = damage.Result.OriginalTarget ?? damage.Receiver;
+        if (!_pendingHits.Remove(target, out var calc))
+            return;
+        var changes = new List<(AbstractModel Model, decimal Delta)>();
+        decimal amount = calc.Damage;
+        if (calc.HookType.HasFlag(ModifyDamageHookType.Additive))
+            foreach (var model in calc.RunState.IterateHookListeners(calc.CombatState))
+            {
+                decimal delta = model.ModifyDamageAdditive(calc.Target, amount, calc.Props, calc.Dealer, calc.CardSource, calc.CardPlay);
+                if (delta != 0)
+                    changes.Add((model, delta));
+                amount += delta;
+            }
+        if (calc.HookType.HasFlag(ModifyDamageHookType.Multiplicative))
+        {
+            foreach (var model in calc.RunState.IterateHookListeners(calc.CombatState))
+            {
+                decimal factor = model.ModifyDamageMultiplicative(calc.Target, amount, calc.Props, calc.Dealer, calc.CardSource, calc.CardPlay);
+                if (factor != 1)
+                    changes.Add((model, amount * (factor - 1)));
+                amount *= factor;
+            }
+            foreach (var model in calc.RunState.IterateHookListeners(calc.CombatState))
+            {
+                decimal factor = model.ModifyDamageMultiplicativeLate(calc.Target, amount, calc.Props, calc.Dealer, calc.CardSource, calc.CardPlay);
+                if (factor != 1)
+                    changes.Add((model, amount * (factor - 1)));
+                amount *= factor;
+            }
+        }
+        bool enemyHit = calc.Dealer is { IsEnemy: true };
+        // Un coup qui a fait moins que prévu (cible morte avant la fin) : les bonus sont réduits d'autant
+        decimal dealt = damage.Result.TotalDamage;
+        decimal ratio = amount > 0 ? Math.Min(1, dealt / amount) : 0;
+        foreach (var (model, delta) in changes)
+        {
+            if (CreditOf(model) is not { } credit)
+                continue;
+            if (delta > 0 && !enemyHit && damage.Receiver.IsEnemy)
+                credit.Add(BonusDamage, Math.Round(delta * ratio, 2));
+            else if (delta < 0 && enemyHit && !damage.Receiver.IsEnemy)
+                credit.Add(Prevented, -delta);
+        }
+    }
+
+    // ---- Ce que l'historique de combat ne note pas : soins, énergie gagnée, or ----
+
+    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.Heal))]
+    public static class HealPatch
+    {
+        public static void Prefix(Creature creature, decimal amount)
+        {
+            if (creature is { IsEnemy: false } && Current is { } credit)
+                credit.Add(Healed, Math.Max(0, Math.Min(amount, creature.MaxHp - creature.CurrentHp)));
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerCmd), nameof(PlayerCmd.GainEnergy))]
+    public static class EnergyPatch
+    {
+        public static void Prefix(decimal amount)
+        {
+            if (amount > 0)
+                Current?.Add(EnergyGained, amount);
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerCmd), nameof(PlayerCmd.GainGold))]
+    public static class GoldPatch
+    {
+        public static void Prefix(decimal amount)
+        {
+            if (amount > 0)
+                Current?.Add(Gold, amount);
         }
     }
 

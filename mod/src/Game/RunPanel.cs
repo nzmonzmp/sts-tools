@@ -438,7 +438,10 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
             table.AddRange(group.Select(r => new[]
             {
                 r.Name, r.Count.ToString(), r.Relics?.ToString() ?? "",
-                r.Total == null ? "" : r.Count == 0 ? "-" : r.Total.Value.ToString("0.##"),
+                // « 38+ » : total minimum, certaines cartes n'ont pas de valeur fixe ; « ? » : aucune n'en a
+                r.Total == null ? "" : r.Count == 0 ? "-"
+                    : r.Approx && r.Total == 0 ? "?"
+                    : r.Total.Value.ToString("0.##") + (r.Approx ? "+" : ""),
             }));
         }
         // Lignes des types dans la couleur du type, comme dans Cards

@@ -1,10 +1,14 @@
 # À faire
 
-## Stats du deck en temps réel, pendant une partie
+## Stats des cartes (panneau Run stats)
 
-Afficher, pendant une partie en cours, les statistiques des cartes du deck actuel.
+Fait : survol d'une carte dans Deck › Cards (total, par combat, par carte), dégâts bonus et dégâts évités
+grâce aux pouvoirs donnés, effets partagés entre les cartes qui renforcent un même pouvoir, soins, énergie
+et or gagnés ; Deck › Stats d'après le code des cartes (types, mots-clés, effets, pouvoirs, reliques et
+total) ; sauvegarde avec la partie.
 
-- Mettre en avant le Block : part des cartes du deck qui donnent du Block.
+- Deck › Stats : les totaux restent des minimums (« 38+ ») pour les cartes sans valeur fixe (valeur calculée
+  en combat, coût X, effet sans valeur) ; les reliques sont comptées d'après leurs valeurs, pas leur code.
 
 ## Stats des reliques
 
@@ -19,26 +23,36 @@ Afficher, pendant une partie en cours, les statistiques des cartes du deck actue
 
 ## Stats de combat
 
-- Suivi en temps réel : dégâts infligés, subis et bloqués, tours joués, cartes jouées, ennemis tués.
+Fait : onglet Combat (total du combat, ce tour, par tour) avec les mêmes stats que les cartes, pour
+les cartes du joueur.
+
+- Ajouter les dégâts subis et les dégâts bloqués.
 - Contribution indirecte : dégâts bonus des débuffs et de la Force donnée aux alliés, dégâts évités
-  grâce à Weak, soins, cartes créées, survies de justesse.
+  grâce à Weak, soins, survies de justesse.
 - Onglet Support : énergie, cartes, block, buffs et pioches donnés aux alliés, PV qui leur ont été
   rendus.
 
 ## Sauvegarde et historique
 
-- Sauvegarder les stats avec la run et les restaurer quand on la reprend.
+Fait : les stats des cartes sont sauvegardées avec la partie et restaurées quand on la reprend.
+
+- Sauvegarder aussi les stats du combat en cours (onglet Combat).
 - Historique des runs passées : filtres, tri, et récapitulatif rouvrable, decks compris.
 
 ## Multijoueur
 
 - Afficher les mêmes stats en temps réel pour les decks des coéquipiers.
 - Ajouter les dégâts subis et infligés par chaque joueur.
-- Séparer toutes les stats par joueur et afficher les totaux de l'équipe.
+- Séparer toutes les stats par joueur et afficher les totaux de l'équipe (l'onglet Combat ne compte
+  que les cartes du joueur local).
 - Fonctionner côté client uniquement : un seul joueur a besoin du mod en coop.
 
-## Pistes dans le code du jeu (non vérifiées)
+## Repères dans le code du jeu (utilisés par le mod)
 
-- `MegaCrit.Sts2.Core.Modding.ModHelper` : `SubscribeForRunStateHooks` et `SubscribeForCombatStateHooks`,
-  pour suivre la partie et les combats en cours.
-- `MegaCrit.Sts2.Core.Combat.History` et ses `Entries` : historique d'un combat, peut-être les dégâts.
+- `CombatHistory.Add` (privée) : chaque événement d'un combat (carte jouée, piochée, dégâts, Block,
+  pouvoirs…), patchée par `CardRunStats`.
+- `CardModel.DeckVersion` : relie une carte de combat à sa carte du deck.
+- `CombatState.IterateHookListeners` et `RunState.IterateHookListeners` : le jeu exécute chaque effet
+  (pouvoir, relique, carte) en parcourant ces listes ; les envelopper dit qui agit à chaque instant.
+  Même méthode possible pour les stats des reliques (écouteur `RelicModel`).
+- `SaveManager.SaveRun` : moment où le jeu sauvegarde la partie.

@@ -16,8 +16,10 @@ public static class DeckStats
     /// <summary>
     /// Une ligne : groupe, nom, nombre de cartes du deck, nombre de reliques et total de l'effet sur les cartes du
     /// deck (ces deux-là pour les effets et pouvoirs seulement), chemin de l'icône dans les images du jeu.
+    /// Approx : certaines cartes comptées n'ont pas de valeur fixe (effet seulement dans le code, valeur calculée en
+    /// combat, coût X) ; le total est alors un minimum.
     /// </summary>
-    public sealed record Row(string Group, string Name, int Count, int? Relics, decimal? Total, string? Icon);
+    public sealed record Row(string Group, string Name, int Count, int? Relics, decimal? Total, string? Icon, bool Approx = false);
 
     private const string Sprites = "res://images/packed/sprite_fonts/";
     private const string Powers = "res://images/atlases/power_atlas.sprites/";
@@ -34,15 +36,30 @@ public static class DeckStats
         void Add(string name, Func<CardModel, bool> test, string? icon) =>
             rows.Add(new Row(group, name, cards.Count(test), null, null, icon));
 
-        // Effet d'une valeur de la carte : nombre de cartes qui l'ont, nombre de reliques qui l'ont, et somme de
-        // cette valeur sur les cartes du deck (dégâts multipliés par le nombre de coups). Plusieurs types possibles,
-        // par ordre de préférence.
-        void AddEffect(string name, Type[] types, string? icon, bool timesHits = false)
+        // Effet : une carte compte si son code appelle la commande du jeu correspondante ou, sauf pour codeOnly, si
+        // elle a une valeur de ce type (si son code n'a pas pu être lu, la valeur suffit toujours). Total : somme des
+        // valeurs des cartes comptées (dégâts multipliés par le nombre de coups), approximatif si certaines n'en ont
+        // pas de fixe. Reliques : celles qui ont une valeur de ce type.
+        void AddEffect(string name, Type[] types, string[] commands, string? icon, bool timesHits = false, bool codeOnly = false)
         {
-            var values = cards.Select(c => Value(c.DynamicVars, types) * (timesHits ? Hits(c.DynamicVars) : 1))
-                .Where(v => v != null).ToList();
+            int count = 0;
+            decimal total = 0;
+            bool approx = false;
+            foreach (var card in cards)
+            {
+                var value = Value(card.DynamicVars, types);
+                bool calls = CardCode.Calls(card, commands);
+                bool counted = calls || value != null && (!codeOnly || !CardCode.Of(card).Readable);
+                if (!counted)
+                    continue;
+                count++;
+                if (value != null)
+                    total += value.Value * (timesHits ? Hits(card.DynamicVars) : 1);
+                if (value == null || IsCalculated(card.DynamicVars, types) || card.EnergyCost.CostsX)
+                    approx = true;
+            }
             int relicCount = relics.Count(r => Value(r.DynamicVars, types) != null);
-            rows.Add(new Row(group, name, values.Count, relicCount, values.Sum(v => v!.Value), icon));
+            rows.Add(new Row(group, name, count, relicCount, total, icon, approx));
         }
 
         group = "Card types";
@@ -63,31 +80,39 @@ public static class DeckStats
         Add("Unplayable", c => c.Keywords.Contains(CardKeyword.Unplayable), "res://images/packed/common_ui/card/card_unplayable_icon.png");
         Add("X cost", c => c.EnergyCost.CostsX, Relics + "chemical_x.tres");
 
-        // Effets, d'après les valeurs de la carte
+        // Effets, d'après le code et les valeurs de la carte
         group = "Effects";
         AddEffect("Damage", [typeof(DamageVar), typeof(OstyDamageVar), typeof(CalculatedDamageVar), typeof(ExtraDamageVar)],
-            "res://images/packed/intents/attack/intent_attack_1.png", timesHits: true);
-        AddEffect("Block", [typeof(BlockVar), typeof(CalculatedBlockVar)], "res://images/ui/combat/block.png");
-        // Valeur « Cards » : pioche le plus souvent (parfois cartes à défausser, à créer…)
-        AddEffect("Draw", [typeof(CardsVar)], "res://images/packed/combat_ui/draw_pile.png");
-        AddEffect("Energy", [typeof(EnergyVar)], Sprites + "colorless_energy_icon.png");
-        AddEffect("Stars", [typeof(StarsVar)], Sprites + "star_icon.png");
-        AddEffect("Heal", [typeof(HealVar)], "res://images/packed/intents/intent_heal.png");
-        AddEffect("HP loss", [typeof(HpLossVar)], "res://images/packed/common_ui/top_bar/top_bar_heart.png");
-        AddEffect("Summon", [typeof(SummonVar)], "res://images/packed/intents/intent_summon.png");
-        AddEffect("Forge", [typeof(ForgeVar)], Potions + "blessing_of_the_forge.tres");
+            ["DamageCmd.Attack"], "res://images/packed/intents/attack/intent_attack_1.png", timesHits: true);
+        AddEffect("Block", [typeof(BlockVar), typeof(CalculatedBlockVar)], ["CreatureCmd.GainBlock"], "res://images/ui/combat/block.png");
+        // La valeur « Cards » sert aussi à défausser ou créer des cartes : seulement les cartes qui piochent vraiment
+        AddEffect("Draw", [typeof(CardsVar)], ["CardPileCmd.Draw", "CardPileCmd.DrawWithoutBlockingOnOtherPlayers"],
+            "res://images/packed/combat_ui/draw_pile.png", codeOnly: true);
+        AddEffect("Energy", [typeof(EnergyVar)], ["PlayerCmd.GainEnergy"], Sprites + "colorless_energy_icon.png");
+        AddEffect("Stars", [typeof(StarsVar)], ["PlayerCmd.GainStars"], Sprites + "star_icon.png");
+        AddEffect("Heal", [typeof(HealVar)], ["CreatureCmd.Heal"], "res://images/packed/intents/intent_heal.png");
+        AddEffect("HP loss", [typeof(HpLossVar)], [], "res://images/packed/common_ui/top_bar/top_bar_heart.png");
+        AddEffect("Channel orbs", [], ["OrbCmd.Channel"], "res://images/orbs/empty_orb.png");
+        AddEffect("Summon", [typeof(SummonVar)], ["OstyCmd.Summon"], "res://images/packed/intents/intent_summon.png");
+        AddEffect("Forge", [typeof(ForgeVar)], ["ForgeCmd.*"], Potions + "blessing_of_the_forge.tres");
 
         // Pouvoirs donnés (Strength, Vulnerable, Poison…) : les courants, puis tous ceux du deck ;
         // total : la somme des quantités données
         group = "Powers applied";
-        var powers = cards.SelectMany(c => PowerValues(c.DynamicVars).GroupBy(p => p.Name).Select(g => g.First())).ToList();
+        // Par carte : les pouvoirs de ses valeurs (avec leur quantité) et ceux que son code applique (sans quantité)
+        var perCard = cards.Select(c =>
+        {
+            var values = PowerValues(c.DynamicVars).GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.First().Amount);
+            return (Values: values, Names: values.Keys.Concat(CardCode.Of(c).Powers).ToHashSet());
+        }).ToList();
         var relicPowers = relics.SelectMany(r => PowerValues(r.DynamicVars).Select(p => p.Name).Distinct()).ToList();
-        var names = powers.Select(p => p.Name).Concat(relicPowers).Distinct().Except(CommonPowers).Order();
+        var names = perCard.SelectMany(c => c.Names).Concat(relicPowers).Distinct().Except(CommonPowers).Order();
         foreach (var power in CommonPowers.Concat(names))
         {
-            var given = powers.Where(p => p.Name == power).ToList();
-            rows.Add(new Row(group, power, given.Count, relicPowers.Count(p => p == power), given.Sum(p => p.Amount),
-                Powers + SnakeCase(power) + "_power.tres"));
+            var given = perCard.Where(c => c.Names.Contains(power)).ToList();
+            rows.Add(new Row(group, Spaced(power), given.Count, relicPowers.Count(p => p == power),
+                given.Sum(c => c.Values.GetValueOrDefault(power)), Powers + SnakeCase(power) + "_power.tres",
+                Approx: given.Any(c => !c.Values.ContainsKey(power))));
         }
         return rows;
     }
@@ -101,6 +126,11 @@ public static class DeckStats
         return null;
     }
 
+    /// <summary>La valeur retenue est calculée en combat (dégâts ou Block qui dépendent de la situation).</summary>
+    private static bool IsCalculated(DynamicVarSet vars, Type[] types) =>
+        types.FirstOrDefault(t => vars.Values.Any(v => v.GetType() == t)) is { } type
+        && (type == typeof(CalculatedDamageVar) || type == typeof(CalculatedBlockVar));
+
     /// <summary>Nombre de coups d'une attaque (Twin Strike : 2), 1 par défaut.</summary>
     private static decimal Hits(DynamicVarSet vars) =>
         vars.Values.FirstOrDefault(v => v is HitCountVar or CalculatedHitCountVar) is { BaseValue: > 0 } v ? v.BaseValue : 1;
@@ -111,6 +141,9 @@ public static class DeckStats
             .Where(v => v.GetType() is { IsGenericType: true } t && t.GetGenericTypeDefinition() == typeof(PowerVar<>))
             .Select(v => (v.GetType().GetGenericArguments()[0].Name, v.BaseValue))
             .Select(p => (p.Name.EndsWith("Power") ? p.Name[..^"Power".Length] : p.Name, p.BaseValue));
+
+    /// <summary>« NoDraw » → « No Draw », pour l'affichage.</summary>
+    private static string Spaced(string name) => Regex.Replace(name, "(?<=[a-z0-9])([A-Z])", " $1");
 
     /// <summary>« StrengthPower » → « strength_power », comme les noms des icônes de pouvoirs du jeu.</summary>
     private static string SnakeCase(string name) => Regex.Replace(name, "(?<=[a-z0-9])([A-Z])", "_$1").ToLowerInvariant();
