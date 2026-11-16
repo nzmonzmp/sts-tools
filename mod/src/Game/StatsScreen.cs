@@ -31,13 +31,11 @@ public sealed class StatsScreen
     private readonly Label _status;
     private readonly PanelContainer _hover;
     /// <summary>Carte affichée au survol de son nom, créée à la première utilisation.</summary>
-    private readonly Control _cardHover;
-    private NCard? _cardNode;
+    private readonly CardHover _cardHover;
 
     /// <summary>Monstres d'une rencontre affichés au survol de son nom (onglet Losses).</summary>
     private readonly Panel _monsterHover;
     private const float MonsterHoverHeight = 260, MonsterHoverMaxWidth = 900, MonsterHoverPadding = 16;
-    private const float CardHoverScale = 0.8f;
     private readonly Label _hoverText;
     private readonly OptionButton _mode = new(), _ascension = new(), _character = new(), _gameMode = new(), _sort = new();
     private readonly CheckBox _ancientRelics = new() { Text = "Ancient relics", ButtonPressed = true };
@@ -266,12 +264,7 @@ public sealed class StatsScreen
         _hover.AddChild(_hoverText);
         _root.AddChild(_hover);
 
-        _cardHover = new Control
-        {
-            Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, TopLevel = true,
-            Size = NCard.defaultSize * CardHoverScale,
-        };
-        _root.AddChild(_cardHover);
+        _cardHover = new CardHover(_root);
 
         // ClipContents : les particules de certains monstres (Soul Nexus) ne débordent pas du panneau
         _monsterHover = new Panel { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore, TopLevel = true, ClipContents = true };
@@ -832,15 +825,7 @@ public sealed class StatsScreen
                 control.CustomMinimumSize = new Vector2(width, control.CustomMinimumSize.Y);
                 if (item is { Kind: ItemKind.Card } card && _game?.Card(card.Id) is { } cardModel)
                 {
-                    control.MouseFilter = Control.MouseFilterEnum.Pass;
-                    control.MouseDefaultCursorShape = Control.CursorShape.Help;
-                    control.MouseEntered += () => ShowCard(cardModel);
-                    control.MouseExited += HideHover;
-                    control.GuiInput += ev =>
-                    {
-                        if (ev is InputEventMouseMotion && _cardHover.Visible)
-                            PlaceCard();
-                    };
+                    _cardHover.Attach(control, cardModel);
                 }
                 if (item is { Kind: ItemKind.Encounter } encounter)
                 {
@@ -1181,52 +1166,7 @@ public sealed class StatsScreen
     /// Affiche la carte au-dessus de la souris, avec le nœud de carte du jeu (comme dans sa bibliothèque de cartes).
     /// Le nœud est centré sur sa position, d'où le décalage d'une demi-taille dans le conteneur.
     /// </summary>
-    private void ShowCard(CardModel card)
-    {
-        try
-        {
-            if (_cardNode == null || !GodotObject.IsInstanceValid(_cardNode))
-            {
-                _cardNode = NCard.Create(card);
-                if (_cardNode == null)
-                    return;
-                _cardNode.MouseFilter = Control.MouseFilterEnum.Ignore;
-                _cardNode.Scale = Vector2.One * CardHoverScale;
-                _cardNode.Position = _cardHover.Size / 2;
-                _cardHover.AddChild(_cardNode);
-            }
-            else
-            {
-                _cardNode.Model = card;
-            }
-            _cardNode.UpdateVisuals(PileType.None, CardPreviewMode.Normal);
-            PlaceCard();
-            _cardHover.Visible = true;
-        }
-        catch (Exception e)
-        {
-            Log.Warn($"[{ModEntry.Id}] cannot show card {card.Id}: {e.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Place la carte en haut à droite de la souris. Près du bord droit elle passe à gauche de la souris,
-    /// près du bord haut elle descend juste assez pour rester dans l'écran.
-    /// </summary>
-    private void PlaceCard() => PlaceCard(_cardHover);
-
-    private void PlaceCard(Control panel)
-    {
-        const float gap = 12;
-        var size = panel.Size;
-        var screen = _root.GetViewportRect().Size;
-        var mouse = _root.GetGlobalMousePosition();
-        var x = mouse.X + gap;
-        if (x + size.X > screen.X)
-            x = Math.Max(0, mouse.X - size.X - gap);
-        var y = Math.Clamp(mouse.Y - size.Y - gap, 0, Math.Max(0, screen.Y - size.Y));
-        panel.GlobalPosition = new Vector2(x, y);
-    }
+    private static void PlaceCard(Control panel) => CardHover.PlaceNearMouse(panel);
 
     /// <summary>Numéro du survol en cours, pour ignorer une mise en page arrivée après la fin du survol.</summary>
     private int _monsterHoverId;
@@ -1503,7 +1443,7 @@ public sealed class StatsScreen
         ClearMonsters();
         _monsterHover.Visible = false;
         _hover.Visible = false;
-        _cardHover.Visible = false;
+        _cardHover.Hide();
     }
 
     /// <summary>Bandeau pleine largeur annonçant un groupe de sections (l'acte des Anciens).</summary>

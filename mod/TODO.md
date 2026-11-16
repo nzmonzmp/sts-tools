@@ -4,11 +4,11 @@
 
 Afficher, pendant une partie en cours, les statistiques des cartes du deck actuel.
 
-- Composition du deck par catégorie (nombre et pourcentage, Block mis en avant), visible dans la vue
-  du deck, la pioche et la défausse ; un clic sur la barre de titre l'affiche ou le masque.
+- Mettre en avant le Block : part des cartes du deck qui donnent du Block.
 
 ## Stats des reliques
 
+- Afficher les stats à côté de la description de chaque relique.
 - Dans le tooltip de chaque relique, la valeur qu'elle a apportée : dégâts, block, énergie, cartes,
   or, soins.
 - Suivre plusieurs valeurs pour les reliques complexes (Snecko Eye, Pen Nib…).
@@ -42,5 +42,3 @@ Afficher, pendant une partie en cours, les statistiques des cartes du deck actue
 - `MegaCrit.Sts2.Core.Modding.ModHelper` : `SubscribeForRunStateHooks` et `SubscribeForCombatStateHooks`,
   pour suivre la partie et les combats en cours.
 - `MegaCrit.Sts2.Core.Combat.History` et ses `Entries` : historique d'un combat, peut-être les dégâts.
-- L'écran actuel s'ouvre déjà depuis le menu pause (`PauseMenuPatch`) ; un affichage en partie pourrait
-  réutiliser `StatsScreen` ou un panneau plus léger.
