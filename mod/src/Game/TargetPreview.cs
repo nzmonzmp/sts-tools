@@ -358,10 +358,14 @@ public static class TargetPreview
     private static IEnumerable<string[]> Rows(Creature creature, Dictionary<string, double> stats, Outcome outcome)
     {
         var max = outcome.Max.GetValueOrDefault(creature);
+        var spread = outcome.Spread.GetValueOrDefault(creature);
         double? MaxOf(string stat) => max != null && max.TryGetValue(stat, out var m) ? m : null;
-        // Valeur, ou fourchette si elle dépend du choix
+        // Valeur ; fourchette si elle dépend d'un choix ; fourchette et espérance si elle dépend du hasard
         string Value(string stat, double value, Func<double, string> format) =>
-            MaxOf(stat) is { } high ? $"{format(value)}–{format(high)}" : format(value);
+            MaxOf(stat) is { } high ? $"{format(value)}–{format(high)}"
+            : spread != null && spread.TryGetValue(stat, out var range)
+                ? $"{format(range.Low)}–{format(range.High)} ({format(value)})"
+            : format(value);
 
         var order = stats.Keys.OrderBy(k => k switch
         {
@@ -371,6 +375,7 @@ public static class TargetPreview
             Stat.Stunned => 3,
             Stat.HpLost => 4,
             Stat.Prevented => 5,
+            _ when k.StartsWith(Stat.EndOfTurn) => 7,
             _ => 6,
         });
         foreach (var stat in order)
@@ -383,7 +388,7 @@ public static class TargetPreview
                 case Stat.Damage:
                     double hits = stats.GetValueOrDefault(Stat.Hits);
                     var damage = Value(stat, value, Format);
-                    yield return [stat, hits > 1.05 ? $"{damage} ({Format(hits)} hits)" : damage];
+                    yield return [stat, hits > 1.05 ? $"{damage}, {Format(hits)} hits" : damage];
                     break;
                 case Stat.ThroughBlock:
                     // Seulement si le Block de la cible en arrête une partie
@@ -444,7 +449,8 @@ public static class TargetPreview
     private static Texture2D? IconOf(string name, Outcome outcome) =>
         RowIcons.TryGetValue(name, out var stat) ? CardRunStats.IconFor(stat)
         : name.StartsWith(Stat.Channel) ? CardRunStats.IconFor(CardRunStats.Orbs)
-        : outcome.PowerIcons.TryGetValue(name, out var path) ? StatsTable.LoadIcon(path)
+        : outcome.PowerIcons.TryGetValue(name.StartsWith(Stat.EndOfTurn) ? name[Stat.EndOfTurn.Length..] : name, out var path)
+            ? StatsTable.LoadIcon(path)
         : null;
 
     // ---- Affichage ----

@@ -42,6 +42,9 @@ Calculé en jouant la carte à blanc avec le code du jeu (PlaySimulation) : éco
 interceptées, hasard remis en place ; moyenne si le hasard intervient, fourchette si un choix du joueur
 intervient, effet combiné des cartes choisies pendant un écran de choix (Sly, épuisement…).
 
+Aussi : fin de tour séparée (« End of turn: »), cibles au hasard des cartes jouées par un effet (fourchette et
+espérance), bouton de fin de tour (mort annoncée, tour supplémentaire de Pael's Eye), Sandpit.
+
 - Les réactions des monstres eux-mêmes (MonsterModel) ne sont pas simulées.
 - Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
   toujours renvoyer un objet utilisable (créatures détachées, résultats vides).

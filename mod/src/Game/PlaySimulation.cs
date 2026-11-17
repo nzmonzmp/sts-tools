@@ -99,6 +99,9 @@ public sealed class PlaySimulation
         public const string Avoided = "Incoming damage avoided";
         public const string Prevented = "Damage prevented";
         public const string Channel = "Channel ";
+
+        /// <summary>Devant le nom d'un pouvoir changé en fin de tour à cause de la carte.</summary>
+        public const string EndOfTurn = "End of turn: ";
         public const string ArrowsShot = "Arrows shot";
         public const string ArrowsRetrieved = "Arrows retrieved";
         public const string ArrowSlots = "Arrow slots";
@@ -171,9 +174,24 @@ public sealed class PlaySimulation
             return range;
         }
 
+        /// <summary>
+        /// Effet qui dépend du hasard : plus petite et plus grande valeur obtenues (la valeur notée est l'espérance).
+        /// </summary>
+        public readonly Dictionary<Creature, Dictionary<string, (double Low, double High)>> Spread = new();
+
         public static Outcome Average(IReadOnlyList<Outcome> runs)
         {
             var average = new Outcome { Runs = runs.Count, Incomplete = runs.Any(r => r.Incomplete) };
+            foreach (var creature in runs.SelectMany(r => r.Creatures.Keys).Distinct().ToList())
+                foreach (var stat in runs.SelectMany(r => r.Creatures.GetValueOrDefault(creature)?.Keys ?? Enumerable.Empty<string>()).Distinct().ToList())
+                {
+                    var values = runs.Select(r => r.Creatures.GetValueOrDefault(creature)?.GetValueOrDefault(stat) ?? 0).ToList();
+                    if (values.Max() - values.Min() < 0.05)
+                        continue;
+                    if (!average.Spread.TryGetValue(creature, out var spread))
+                        average.Spread[creature] = spread = new Dictionary<string, (double, double)>();
+                    spread[stat] = (values.Min(), values.Max());
+                }
             foreach (var run in runs)
             {
                 foreach (var (creature, stats) in run.Creatures)
@@ -351,7 +369,11 @@ public sealed class PlaySimulation
     }
 
     /// <summary>Ce qui attend le joueur sans jouer la carte : dégâts qu'il prendra, attaques de chaque ennemi.</summary>
-    private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End);
+    private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End, bool Dies = false,
+        AbstractModel? ExtraTurn = null);
+
+    /// <summary>Ce qui accorde un tour supplémentaire au joueur en fin de tour (Pael's Eye…), dans la simulation.</summary>
+    private AbstractModel? _extraTurn;
 
     /// <summary>Choix du joueur en cours : cartes choisies, rang du choix.</summary>
     /// <summary>Ce qui est simulé : une carte jouée ou une potion utilisée.</summary>
@@ -360,14 +382,33 @@ public sealed class PlaySimulation
     /// <param name="Resume">la carte se joue déjà : ce qui précède le choix est déjà fait (rien n'est noté)</param>
     private sealed record Choice(IReadOnlyList<CardModel> Cards, int Index, bool Resume);
 
+    /// <summary>
+    /// Si le joueur termine son tour maintenant : PV qu'il aura perdus quand les ennemis auront attaqué (fin de tour,
+    /// puis attaques moins son Block), et ses PV actuels ; null si impossible.
+    /// </summary>
+    /// <returns>Forced : le joueur meurt déjà pendant la fin de tour ou le début du tour ennemi (Sandpit…), mort
+    /// que rien n'a empêchée</returns>
+    /// <returns>ExtraTurn : ce qui accorde un tour supplémentaire en terminant le tour maintenant (Pael's Eye…)</returns>
+    public static (int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn)? PredictTurnEnd(Player player)
+    {
+        if (!EnsurePatched() || Active || player.Creature.CombatState is not { } combat)
+            return null;
+        var rngs = RngState.Capture(combat);
+        var baseline = BaselineOf(combat, player.Creature, rngs);
+        return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn);
+    }
+
     private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
     {
+        // PV réels avant la simulation (pendant, la créature porte les PV simulés)
+        int hp = me.CurrentHp;
         var sim = new PlaySimulation(combat, null);
         Enter(sim);
         try
         {
             var (taken, incoming, end) = sim.UntilEnemyAttacks(me);
-            return new Baseline(taken, incoming, end);
+            bool dies = sim._dead.Contains(me);
+            return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn);
         }
         catch (Exception e)
         {
@@ -440,6 +481,13 @@ public sealed class PlaySimulation
             }
             foreach (var step in AfterTurnEndSteps)
                 EachListener(m => step(m, context, CombatSide.Player, players));
+            // Tour supplémentaire (Pael's Eye sans carte jouée ce tour…) : les ennemis ne jouent pas avant le
+            // prochain tour du joueur, ni leur début de tour ni leurs attaques
+            if (me.Player is { } extraTurnPlayer && Hook.ShouldTakeExtraTurn(_combat, extraTurnPlayer, out var extraTurnSource))
+            {
+                _extraTurn = extraTurnSource is { } copy && _realOf.TryGetValue(copy, out var real) ? real : extraTurnSource;
+                return (Math.Max(0, hpBefore - Body(me)[0]), _combat.Enemies.ToDictionary(e => e, _ => 0), end);
+            }
             var enemies = _combat.Enemies.Where(e => !IsDead(e)).ToList();
             EachListener(m => m.BeforeSideTurnStart(context, CombatSide.Enemy, enemies, _combat));
             EachListener(m => m.AfterSideTurnStart(CombatSide.Enemy, enemies, _combat));
@@ -823,10 +871,12 @@ public sealed class PlaySimulation
     private List<CardModel> SelectFromHand(Player player, CardSelectorPrefs prefs, Func<CardModel, bool>? filter)
     {
         int index = _handSelections++;
+        // Des copies, jamais les vraies cartes : le code qui suit les modifie souvent (Touch of Insanity les rend
+        // gratuites…)
         if (_choice != null && index == _choice.Index)
         {
             _muted = false;
-            return _choice.Cards.ToList();
+            return _choice.Cards.Select(Copied).ToList();
         }
         if (_muted || player.PlayerCombatState is not { } state)
             return [];
@@ -835,8 +885,10 @@ public sealed class PlaySimulation
         // Choix libre : noté (le premier) pour simuler ensuite chaque choix possible
         if (forced.Count == 0 && candidates.Count > 0 && _outcome.OpenChoice == null && _choice == null)
             _outcome.OpenChoice = (index, candidates, prefs.MinSelect, prefs.MaxSelect);
-        return forced;
+        return forced.Select(Copied).ToList();
     }
+
+    private CardModel Copied(CardModel card) => (CardModel)ShadowOf(RealOf(card));
 
     private static List<CardModel> Forced(List<CardModel> cards, CardSelectorPrefs prefs) =>
         cards.Count > 0 && !prefs.RequireManualConfirmation && cards.Count <= prefs.MinSelect ? cards : [];
@@ -877,11 +929,20 @@ public sealed class PlaySimulation
         card = RealOf(card);
         if (_autoPlays > 5 || card.Owner is not { } owner || card.Keywords.Contains(CardKeyword.Unplayable))
             return;
+        // Sans cible, comme le jeu : tirée au hasard (générateur du jeu, remis en place après ; changé d'une
+        // simulation à l'autre pour la fourchette et l'espérance) parmi les créatures encore vivantes
+        var rng = owner.RunState.Rng.CombatTargets;
         if (target == null && card.TargetType == TargetType.AnyEnemy)
-            target = _aimed is { IsEnemy: true } aimed && !IsDead(aimed) ? aimed : _combat.Enemies.FirstOrDefault(e => !IsDead(e));
+            target = rng.NextItem(_combat.Enemies.Where(e => !IsDead(e) && e.IsHittable).ToList());
+        else if (target == null && card.TargetType == TargetType.AnyAlly)
+            target = rng.NextItem(_combat.Allies.Where(c => c.IsPlayer && c != owner.Creature && !IsDead(c)).ToList());
+        if (target == null && card.TargetType is TargetType.AnyEnemy or TargetType.AnyAlly)
+            return;
         _autoPlays++;
         try
         {
+            var shadow = (CardModel)ShadowOf(card);
+            Event(() => Hook.BeforeCardAutoPlayed(_combat, shadow, target, AutoPlayType.Default));
             Play(card, owner, target, auto: true);
         }
         finally
@@ -907,11 +968,16 @@ public sealed class PlaySimulation
             var b = without.Creatures.GetValueOrDefault(creature);
             foreach (var stat in (a?.Keys ?? Enumerable.Empty<string>()).Union(b?.Keys ?? Enumerable.Empty<string>()))
             {
-                if (!TurnEndStats.Contains(stat))
-                    continue;
                 double delta = (a?.GetValueOrDefault(stat) ?? 0) - (b?.GetValueOrDefault(stat) ?? 0);
                 if (delta == 0)
                     continue;
+                // Pouvoirs changés en fin de tour (Tender rend la Force…) : à part, pour ne pas annuler l'effet de
+                // la carte pendant le tour
+                if (!TurnEndStats.Contains(stat))
+                {
+                    _outcome.Add(creature, Stat.EndOfTurn + stat, delta);
+                    continue;
+                }
                 _outcome.Add(creature, stat, delta);
                 // Mort, étourdi : oui ou non
                 if (stat is Stat.Lethal or Stat.Stunned)
@@ -1139,16 +1205,49 @@ public sealed class PlaySimulation
         }
     }
 
-    /// <summary>Carte créée pendant la simulation : pas inscrite au combat ni à la partie.</summary>
+    private static readonly FieldInfo CardOwner = AccessTools.Field(typeof(CardModel), "_owner");
+
+    /// <summary>
+    /// Carte créée ou ajoutée pendant la simulation : elle a son propriétaire, mais n'est inscrite ni au combat ni à
+    /// la partie (Swipe du Thieving Hopper rendait la carte volée à chaque aperçu d'un coup fatal).
+    /// </summary>
     [HarmonyPatch]
     public static class AddCardPatch
     {
         public static IEnumerable<MethodBase> TargetMethods() =>
         [
-            AccessTools.Method(typeof(CombatState), "AddCard", [typeof(CardModel)]),
-            AccessTools.Method(typeof(RunState), "AddCard", [typeof(CardModel)]),
+            AccessTools.Method(typeof(CombatState), nameof(CombatState.AddCard), [typeof(CardModel), typeof(Player)]),
+            AccessTools.Method(typeof(RunState), nameof(RunState.AddCard), [typeof(CardModel), typeof(Player)]),
         ];
 
+        public static bool Prefix(CardModel card, Player owner)
+        {
+            if (!Active)
+                return true;
+            CardOwner.SetValue(card, owner);
+            return false;
+        }
+    }
+
+    /// <summary>Le même, pour les ajouts directs et les retraits (pas pendant la simulation).</summary>
+    [HarmonyPatch]
+    public static class CardRegistryPatch
+    {
+        public static IEnumerable<MethodBase> TargetMethods() =>
+        [
+            AccessTools.Method(typeof(CombatState), "AddCard", [typeof(CardModel)]),
+            AccessTools.Method(typeof(RunState), "AddCard", [typeof(CardModel)]),
+            AccessTools.Method(typeof(CombatState), nameof(CombatState.RemoveCard)),
+            AccessTools.Method(typeof(RunState), nameof(RunState.RemoveCard)),
+        ];
+
+        public static bool Prefix() => !Active;
+    }
+
+    /// <summary>Récompense de fin de combat ajoutée par un effet (carte volée rendue…) : pas pendant la simulation.</summary>
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Rooms.CombatRoom), nameof(MegaCrit.Sts2.Core.Rooms.CombatRoom.AddExtraReward))]
+    public static class ExtraRewardPatch
+    {
         public static bool Prefix() => !Active;
     }
 
@@ -1288,10 +1387,11 @@ public sealed class PlaySimulation
                 return Task.FromResult(chosen);
             case "CardSelectCmd.FromCombatPile":
                 var pileCards = (Arg<CardPile>("pile")?.Cards ?? []).Where(c => Arg<Func<CardModel, bool>>("filter")?.Invoke(c) ?? true).ToList();
-                IEnumerable<CardModel> fromPile = Forced(pileCards, Arg<CardSelectorPrefs>("prefs"));
+                IEnumerable<CardModel> fromPile = Forced(pileCards, Arg<CardSelectorPrefs>("prefs")).Select(Copied).ToList();
                 return Task.FromResult(fromPile);
             case "CardSelectCmd.FromSimpleGrid":
-                IEnumerable<CardModel> fromGrid = Forced(Arg<IReadOnlyList<CardModel>>("cardsIn")?.ToList() ?? [], Arg<CardSelectorPrefs>("prefs"));
+                IEnumerable<CardModel> fromGrid = Forced(Arg<IReadOnlyList<CardModel>>("cardsIn")?.ToList() ?? [], Arg<CardSelectorPrefs>("prefs"))
+                    .Select(Copied).ToList();
                 return Task.FromResult(fromGrid);
             case "CardCmd.Exhaust":
                 if (Arg<CardModel>("card") is { } exhausted)
@@ -1326,7 +1426,7 @@ public sealed class PlaySimulation
                 if (Arg<Creature>("creature") is { } victim)
                     victims.Add(victim);
                 foreach (var c in victims.Where(c => !IsDead(c)))
-                    Die(c, Arg<CardModel>("cardSource"));
+                    Die(c, Arg<CardModel>("cardSource"), Arg<bool>("force"));
                 return null;
             case "CreatureCmd.Stun":
                 if (Arg<Creature>("creature") is { } stunned && !IsDead(stunned))
@@ -1529,7 +1629,8 @@ public sealed class PlaySimulation
     /// Mort, comme le jeu : avant la mort, mort évitée (Lizard Tail…) ou pas, puis réactions à la mort (Ravenous des
     /// Corpse Slugs : les autres sont étourdis et gagnent de la Force…).
     /// </summary>
-    private void Die(Creature creature, CardModel? cardSource)
+    /// <param name="force">mort imposée (Sandpit) : rien ne l'empêche</param>
+    private void Die(Creature creature, CardModel? cardSource, bool force = false)
     {
         Trace($"death of {creature.Name}");
         if (!_dead.Add(creature))
@@ -1537,7 +1638,7 @@ public sealed class PlaySimulation
         var runState = _combat.RunState;
         Body(creature)[0] = 0;
         Event(() => Hook.BeforeDeath(runState, _combat, creature));
-        if (!Hook.ShouldDie(runState, _combat, creature, out _))
+        if (!force && !Hook.ShouldDie(runState, _combat, creature, out _))
         {
             Body(creature)[0] = 1;
             _dead.Remove(creature);
@@ -1621,18 +1722,27 @@ public sealed class PlaySimulation
         int amount = shadow.Amount + (int)modified;
         PowerAmount.SetValue(shadow, amount);
         Note(owner, shadow, (int)modified);
+        // Comme le jeu : plus de charge, le pouvoir est retiré (et réagit à son retrait)
         if (shadow.ShouldRemoveDueToAmount())
-            _removed.Add(shadow);
+            Remove(shadow, noted: true);
         return amount;
     }
 
-    private void Remove(PowerModel power)
+    /// <summary>
+    /// Comme le jeu : le pouvoir est retiré, puis réagit à son retrait (Sandpit de The Insatiable tue le joueur
+    /// quand il n'a plus de charge).
+    /// </summary>
+    /// <param name="noted">sa quantité retirée est déjà notée (retrait parce qu'il n'a plus de charge)</param>
+    private void Remove(PowerModel power, bool noted = false)
     {
         var shadow = (PowerModel)ShadowOf(power);
         if (_removed.Contains(shadow))
             return;
-        Note(shadow.Owner, shadow, -shadow.Amount);
+        if (!noted)
+            Note(shadow.Owner, shadow, -shadow.Amount);
         _removed.Add(shadow);
+        var owner = shadow.Owner;
+        Event(() => shadow.AfterRemoved(owner));
     }
 
     private void Note(Creature creature, PowerModel power, int delta)
@@ -2023,6 +2133,7 @@ internal sealed class RngState
     private static readonly FieldInfo? RunRngs = AccessTools.Field(typeof(RunRngSet), "_rngs");
     private static readonly FieldInfo? PlayerRngs = AccessTools.Field(typeof(PlayerRngSet), "_rngs");
     private static readonly FieldInfo? MonsterRng = AccessTools.Field(typeof(MonsterModel), "_rng");
+    private static readonly FieldInfo CardEnergy = AccessTools.Field(typeof(CardModel), "_energyCost");
 
     private readonly List<(Rng Rng, SerializableRng State)> _saved = [];
     private readonly List<(System.Collections.IDictionary Rngs, HashSet<object> Keys)> _sets = [];
@@ -2042,6 +2153,17 @@ internal sealed class RngState
             state.AddSet(RunRngs?.GetValue(combat.RunState.Rng));
             foreach (var player in combat.Players)
                 state.AddSet(PlayerRngs?.GetValue(player.PlayerRng));
+            // Cartes du combat : le code simulé modifie parfois directement les vraies (coût, mots-clés, valeurs)
+            foreach (var player in combat.Players)
+                if (player.PlayerCombatState is { } piles)
+                    foreach (var card in piles.AllPiles.SelectMany(p => p.Cards))
+                    {
+                        state._objects.Add(new ObjectState(card, typeof(AbstractModel)));
+                        if (CardEnergy.GetValue(card) is { } cost)
+                            state._objects.Add(new ObjectState(cost, typeof(object)));
+                        foreach (var variable in card.DynamicVars.Values)
+                            state._objects.Add(new ObjectState(variable, typeof(object)));
+                    }
             foreach (var creature in combat.Creatures)
                 if (creature.Monster is { IsMutable: true } monster && MonsterRng != null)
                 {
@@ -2152,8 +2274,12 @@ internal sealed class ObjectState
         }
         _fields = fields;
         _values = fields.Select(f => f.GetValue(target)).ToArray();
-        _lists = _values.Select(v => v is System.Collections.IList list ? list.Cast<object?>().ToArray() : null).ToArray();
+        _lists = _values.Select(v => v is System.Collections.IList || v != null && IsSet(v)
+            ? ((System.Collections.IEnumerable)v!).Cast<object?>().ToArray() : null).ToArray();
     }
+
+    private static bool IsSet(object value) =>
+        value.GetType() is { IsGenericType: true } type && type.GetGenericTypeDefinition() == typeof(HashSet<>);
 
     public void Restore()
     {
@@ -2161,6 +2287,19 @@ internal sealed class ObjectState
         {
             if (!Equals(_fields[i].GetValue(_target), _values[i]))
                 _fields[i].SetValue(_target, _values[i]);
+            // Même ensemble, contenu changé (mot-clé ajouté à une carte…)
+            if (_values[i] is { } set && IsSet(set) && _lists[i] is { } members)
+            {
+                var current = ((System.Collections.IEnumerable)set).Cast<object?>().ToList();
+                if (current.Count != members.Length || current.Except(members).Any())
+                {
+                    var type = set.GetType();
+                    type.GetMethod("Clear")!.Invoke(set, null);
+                    var add = type.GetMethod("Add")!;
+                    foreach (var member in members)
+                        add.Invoke(set, [member]);
+                }
+            }
             // Même liste, contenu changé (coup ajouté à l'historique des coups…)
             if (_values[i] is System.Collections.IList { IsReadOnly: false, IsFixedSize: false } list && _lists[i] is { } items
                 && (list.Count != items.Length || !list.Cast<object?>().SequenceEqual(items)))
