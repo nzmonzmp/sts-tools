@@ -45,6 +45,15 @@ intervient, effet combiné des cartes choisies pendant un écran de choix (Sly, 
 - Les réactions des monstres eux-mêmes (MonsterModel) ne sont pas simulées.
 - Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
   toujours renvoyer un objet utilisable (créatures détachées, résultats vides).
+- **Bug : plantage du jeu le 2026-11-17 (840995e), combat de boss AEONGLASS_BOSS, The Fool.** Le jeu s'est fermé
+  sans message ni exception dans `godot.log`, 24 s après avoir joué ENCORE (`Player 1 playing card ENCORE`), puis
+  arrêt brutal (`BUG: Unreferenced static string`, `terminate called without an active exception`). Pendant ce
+  combat, l'aperçu a modifié l'état réel de la partie (`the preview of X changed the game state`) pour LOST_LUTE,
+  SONG_PATH, WAH_KI (3 fois), ENCORE (2 fois), CHO_READY et KI_WHIP, juste avant chaque carte jouée ; ces
+  avertissements n'apparaissent dans aucun autre combat. Pistes : fuite de la simulation dans la partie (l'empreinte
+  ne dit pas quoi : la journaliser), tâches non terminées dans `Wait` qui reprennent plus tard hors simulation, ou un
+  objet nul renvoyé par une commande interceptée (voir ci-dessus). ENCORE avait été jouée 3 fois plus tôt sans
+  souci.
 
 ## Multijoueur
 
