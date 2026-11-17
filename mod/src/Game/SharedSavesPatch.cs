@@ -15,6 +15,7 @@ namespace StsTools.Game;
 /// ModManager.IsRunningModded() reste vrai : le jeu se sait moddé pour les métriques,
 /// Sentry et le multijoueur.
 /// </summary>
+[EarlyPatch]
 [HarmonyPatch(typeof(UserDataPathProvider), nameof(UserDataPathProvider.IsRunningModded), MethodType.Setter)]
 public static class SharedSavesPatch
 {
@@ -28,6 +29,7 @@ public static class SharedSavesPatch
 }
 
 /// <summary>Plus besoin de copier les sauvegardes normales dans le dossier « modded ».</summary>
+[EarlyPatch]
 [HarmonyPatch(typeof(ModManager), nameof(ModManager.CopyUnmoddedSaveFilesIfNeeded))]
 public static class SkipSaveCopyPatch
 {

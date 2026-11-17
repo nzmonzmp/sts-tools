@@ -30,7 +30,8 @@ public sealed partial class CardRunStats
     }
 
     private static bool Live(ICombatState? combatState) =>
-        combatState != null && combatState.IsLiveCombat() && !CombatManager.Instance.ShouldSkipCombatEffect;
+        combatState != null && combatState.IsLiveCombat() && !CombatManager.Instance.ShouldSkipCombatEffect
+        && !PlaySimulation.Active;
 
     /// <summary>Calcul d'un écouteur : nouvelle valeur à partir de la valeur courante.</summary>
     private delegate decimal Step(AbstractModel model, decimal amount);
@@ -73,7 +74,7 @@ public sealed partial class CardRunStats
     {
         public static void Postfix(ICombatState combatState, Creature target, decimal block, ValueProp props,
             CardModel? cardSource, CardPlay? cardPlay) =>
-            _lastBlockCalc = new BlockCalc(combatState, target, block, props, cardSource, cardPlay);
+            _lastBlockCalc = PlaySimulation.Active ? null : new BlockCalc(combatState, target, block, props, cardSource, cardPlay);
     }
 
     /// <summary>Appelé seulement pour un vrai gain de Block, juste après son calcul.</summary>
@@ -228,7 +229,7 @@ public sealed partial class CardRunStats
     {
         public static void Postfix(ICombatState combatState, PowerModel power, Creature giver, decimal amount, Creature? target,
             CardModel? cardSource, decimal __result) =>
-            _lastPowerCalc = __result != amount ? new PowerCalc(combatState, power, giver, amount, target, cardSource) : null;
+            _lastPowerCalc = __result != amount && !PlaySimulation.Active ? new PowerCalc(combatState, power, giver, amount, target, cardSource) : null;
     }
 
     /// <summary>Appelé seulement quand un pouvoir est vraiment donné, juste après le calcul de la quantité donnée.</summary>

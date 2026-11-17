@@ -28,6 +28,9 @@ public sealed class SavedSettings
     /// <summary>Onglet affiché dans le panneau de stats en partie (RunPanel)</summary>
     public string? RunPanelTab { get; set; }
 
+    /// <summary>Panneau de stats en partie replié (seulement son en-tête)</summary>
+    public bool RunPanelCollapsed { get; set; }
+
     /// <summary>Sous-onglet choisi dans chaque onglet du panneau, par titre d'onglet</summary>
     public Dictionary<string, string> RunPanelSubTabs { get; set; } = [];
 

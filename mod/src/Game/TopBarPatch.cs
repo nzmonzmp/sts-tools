@@ -51,7 +51,7 @@ public static class TopBarPatch
             Name = ButtonName,
             CustomMinimumSize = new Vector2(side, side),
             FocusMode = Control.FocusModeEnum.None,
-            TooltipText = $"Run stats ({ModHotkeys.RunStats.Display})\nShow or hide relics ({ModHotkeys.RelicBar.Display})",
+            TooltipText = $"GUI ({ModHotkeys.RunStats.Display})\nShow or hide relics ({ModHotkeys.RelicBar.Display})",
         };
         foreach (var state in new[] { "normal", "hover", "pressed", "focus", "disabled" })
             button.AddThemeStyleboxOverride(state, new StyleBoxEmpty());

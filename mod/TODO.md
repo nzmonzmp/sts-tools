@@ -20,7 +20,6 @@ en stock (The Courier), salles inconnues sans combat (Juzu Bracelet, Golden Comp
 (Winged Boots), PV retirés aux ennemis (Fur Coat), valeur des orbes en plus (Focus…), salles du chemin doré
 (Golden Compass). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
 
-- Multijoueur : dans l'infobulle d'une relique, la part des bonus n'est calculée que pour les reliques du joueur local.
 
 ## Stats de combat
 
@@ -32,13 +31,30 @@ dégâts subis et bloqués par le joueur.
 - Onglet Support : énergie, cartes, block, buffs et pioches donnés aux alliés, PV qui leur ont été
   rendus.
 
+## Aperçu des cartes jouées
+
+Fait : GUI ouvert, en visant une créature (ou en entrant dans la zone de jeu pour une carte sans cible), un encadré
+à côté de chaque créature concernée : dégâts, part qui passe le Block, coup fatal, étourdi, pouvoirs, Block, PV
+perdus (épines…), énergie, pioche, orbes ; dégâts annoncés évités par monstre ; pour le joueur, dégâts évités
+jusqu'à l'attaque des ennemis (fin de tour comprise : Plating, Burn, poison…) et bilan si la carte coûte des PV.
+Calculé en jouant la carte à blanc avec le code du jeu (PlaySimulation) : écouteurs copiés, commandes
+interceptées, hasard remis en place ; moyenne si le hasard intervient, fourchette si un choix du joueur
+intervient, effet combiné des cartes choisies pendant un écran de choix (Sly, épuisement…).
+
+- Les réactions des monstres eux-mêmes (MonsterModel) ne sont pas simulées.
+- Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
+  toujours renvoyer un objet utilisable (créatures détachées, résultats vides).
+
 ## Multijoueur
 
-- Afficher les mêmes stats en temps réel pour les decks des coéquipiers.
-- Ajouter les dégâts subis et infligés par chaque joueur.
-- Séparer toutes les stats par joueur et afficher les totaux de l'équipe (l'onglet Combat ne compte
-  que les cartes du joueur local).
-- Fonctionner côté client uniquement : un seul joueur a besoin du mod en coop.
+Fait : totaux par joueur (cartes, dégâts subis et bloqués, Osty, soins), sauvegardés pour chaque joueur ; dans
+le panneau, rangée des joueurs (toi, chaque coéquipier, l'équipe) pour les onglets Deck, Combat et Game ;
+infobulles des reliques des coéquipiers. Le mod ne change rien à l'état de la partie (outils de test bloqués en
+multijoueur) et déclare ne pas toucher au gameplay : les autres joueurs n'ont pas besoin de l'avoir.
+
+- À vérifier dans une vraie partie à plusieurs : rejoindre sans que l'autre ait le mod, pas de désynchronisation,
+  noms des joueurs, sauvegarde et reprise.
+- Dégâts annoncés par les ennemis pour chaque joueur (aujourd'hui : le joueur local seulement).
 
 ## Repères dans le code du jeu (utilisés par le mod)
 
@@ -49,3 +65,5 @@ dégâts subis et bloqués par le joueur.
   (pouvoir, relique, carte) en parcourant ces listes ; les envelopper dit qui agit à chaque instant.
   Même méthode possible pour les stats des reliques (écouteur `RelicModel`).
 - `SaveManager.SaveRun` : moment où le jeu sauvegarde la partie.
+- Démarrage : poser trop de patchs pendant l'initialisation bloque parfois le jeu avant le menu (écran noir) ; seuls
+  les patchs `[EarlyPatch]` sont posés au démarrage, les autres à l'affichage du menu principal.

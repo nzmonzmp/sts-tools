@@ -247,48 +247,133 @@ public sealed partial class CardRunStats
 
     private void Add(string name, decimal amount)
     {
-        if (amount == 0)
+        // Aperçu d'une carte (PlaySimulation) : rien ne s'est vraiment passé
+        if (amount == 0 || PlaySimulation.Active)
             return;
         Values[name] = Values.GetValueOrDefault(name) + amount;
         AnyChanged?.Invoke();
-        // Une carte du joueur local : compte aussi pour le combat et le tour en cours (onglet Combat). Sauf les
-        // soins : les onglets Combat et Game comptent tous les PV rendus au joueur, quelle qu'en soit la source
-        if (_owner != null && _owner == _player && name != Healed)
-            AddToCombat(name, amount);
+        // Une carte d'un joueur : compte aussi pour son combat et son tour en cours (onglet Combat) et sa partie
+        // (onglet Game). Sauf les soins : ces onglets comptent tous les PV rendus au joueur, quelle qu'en soit la source
+        if (_owner != null && name != Healed)
+            AddToCombat(_owner, name, amount);
     }
 
-    /// <summary>Compte pour le joueur local : combat et tour en cours (onglet Combat), partie entière (onglet Game).</summary>
-    private static void AddToCombat(string name, decimal amount)
+    /// <summary>Compte pour un joueur : combat et tour en cours (onglet Combat), partie entière (onglet Game).</summary>
+    private static void AddToCombat(Player player, string name, decimal amount)
     {
         if (amount == 0)
             return;
-        RollTurn();
-        _combat.Values[name] = _combat[name] + amount;
-        _turnStats.Values[name] = _turnStats[name] + amount;
-        _run.Values[name] = _run[name] + amount;
+        TotalsOf(player).Add(name, amount);
         Changed?.Invoke();
     }
 
-    // ---- Partie entière (onglet Game), sauvegardée avec la partie ----
+    // ---- Totaux par joueur : combat en cours, tour en cours, partie entière (sauvegardée avec la partie) ----
 
-    private static CardRunStats _run = new();
-    private static int _runCombats, _runTurns;
-
-    /// <summary>Stats du joueur local sur toute la partie.</summary>
-    public static CardRunStats RunTotals => _run;
-
-    /// <summary>Combats commencés dans la partie.</summary>
-    public static int RunCombats => _runCombats;
-
-    /// <summary>Tours joués dans la partie, tous combats confondus, le tour en cours compris.</summary>
-    public static int RunTurns
+    /// <summary>
+    /// Totaux d'un joueur : ses cartes et ce qu'il a reçu (dégâts subis, soins…). En multijoueur, chaque joueur
+    /// simule toute la partie : on a ainsi ceux de tous les joueurs, même si eux n'ont pas le mod.
+    /// </summary>
+    public sealed class PlayerTotals(Player player)
     {
-        get
+        public Player Player { get; } = player;
+        public CardRunStats Run { get; } = new();
+        public CardRunStats Combat { get; private set; } = new();
+        private CardRunStats _turn = new();
+        private int _turnNumber, _combatTurns, _runTurns;
+
+        /// <summary>Combats commencés dans la partie.</summary>
+        public int RunCombats { get; internal set; }
+
+        /// <summary>Nouveau tour : on repart de zéro pour « ce tour ».</summary>
+        private void RollTurn()
         {
+            int turn = Player.PlayerCombatState?.TurnNumber ?? 0;
+            if (turn != 0 && turn != _turnNumber)
+            {
+                _turnNumber = turn;
+                _turn = new CardRunStats();
+                _runTurns++;
+            }
+            _combatTurns = Math.Max(_combatTurns, turn);
+        }
+
+        /// <summary>Stats du tour en cours ; vides si rien ne s'est encore passé pendant ce tour.</summary>
+        public CardRunStats Turn
+        {
+            get
+            {
+                RollTurn();
+                return _turn;
+            }
+        }
+
+        /// <summary>Tours joués dans le combat en cours (ou le dernier), le tour en cours compris.</summary>
+        public int CombatTurns
+        {
+            get
+            {
+                RollTurn();
+                return _combatTurns;
+            }
+        }
+
+        /// <summary>Tours joués dans la partie, tous combats confondus, le tour en cours compris.</summary>
+        public int RunTurns
+        {
+            get
+            {
+                RollTurn();
+                return _runTurns;
+            }
+        }
+
+        internal void Add(string name, decimal amount)
+        {
+            if (PlaySimulation.Active)
+                return;
             RollTurn();
-            return _runTurns;
+            Combat.Values[name] = Combat[name] + amount;
+            _turn.Values[name] = _turn[name] + amount;
+            Run.Values[name] = Run[name] + amount;
+        }
+
+        /// <summary>Hors combat (soins au feu de camp…) : seulement la partie.</summary>
+        internal void AddToRun(string name, decimal amount) => Run.Values[name] = Run[name] + amount;
+
+        internal void StartCombat()
+        {
+            Combat = new CardRunStats();
+            _turn = new CardRunStats();
+            _turnNumber = _combatTurns = 0;
+            RunCombats++;
+        }
+
+        internal void RestoreRun(Dictionary<string, decimal>? values, int combats, int turns)
+        {
+            foreach (var (name, value) in values ?? [])
+                Run.Values[name] = value;
+            (RunCombats, _runTurns) = (combats, turns);
         }
     }
+
+    /// <summary>Totaux de chaque joueur de la partie en cours, par identifiant réseau.</summary>
+    private static readonly Dictionary<ulong, PlayerTotals> Totals = new();
+
+    public static PlayerTotals TotalsOf(Player player)
+    {
+        if (!Totals.TryGetValue(player.NetId, out var totals) || totals.Player != player)
+            Totals[player.NetId] = totals = new PlayerTotals(player);
+        return totals;
+    }
+
+    /// <summary>Stats du joueur local sur toute la partie.</summary>
+    public static CardRunStats RunTotals => _player != null ? TotalsOf(_player).Run : new CardRunStats();
+
+    /// <summary>Combats commencés dans la partie.</summary>
+    public static int RunCombats => _player != null ? TotalsOf(_player).RunCombats : 0;
+
+    /// <summary>Tours joués dans la partie, tous combats confondus, le tour en cours compris.</summary>
+    public static int RunTurns => _player != null ? TotalsOf(_player).RunTurns : 0;
 
     /// <summary>
     /// Stats non nulles, dans l'ordre d'affichage : l'ordre fixe, puis les debuffs infligés aux ennemis
@@ -302,9 +387,9 @@ public sealed partial class CardRunStats
         return Order.Concat(powers).Where(name => this[name] != 0);
     }
 
-    // ---- Combat en cours (onglet Combat) : toutes les cartes du joueur local ----
+    // ---- Combat en cours (onglet Combat) ----
 
-    /// <summary>Une stat du joueur local a changé pendant le combat.</summary>
+    /// <summary>Une stat d'un joueur a changé (combat, tour, partie).</summary>
     public static event Action? Changed;
 
     /// <summary>
@@ -317,46 +402,14 @@ public sealed partial class CardRunStats
         public static void Postfix() => Changed?.Invoke();
     }
 
-    private static CardRunStats _combat = new(), _turnStats = new();
-    private static int _turn, _combatTurns;
+    /// <summary>Stats du joueur local pour le combat en cours (ou le dernier combat, une fois fini).</summary>
+    public static CardRunStats CombatTotals => _player != null ? TotalsOf(_player).Combat : new CardRunStats();
 
-    private static int CurrentTurn => _player?.PlayerCombatState?.TurnNumber ?? 0;
+    /// <summary>Stats du joueur local pour le tour en cours ; vides si rien ne s'est encore passé pendant ce tour.</summary>
+    public static CardRunStats TurnTotals => _player != null ? TotalsOf(_player).Turn : new CardRunStats();
 
-    /// <summary>Nouveau tour : on repart de zéro pour « ce tour ».</summary>
-    private static void RollTurn()
-    {
-        int turn = CurrentTurn;
-        if (turn != 0 && turn != _turn)
-        {
-            _turn = turn;
-            _turnStats = new CardRunStats();
-            _runTurns++;
-        }
-        _combatTurns = Math.Max(_combatTurns, turn);
-    }
-
-    /// <summary>Stats du combat en cours (ou du dernier combat, une fois fini).</summary>
-    public static CardRunStats CombatTotals => _combat;
-
-    /// <summary>Stats du tour en cours ; vides si rien ne s'est encore passé pendant ce tour.</summary>
-    public static CardRunStats TurnTotals
-    {
-        get
-        {
-            RollTurn();
-            return _turnStats;
-        }
-    }
-
-    /// <summary>Tours joués dans le combat en cours (ou le dernier), le tour en cours compris.</summary>
-    public static int CombatTurns
-    {
-        get
-        {
-            RollTurn();
-            return _combatTurns;
-        }
-    }
+    /// <summary>Tours joués par le joueur local dans le combat en cours (ou le dernier), le tour en cours compris.</summary>
+    public static int CombatTurns => _player != null ? TotalsOf(_player).CombatTurns : 0;
 
     /// <summary>
     /// Stats par carte du deck. Clé : l'objet carte du deck lui-même ; les cartes de combat y renvoient par
@@ -374,6 +427,16 @@ public sealed partial class CardRunStats
     private static readonly ConditionalWeakTable<RelicModel, CardRunStats> RelicStats = new();
 
     public static CardRunStats? Of(RelicModel relic) => RelicStats.TryGetValue(relic, out var stats) ? stats : null;
+
+    /// <summary>Somme de plusieurs totaux (équipe : tous les joueurs).</summary>
+    public static CardRunStats Merge(IEnumerable<CardRunStats> parts)
+    {
+        var sum = new CardRunStats();
+        foreach (var part in parts)
+            foreach (var (name, value) in part.Values)
+                sum.Values[name] = sum[name] + value;
+        return sum;
+    }
 
     /// <summary>Somme des stats de plusieurs copies (une ligne « 4× Strike »).</summary>
     public static CardRunStats Sum(IEnumerable<CardModel> deckCards)
@@ -402,28 +465,34 @@ public sealed partial class CardRunStats
     /// <summary>Joueur local de la partie en cours.</summary>
     public static Player? LocalPlayer => _player;
     private static string? _runKey;
+    private static IRunState? _runState;
 
     private sealed record SavedCard(int Index, string Id, string Title, int Combats, Dictionary<string, decimal>? Values,
         // Format de la première version, relu pour ne pas perdre une partie en cours
         int Played = 0, int Damage = 0, int Block = 0, int Drawn = 0);
     private sealed record SavedRelic(int Index, string Id, int Combats, Dictionary<string, decimal> Values, int Turns = 0);
+    /// <summary>Un joueur de la partie : ses totaux, les stats des cartes de son deck et de ses reliques.</summary>
+    private sealed record SavedPlayer(ulong NetId, Dictionary<string, decimal> RunValues, int RunCombats, int RunTurns,
+        List<SavedCard> Cards, List<SavedRelic> Relics);
+    /// <summary>
+    /// Partie sauvegardée : tous les joueurs (Players). Les autres champs viennent des versions qui ne gardaient
+    /// que le joueur local, relus pour ne pas perdre une partie en cours.
+    /// </summary>
     private sealed record SavedRun(string Key, List<SavedCard> Cards, Dictionary<string, string>? Icons = null,
-        Dictionary<string, decimal>? RunValues = null, int RunCombats = 0, int RunTurns = 0, List<SavedRelic>? Relics = null);
+        Dictionary<string, decimal>? RunValues = null, int RunCombats = 0, int RunTurns = 0, List<SavedRelic>? Relics = null,
+        List<SavedPlayer>? Players = null);
 
     /// <summary>
-    /// Début ou reprise d'une partie : retient le joueur local et, si le fichier vient de cette même partie,
-    /// remet les stats sauvegardées sur les cartes du deck.
+    /// Début ou reprise d'une partie : retient le joueur local et, si le fichier vient de cette même partie, remet
+    /// les totaux de chaque joueur et les stats sauvegardées sur les cartes de son deck et sur ses reliques.
     /// </summary>
     public static void Track(IRunState runState, Player player)
     {
         _player = player;
+        _runState = runState;
         _runKey = RunKey(runState);
         // Nouvelle partie par défaut ; les totaux sont remis plus bas si le fichier vient de cette partie
-        _run = new CardRunStats();
-        _runCombats = _runTurns = 0;
-        _combat = new CardRunStats();
-        _turnStats = new CardRunStats();
-        _turn = _combatTurns = 0;
+        Totals.Clear();
         try
         {
             if (!File.Exists(FilePath))
@@ -433,9 +502,19 @@ public sealed partial class CardRunStats
                 return;
             foreach (var (name, path) in saved.Icons ?? [])
                 PowerIcons[name] = path;
-            foreach (var (name, value) in saved.RunValues ?? [])
-                _run.Values[name] = value;
-            (_runCombats, _runTurns) = (saved.RunCombats, saved.RunTurns);
+            if (saved.Players != null)
+            {
+                foreach (var p in runState.Players)
+                    if (saved.Players.FirstOrDefault(s => s.NetId == p.NetId) is { } sp)
+                    {
+                        TotalsOf(p).RestoreRun(sp.RunValues, sp.RunCombats, sp.RunTurns);
+                        Restore(PileType.Deck.GetPile(p).Cards, sp.Cards);
+                        RestoreRelics(p.Relics, sp.Relics);
+                    }
+                return;
+            }
+            // Ancien format : le joueur local seulement
+            TotalsOf(player).RestoreRun(saved.RunValues, saved.RunCombats, saved.RunTurns);
             Restore(PileType.Deck.GetPile(player).Cards, saved.Cards);
             RestoreRelics(player.Relics, saved.Relics ?? []);
         }
@@ -536,22 +615,27 @@ public sealed partial class CardRunStats
 
     private static void Save()
     {
-        if (_player == null || _runKey == null)
+        if (_player == null || _runKey == null || _runState == null)
             return;
         try
         {
-            var deck = PileType.Deck.GetPile(_player).Cards;
-            var cards = new List<SavedCard>();
-            for (int i = 0; i < deck.Count; i++)
-                if (Of(deck[i]) is { } s)
-                    cards.Add(new SavedCard(i, deck[i].Id.ToString(), deck[i].Title, s.Combats, new(s.Values)));
-            var relics = new List<SavedRelic>();
-            for (int i = 0; i < _player.Relics.Count; i++)
-                if (Of(_player.Relics[i]) is { } s)
-                    relics.Add(new SavedRelic(i, _player.Relics[i].Id.ToString(), s.Combats, new(s.Values), s.Turns));
+            var players = new List<SavedPlayer>();
+            foreach (var player in _runState.Players)
+            {
+                var deck = PileType.Deck.GetPile(player).Cards;
+                var cards = new List<SavedCard>();
+                for (int i = 0; i < deck.Count; i++)
+                    if (Of(deck[i]) is { } s)
+                        cards.Add(new SavedCard(i, deck[i].Id.ToString(), deck[i].Title, s.Combats, new(s.Values)));
+                var relics = new List<SavedRelic>();
+                for (int i = 0; i < player.Relics.Count; i++)
+                    if (Of(player.Relics[i]) is { } s)
+                        relics.Add(new SavedRelic(i, player.Relics[i].Id.ToString(), s.Combats, new(s.Values), s.Turns));
+                var totals = TotalsOf(player);
+                players.Add(new SavedPlayer(player.NetId, new(totals.Run.Values), totals.RunCombats, totals.RunTurns, cards, relics));
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(
-                new SavedRun(_runKey, cards, new(PowerIcons), new(_run.Values), _runCombats, _runTurns, relics), Json));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedRun(_runKey, [], new(PowerIcons), Players: players), Json));
         }
         catch (Exception e)
         {
@@ -590,10 +674,8 @@ public sealed partial class CardRunStats
                 _frames.Clear();
                 _pendingHits.Clear();
                 _pendingEnergy = _pendingStars = 0;
-                _combat = new CardRunStats();
-                _turnStats = new CardRunStats();
-                _turn = _combatTurns = 0;
-                _runCombats++;
+                foreach (var player in state.Players)
+                    TotalsOf(player).StartCombat();
                 Changed?.Invoke();
                 foreach (var player in state.Players)
                     foreach (var card in PileType.Deck.GetPile(player).Cards)
@@ -777,16 +859,16 @@ public sealed partial class CardRunStats
                 return;
 
             case DamageReceivedEntry damage:
-                // Dégâts reçus par le joueur local, de toute source (ennemis, Poison, ses propres cartes) :
+                // Dégâts reçus par chaque joueur, de toute source (ennemis, Poison, ses propres cartes) :
                 // PV perdus et dégâts absorbés par son Block
-                if (damage.Receiver.Player is { } hurt && hurt == _player)
+                if (damage.Receiver.Player is { } hurt)
                 {
-                    AddToCombat(DamageTaken, damage.Result.UnblockedDamage);
-                    AddToCombat(DamageBlocked, damage.Result.BlockedDamage);
+                    AddToCombat(hurt, DamageTaken, damage.Result.UnblockedDamage);
+                    AddToCombat(hurt, DamageBlocked, damage.Result.BlockedDamage);
                 }
                 // Dégâts encaissés par le familier du joueur (Osty, Necrobinder) à sa place
-                else if (damage.Receiver.PetOwner is { } owner && owner == _player)
-                    AddToCombat(OstyTanked, damage.Result.TotalDamage);
+                else if (damage.Receiver.PetOwner is { } owner)
+                    AddToCombat(owner, OstyTanked, damage.Result.TotalDamage);
                 // La carte source, sinon ce qui agit (Poison donné par une carte, carte qui en joue une autre…)
                 RecordModifiers(damage);
                 var source = CreditFor(damage.CardSource) ?? Current;
@@ -805,6 +887,8 @@ public sealed partial class CardRunStats
                 return;
             case BlockGainedEntry block:
                 (CreditFor(block.CardPlay?.Card) ?? Current)?.Add(Block, block.Amount);
+                // Le Block du joueur change les dégâts qu'il va encaisser (onglet Combat), même gagné par une relique
+                Changed?.Invoke();
                 return;
 
             case CardDrawnEntry drawn:
@@ -869,7 +953,7 @@ public sealed partial class CardRunStats
             decimal damage, ValueProp props, CardModel? cardSource, CardPlay? cardPlay, ModifyDamageHookType modifyDamageHookType,
             CardPreviewMode previewMode)
         {
-            if (previewMode == CardPreviewMode.None)
+            if (previewMode == CardPreviewMode.None && !PlaySimulation.Active)
                 _lastCalc = new DamageCalc(runState, combatState, target, dealer, damage, props, cardSource, cardPlay, modifyDamageHookType);
         }
     }
@@ -949,18 +1033,18 @@ public sealed partial class CardRunStats
                 return;
             decimal healed = Math.Max(0, Math.Min(amount, creature.MaxHp - creature.CurrentHp));
             Current?.Add(Healed, healed);
-            // PV rendus au joueur local, de toute source (cartes, reliques, potions, feu de camp…) : onglets Combat
+            // PV rendus à chaque joueur, de toute source (cartes, reliques, potions, feu de camp…) : onglets Combat
             // (pendant un combat) et Game
-            if (healed > 0 && creature.Player is { } player && player == _player)
+            if (healed > 0 && creature.Player is { } player)
             {
                 if (CombatManager.Instance.IsInProgress)
                 {
                     if (creature.CombatState?.IsLiveCombat() ?? true)
-                        AddToCombat(Healed, healed);
+                        AddToCombat(player, Healed, healed);
                 }
                 else
                 {
-                    _run.Values[Healed] = _run[Healed] + healed;
+                    TotalsOf(player).AddToRun(Healed, healed);
                     Changed?.Invoke();
                 }
             }

@@ -7,6 +7,7 @@ using MegaCrit.Sts2.Core.Nodes.Screens.MainMenu;
 namespace StsTools.Game;
 
 /// <summary>Ajoute un bouton « Stats » au menu principal, sous « Compendium ».</summary>
+[EarlyPatch]
 [HarmonyPatch(typeof(NMainMenu), nameof(NMainMenu._Ready))]
 public static class MainMenuPatch
 {
@@ -36,6 +37,7 @@ public static class MainMenuPatch
 
     public static void Postfix(NMainMenu __instance)
     {
+        ModEntry.ApplyLatePatches();
         try
         {
             var button = __instance.GetNodeOrNull<NMainMenuTextButton>("MainMenuTextButtons/" + ButtonName);

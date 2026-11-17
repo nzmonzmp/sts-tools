@@ -80,7 +80,7 @@ public static class RelicHover
             if (!RunPanel.IsOpen)
                 return;
             // Relique possédée sans stats encore : rien à afficher, l'infobulle du jeu reste telle quelle
-            if (relic.Model is not { } model || model.IsCanonical || !OwnedByLocal(model))
+            if (relic.Model is not { } model || model.IsCanonical || !OwnedInRun(model))
                 return;
             var stats = CardRunStats.Of(model) ?? new CardRunStats();
             var rows = Rows(model, stats);
@@ -101,8 +101,9 @@ public static class RelicHover
         }
     }
 
-    private static bool OwnedByLocal(RelicModel model) =>
-        CardRunStats.LocalPlayer is { } player && player.Relics.Contains(model);
+    /// <summary>Relique d'un joueur de la partie : la sienne, ou celle d'un coéquipier (vue dans sa fiche de joueur).</summary>
+    private static bool OwnedInRun(RelicModel model) =>
+        CardRunStats.LocalPlayer is { } local && local.RunState.Players.Any(p => p.Relics.Contains(model));
 
     /// <summary>Refait le tableau quand une stat change, tant que l'infobulle est affichée ; la colonne suit sa taille.</summary>
     private static void KeepUpdated(RelicModel model, CardRunStats stats, VFlowContainer column, PanelContainer panel, GridContainer grid)
@@ -144,21 +145,22 @@ public static class RelicHover
     {
         string Format(decimal value) => value.ToString("0.##");
         var combat = s.SinceCombatStart();
-        bool local = model.Owner == CardRunStats.LocalPlayer;
+        // Part du bonus : par rapport aux dégâts et au Block du propriétaire de la relique pendant ce combat
+        var ownerCombat = CardRunStats.TotalsOf(model.Owner).Combat;
 
         string Combat(string name)
         {
             if (combat == null)
                 return "-";
             decimal value = combat[name];
-            // Part du bonus dans les dégâts ou le Block du joueur pendant ce combat (cartes du joueur local)
+            // Part du bonus dans les dégâts ou le Block du joueur pendant ce combat (propriétaire de la relique)
             string? baseStat = name switch
             {
                 CardRunStats.BonusDamage => CardRunStats.Damage,
                 CardRunStats.BonusBlock => CardRunStats.Block,
                 _ => null,
             };
-            if (local && baseStat != null && value > 0 && CardRunStats.CombatTotals[baseStat] is > 0 and var total)
+            if (baseStat != null && value > 0 && ownerCombat[baseStat] is > 0 and var total)
                 return $"{Format(value)} ({Math.Round(100 * value / total)}%)";
             return Format(value);
         }

@@ -41,19 +41,7 @@ public sealed partial class CardRunStats
             _frames.Add(__state);
         }
 
-        public static void Postfix(ref Task __result, Frame __state) => __result = Release(__result, __state);
-
-        private static async Task Release(Task effect, Frame frame)
-        {
-            try
-            {
-                await effect;
-            }
-            finally
-            {
-                _frames.Remove(frame);
-            }
-        }
+        public static void Postfix(Task __result, Frame __state) => OnFinished(__result, () => _frames.Remove(__state));
     }
 
     /// <summary>Matérialise une liste de cartes passée au jeu, pour la compter sans la parcourir deux fois.</summary>
@@ -151,18 +139,14 @@ public sealed partial class CardRunStats
     [HarmonyPatch(typeof(PotionCmd), nameof(PotionCmd.TryToProcure), [typeof(PotionModel), typeof(Player), typeof(int)])]
     public static class PotionPatch
     {
-        public static void Postfix(ref Task<PotionProcureResult> __result)
+        public static void Postfix(Task<PotionProcureResult> __result)
         {
             if (Current is { } credit)
-                __result = Count(__result, credit);
-        }
-
-        private static async Task<PotionProcureResult> Count(Task<PotionProcureResult> procure, Credit credit)
-        {
-            var result = await procure;
-            if (result.success)
-                credit.Add(Potions, 1);
-            return result;
+                OnFinished(__result, () =>
+                {
+                    if (__result.IsCompletedSuccessfully && __result.Result.success)
+                        credit.Add(Potions, 1);
+                });
         }
     }
 
@@ -232,9 +216,10 @@ public sealed partial class CardRunStats
             _frames.Add(__state);
         }
 
-        public static void Postfix(ref Task __result, ICombatState combatState, AbstractModel preventer, Creature creature, Frame __state) =>
-            __result = AfterEffect(__result, __state, () =>
+        public static void Postfix(Task __result, ICombatState combatState, AbstractModel preventer, Creature creature, Frame __state) =>
+            OnFinished(__result, () =>
             {
+                _frames.Remove(__state);
                 if (!creature.IsEnemy && combatState.IsLiveCombat() && CreditOf(preventer) is { } credit)
                     credit.Add(BlockRetained, creature.Block);
             });
@@ -255,21 +240,32 @@ public sealed partial class CardRunStats
                 CreditOf(preventer)?.Add(DeathsPrevented, 1);
         }
 
-        public static void Postfix(ref Task __result, Frame __state) => __result = AfterEffect(__result, __state, null);
+        public static void Postfix(Task __result, Frame __state) => OnFinished(__result, () => _frames.Remove(__state));
     }
 
-    /// <summary>Attend la fin de l'effet, retire son élément de « ce qui agit », puis fait <paramref name="after"/>.</summary>
-    private static async Task AfterEffect(Task effect, Frame frame, Action? after)
+    /// <summary>
+    /// Fait <paramref name="then"/> à la fin d'un effet du jeu, sans remplacer sa tâche : le jeu attend toujours la
+    /// sienne, sans étape d'attente en plus. En multijoueur, chaque joueur simule la partie et le jeu vérifie que
+    /// tous obtiennent le même état : le mod ne doit rien y changer, pas même l'ordre des attentes. La suite est
+    /// faite tout de suite à la fin de l'effet, avant que le jeu ne reprenne.
+    /// </summary>
+    private static void OnFinished(Task effect, Action then)
     {
-        try
+        void Run()
         {
-            await effect;
+            try
+            {
+                then();
+            }
+            catch (Exception e)
+            {
+                MegaCrit.Sts2.Core.Logging.Log.Warn($"[{ModEntry.Id}] cannot finish recording an effect: {e.Message}");
+            }
         }
-        finally
-        {
-            _frames.Remove(frame);
-        }
-        after?.Invoke();
+        if (effect.IsCompleted)
+            Run();
+        else
+            effect.ContinueWith(_ => Run(), TaskContinuationOptions.ExecuteSynchronously);
     }
 
     // ---- Tours joués avec chaque relique ----

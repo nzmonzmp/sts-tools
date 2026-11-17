@@ -2,6 +2,7 @@ using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.Screens.ScreenContext;
@@ -85,12 +86,18 @@ public static class KeyboardNav
             ScreenChanged();
         }
 
-        /// <summary>Focus rendu au jeu : plus l'écran actif.</summary>
+        /// <summary>
+        /// Focus rendu au jeu : plus l'écran actif. Le jeu n'est prévenu que si le menu l'était : sinon (focus déjà
+        /// sur le jeu, sur un ennemi par exemple), il remettrait le focus sur la main au milieu de sa navigation,
+        /// sans y parvenir, et plus aucune touche ne répondait.
+        /// </summary>
         public void Disengage()
         {
+            bool wasActive = !Overlay || _engaged;
             _engaged = false;
             _wantsFocus = false;
-            ScreenChanged();
+            if (wasActive)
+                ScreenChanged();
         }
 
         /// <summary>Le focus est allé sur un autre contrôle : on retient le nôtre ; hors du menu, il n'est plus actif.</summary>
@@ -145,6 +152,35 @@ public static class KeyboardNav
     /// Un menu s'ouvre ou se ferme : au clavier, le jeu remet le focus sur l'écran actif (le nôtre, ou le sien).
     /// </summary>
     public static void ScreenChanged() => Callable.From(() => ActiveScreenContext.Instance.Update()).CallDeferred();
+
+    /// <summary>
+    /// Clavier seul : après la fermeture d'un menu, une fois que le jeu a repris la main (deux images plus tard), le
+    /// focus doit être sur un contrôle visible du jeu ; sinon, sur le contrôle par défaut de l'écran actif (la main
+    /// en combat). Sans focus, plus aucune touche ne répond.
+    /// </summary>
+    public static void RestoreGameFocus()
+    {
+        if (!Active)
+            return;
+        Callable.From(() => Callable.From(() =>
+        {
+            try
+            {
+                var viewport = NGame.Instance?.GetViewport();
+                var owner = viewport?.GuiGetFocusOwner();
+                if (owner == null || !owner.IsVisibleInTree())
+                {
+                    ActiveScreenContext.Instance.Update();
+                    ActiveScreenContext.Instance.FocusOnDefaultControl();
+                }
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot give the focus back to the game: {e.Message}");
+            }
+        }).CallDeferred()).CallDeferred();
+    }
+
 
     /// <summary>Le dernier menu ouvert passe devant les écrans du jeu.</summary>
     [HarmonyPatch(typeof(ActiveScreenContext), nameof(ActiveScreenContext.GetCurrentScreen))]

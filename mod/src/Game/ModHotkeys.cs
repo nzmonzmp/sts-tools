@@ -17,7 +17,7 @@ namespace StsTools.Game;
 public sealed class ModHotkeys
 {
     /// <summary>Ouvre ou ferme le panneau de stats en partie.</summary>
-    public static readonly ModHotkeys RunStats = new("RunStats", "Run stats panel", Key.F7, RunPanel.Toggle);
+    public static readonly ModHotkeys RunStats = new("RunStats", "GUI", Key.F7, RunPanel.Toggle);
 
     /// <summary>Ouvre ou ferme l'écran Stats (historique des parties).</summary>
     public static readonly ModHotkeys StatsScreenKey = new("StatsScreen", "Stats screen", Key.F6, StatsScreen.Toggle);
@@ -27,7 +27,7 @@ public sealed class ModHotkeys
     /// Sans touche en clavier et souris : la souris suffit pour aller dans le panneau.
     /// </summary>
     public static readonly ModHotkeys FocusRunStats =
-        new("FocusRunStats", "Focus run stats", Key.F8, RunPanel.ToggleFocus) { KeyboardOnly = true };
+        new("FocusRunStats", "Focus GUI", Key.F8, RunPanel.ToggleFocus) { KeyboardOnly = true };
 
     /// <summary>Cache ou réaffiche la barre des reliques (F8 est déjà Focus run stats en clavier seul : F9).</summary>
     public static readonly ModHotkeys RelicBar =

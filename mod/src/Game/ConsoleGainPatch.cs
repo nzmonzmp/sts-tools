@@ -13,7 +13,7 @@ namespace StsTools.Game;
 /// <summary>
 /// Console du jeu : taper le nom d'une relique ou d'une carte (« Lizard Tail », « lizardtail », « LIZARD_TAIL »)
 /// au lieu d'une commande la fait gagner : la relique est prise comme en jeu (effet de prise compris), la carte
-/// ajoutée au deck. Les vraies commandes passent avant.
+/// ajoutée au deck. Les vraies commandes passent avant. Solo seulement.
 /// </summary>
 [HarmonyPatch(typeof(DevConsole), "ProcessCommand", [typeof(Player), typeof(string), typeof(string[])])]
 public static class ConsoleGainPatch
@@ -37,7 +37,8 @@ public static class ConsoleGainPatch
         {
             if (cmdName.Equals("help") || Commands(__instance).ContainsKey(cmdName.ToLowerInvariant()))
                 return true;
-            if (player == null || !RunManager.Instance.IsInProgress)
+            // Solo seulement : en multijoueur, changer sa propre partie la désynchroniserait des autres joueurs
+            if (player == null || !RunManager.Instance.IsInProgress || !RunManager.Instance.IsSingleplayerOrFakeMultiplayer)
                 return true;
             string key = Key(string.Join(" ", args.Prepend(cmdName)));
             if (key.Length == 0)

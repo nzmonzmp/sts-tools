@@ -26,8 +26,15 @@ public interface IRunPanelTab
 
     void Unsubscribe(Player player, Action changed);
 
+    /// <summary>L'onglet sait montrer l'équipe entière (totaux de tous les joueurs).</summary>
+    bool HasTeam => false;
+
+    /// <param name="players">
+    /// joueur affiché (choisi dans la rangée des joueurs en multijoueur), ou tous les joueurs pour l'équipe
+    /// (seulement si <see cref="HasTeam"/>)
+    /// </param>
     /// <param name="subTab">sous-onglet affiché, parmi <see cref="SubTabs"/> ; null s'il n'y en a pas</param>
-    void Fill(VBoxContainer content, Player player, string? subTab);
+    void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab);
 }
 
 /// <summary>
@@ -52,8 +59,24 @@ public sealed class RunPanel
     private readonly PanelContainer _panel;
     private readonly VBoxContainer _content;
     private readonly ScrollContainer _scroll;
+
+    /// <summary>Tout sous l'en-tête : masqué quand le panneau est replié (flèche de l'en-tête).</summary>
+    private readonly VBoxContainer _body;
+
+    private readonly Button _collapse;
     private readonly List<Button> _tabButtons = [];
     private readonly HBoxContainer _subTabBar;
+
+    /// <summary>Rangée des joueurs (multijoueur seulement) : un bouton par joueur, et l'équipe si l'onglet la montre.</summary>
+    private readonly HBoxContainer _playerBar;
+    private readonly List<(Button Button, Player? Player)> _playerButtons = [];
+
+    /// <summary>Joueur affiché ; null : l'équipe entière.</summary>
+    private Player? _viewed;
+
+    /// <summary>Joueurs de la partie, le joueur local en premier.</summary>
+    private IReadOnlyList<Player> Players =>
+        _player.RunState.Players.OrderBy(p => p == _player ? 0 : 1).ToList();
     private readonly List<Button> _subTabButtons = [];
     /// <summary>Sous-onglet choisi dans chaque onglet, par titre d'onglet</summary>
     private readonly Dictionary<string, string> _subTabs;
@@ -156,9 +179,16 @@ public sealed class RunPanel
 
         var header = new HBoxContainer();
         page.AddChild(header);
-        header.AddChild(Label("Run stats", 24, StsColors.gold));
+        header.AddChild(Label("GUI", 24, StsColors.gold));
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
         header.AddChild(Label($"[{ModHotkeys.RunStats.Display}]", 16, StsColors.halfTransparentCream));
+        // Replier : il ne reste que l'en-tête (titre, flèche pour déplier, croix)
+        _collapse = new Button { Flat = true, TooltipText = "Show or hide the panel content" };
+        KeyboardNav.Focusable(_collapse);
+        _collapse.AddThemeColorOverride("font_color", StsColors.cream);
+        _collapse.AddThemeColorOverride("font_hover_color", StsColors.gold);
+        _collapse.Pressed += () => SetCollapsed(_body!.Visible);
+        header.AddChild(_collapse);
         var close = new Button { Text = "✕", Flat = true };
         KeyboardNav.Focusable(close);
         close.AddThemeColorOverride("font_color", StsColors.cream);
@@ -166,9 +196,13 @@ public sealed class RunPanel
         close.Pressed += () => SetOpen(false);
         header.AddChild(close);
 
+        _body = new VBoxContainer();
+        _body.AddThemeConstantOverride("separation", 10);
+        page.AddChild(_body);
+
         var tabs = new HBoxContainer();
         tabs.AddThemeConstantOverride("separation", 6);
-        page.AddChild(tabs);
+        _body.AddChild(tabs);
         for (int i = 0; i < _tabs.Length; i++)
         {
             int index = i;
@@ -184,15 +218,20 @@ public sealed class RunPanel
             tabs.AddChild(button);
         }
 
+        _playerBar = new HBoxContainer();
+        _playerBar.AddThemeConstantOverride("separation", 6);
+        _body.AddChild(_playerBar);
+        _viewed = player;
+
         _subTabBar = new HBoxContainer();
         _subTabBar.AddThemeConstantOverride("separation", 6);
-        page.AddChild(_subTabBar);
+        _body.AddChild(_subTabBar);
 
         // Défilement vertical seulement : la largeur du contenu reste celle du panneau
         _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
         KeyboardNav.ScrollWithKeys(_scroll);
 
-        page.AddChild(_scroll);
+        _body.AddChild(_scroll);
         _content = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _content.AddThemeConstantOverride("separation", 6);
         _scroll.AddChild(_content);
@@ -203,7 +242,7 @@ public sealed class RunPanel
             _subTabButtons.FirstOrDefault(b => b.IsVisibleInTree())
             ?? _content.FindChildren("*", "Control", true, false).OfType<Control>()
                 .FirstOrDefault(c => c.FocusMode == Control.FocusModeEnum.All && c.IsVisibleInTree())
-            ?? _scroll)
+            ?? (_body.Visible ? _scroll : _collapse))
         {
             IsOpen = () => GodotObject.IsInstanceValid(_panel) && _panel.Visible,
             Overlay = true,
@@ -238,8 +277,30 @@ public sealed class RunPanel
         };
 
         BuildSubTabs();
+        BuildPlayers();
         StyleTabs();
+        SetCollapsed(saved.RunPanelCollapsed, save: false);
         SetOpen(false);
+    }
+
+    /// <summary>Replie le panneau (seulement l'en-tête) ou le déplie ; gardé dans les réglages.</summary>
+    private void SetCollapsed(bool collapsed, bool save = true)
+    {
+        bool focusInside = _body.GetViewport()?.GuiGetFocusOwner() is { } owner && _body.IsAncestorOf(owner);
+        _body.Visible = !collapsed;
+        _collapse.Text = collapsed ? "▼" : "▲";
+        if (save)
+            Save(settings => settings.RunPanelCollapsed = collapsed);
+        // Le focus clavier ne reste pas sur un élément caché
+        if (collapsed && focusInside)
+            _collapse.GrabFocus();
+        if (collapsed)
+        {
+            _panel.ResetSize();
+            Place();
+        }
+        else
+            Callable.From(FitHeight).CallDeferred();
     }
 
     /// <summary>Le panneau vient de s'ouvrir ou de se fermer.</summary>
@@ -253,13 +314,19 @@ public sealed class RunPanel
             owner.ReleaseFocus();
         _panel.Visible = open;
         if (changed)
+        {
             OpenChanged?.Invoke();
+            TargetPreview.GuiToggled(open);
+        }
         // Toujours à l'ouverture : certains changements (carte améliorée) ne passent par aucun événement suivi
         if (open)
             Refresh();
         // Pas de focus à l'ouverture (touche Focus run stats pour l'y mettre) ; fermé : le jeu reprend le focus
         if (changed && !open)
+        {
             _menu.Disengage();
+            KeyboardNav.RestoreGameFocus();
+        }
     }
 
     /// <summary>
@@ -288,6 +355,7 @@ public sealed class RunPanel
         _tab = index;
         Save(s => s.RunPanelTab = _tabs[index].Title);
         BuildSubTabs();
+        BuildPlayers();
         StyleTabs();
         Refresh();
     }
@@ -301,6 +369,78 @@ public sealed class RunPanel
             if (subTabs.Length == 0)
                 return null;
             return _subTabs.TryGetValue(_tabs[_tab].Title, out var name) && subTabs.Contains(name) ? name : subTabs[0];
+        }
+    }
+
+    /// <summary>Nom d'un joueur comme le jeu l'affiche ; « You » pour le joueur local.</summary>
+    private string NameOf(Player player)
+    {
+        if (player == _player)
+            return "You";
+        try
+        {
+            return MegaCrit.Sts2.Core.Platform.PlatformUtil.GetPlayerName(
+                MegaCrit.Sts2.Core.Runs.RunManager.Instance.NetService.Platform, player.NetId);
+        }
+        catch (Exception)
+        {
+            return $"Player {player.NetId}";
+        }
+    }
+
+    /// <summary>
+    /// Rangée des joueurs : seulement à plusieurs. « You », chaque coéquipier, puis « Team » si l'onglet la montre ;
+    /// l'équipe choisie dans un onglet qui ne la montre pas revient au joueur local.
+    /// </summary>
+    private void BuildPlayers()
+    {
+        RemoveChildren(_playerBar);
+        _playerButtons.Clear();
+        var players = Players;
+        _playerBar.Visible = players.Count > 1;
+        if (players.Count <= 1)
+        {
+            _viewed = _player;
+            return;
+        }
+        bool team = _tabs[_tab].HasTeam;
+        if (_viewed == null && !team || _viewed != null && !players.Contains(_viewed))
+            _viewed = _player;
+        foreach (var p in team ? players.Cast<Player?>().Append(null) : players.Cast<Player?>())
+        {
+            var viewed = p;
+            // Icône du personnage au-dessus du nom du joueur ; l'équipe : son nom seul, à la même hauteur
+            var button = new Button
+            {
+                Text = viewed == null ? "Team" : NameOf(viewed),
+                ClipText = true,
+                SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
+                IconAlignment = HorizontalAlignment.Center,
+                VerticalIconAlignment = VerticalAlignment.Top,
+                CustomMinimumSize = new Vector2(0, 64),
+            };
+            if (viewed != null)
+            {
+                try
+                {
+                    button.Icon = viewed.Character.IconTexture;
+                }
+                catch (Exception e)
+                {
+                    Log.Warn($"[{ModEntry.Id}] cannot load the character icon: {e.Message}");
+                }
+            }
+            button.AddThemeConstantOverride("icon_max_width", 36);
+            KeyboardNav.Focusable(button);
+            button.AddThemeFontSizeOverride("font_size", 15);
+            button.Pressed += () =>
+            {
+                _viewed = viewed;
+                StyleTabs();
+                Refresh();
+            };
+            _playerButtons.Add((button, viewed));
+            _playerBar.AddChild(button);
         }
     }
 
@@ -357,7 +497,7 @@ public sealed class RunPanel
             RemoveChildren(_content);
             try
             {
-                _tabs[_tab].Fill(_content, _player, CurrentSubTab);
+                _tabs[_tab].Fill(_content, _viewed is { } viewed ? [viewed] : Players, CurrentSubTab);
             }
             catch (Exception e)
             {
@@ -418,6 +558,8 @@ public sealed class RunPanel
         var subTab = CurrentSubTab;
         foreach (var button in _subTabButtons)
             StyleTab(button, button.Text == subTab, small: true);
+        foreach (var (button, viewed) in _playerButtons)
+            StyleTab(button, viewed == _viewed, small: true);
     }
 
     /// <summary>Plaque sombre, contour cyan si sélectionné ; les sous-onglets sont plus petits et sans fond.</summary>
@@ -496,12 +638,22 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
 
     public string[] SubTabs => ["Stats", "Cards"];
 
-    public void Subscribe(Player player, Action changed) => PileType.Deck.GetPile(player).ContentsChanged += changed;
-
-    public void Unsubscribe(Player player, Action changed) => PileType.Deck.GetPile(player).ContentsChanged -= changed;
-
-    public void Fill(VBoxContainer content, Player player, string? subTab)
+    // Le deck de chaque joueur : on peut afficher celui d'un coéquipier
+    public void Subscribe(Player player, Action changed)
     {
+        foreach (var p in player.RunState.Players)
+            PileType.Deck.GetPile(p).ContentsChanged += changed;
+    }
+
+    public void Unsubscribe(Player player, Action changed)
+    {
+        foreach (var p in player.RunState.Players)
+            PileType.Deck.GetPile(p).ContentsChanged -= changed;
+    }
+
+    public void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab)
+    {
+        var player = players[0];
         var cards = PileType.Deck.GetPile(player).Cards;
         content.AddChild(RunPanel.Label($"{cards.Count} cards", 20, StsColors.cream));
         if (subTab == "Cards")
@@ -651,11 +803,16 @@ internal sealed class CombatTab : IRunPanelTab
 
     public void Unsubscribe(Player player, Action changed) => CardRunStats.Changed -= changed;
 
-    public void Fill(VBoxContainer content, Player player, string? subTab)
+    public bool HasTeam => true;
+
+    public void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab)
     {
-        var combat = CardRunStats.CombatTotals;
-        var turn = CardRunStats.TurnTotals;
-        int turns = CardRunStats.CombatTurns;
+        // Un joueur, ou l'équipe : la somme de tous (tours : ceux du joueur le plus avancé)
+        var totals = players.Select(CardRunStats.TotalsOf).ToList();
+        var combat = CardRunStats.Merge(totals.Select(t => t.Combat));
+        var turn = CardRunStats.Merge(totals.Select(t => t.Turn));
+        int turns = totals.Max(t => t.CombatTurns);
+        var player = players.Count == 1 ? players[0] : null;
         string Format(decimal value) => value.ToString("0.##");
         var rows = combat.DisplayNames()
             .Select(name => new[] { name, Format(combat[name]), Format(turn[name]), turns > 0 ? Format(combat[name] / turns) : "-" })
@@ -667,7 +824,8 @@ internal sealed class CombatTab : IRunPanelTab
             return;
         }
         content.AddChild(RunPanel.Label(turns > 0 ? $"Turn {turns}" : inCombat ? "Combat" : "Last combat", 18, StsColors.halfTransparentCream));
-        if (inCombat && IncomingDamage(player) is { } incoming)
+        // Dégâts annoncés : calculés par le jeu contre le joueur local seulement
+        if (inCombat && player != null && player == CardRunStats.LocalPlayer && IncomingDamage(player) is { } incoming)
         {
             // Icône d'attaque des intentions, libellé atténué, nombre en clair : comme une ligne du tableau
             var line = new HBoxContainer();
@@ -681,7 +839,7 @@ internal sealed class CombatTab : IRunPanelTab
                 SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
                 MouseFilter = Control.MouseFilterEnum.Ignore,
             });
-            line.AddChild(RunPanel.Label("Incoming damage", 18, StsColors.halfTransparentCream));
+            line.AddChild(RunPanel.Label("Unblocked incoming damage", 18, StsColors.halfTransparentCream));
             line.AddChild(RunPanel.Label(incoming.ToString(), 18, StsColors.cream));
             content.AddChild(line);
         }
@@ -690,9 +848,10 @@ internal sealed class CombatTab : IRunPanelTab
     }
 
     /// <summary>
-    /// Dégâts annoncés par les intentions d'attaque des ennemis en vie pour leur prochain tour, comme les chiffres
-    /// affichés au-dessus d'eux : coups multiples compris, avec la Force des ennemis, Weak, Vulnerable… calculés
-    /// par le jeu contre le joueur local (avant son Block). Null s'il n'y a pas de combat.
+    /// Dégâts que le joueur va perdre si rien ne change : ceux annoncés par les intentions d'attaque des ennemis en
+    /// vie pour leur prochain tour, comme les chiffres affichés au-dessus d'eux (coups multiples compris, avec la
+    /// Force des ennemis, Weak, Vulnerable… calculés par le jeu contre le joueur local), moins son Block actuel.
+    /// Null s'il n'y a pas de combat.
     /// </summary>
     private static int? IncomingDamage(Player player)
     {
@@ -710,7 +869,7 @@ internal sealed class CombatTab : IRunPanelTab
                     if (intent is AttackIntent attack && attack.DamageCalc != null)
                         total += attack.GetTotalDamage(targets, enemy);
             }
-            return total;
+            return Math.Max(0, total - player.Creature.Block);
         }
         catch (Exception e)
         {
@@ -732,10 +891,14 @@ internal sealed class GameTab : IRunPanelTab
 
     public void Unsubscribe(Player player, Action changed) => CardRunStats.Changed -= changed;
 
-    public void Fill(VBoxContainer content, Player player, string? subTab)
+    public bool HasTeam => true;
+
+    public void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab)
     {
-        var run = CardRunStats.RunTotals;
-        int combats = CardRunStats.RunCombats, turns = CardRunStats.RunTurns;
+        // Un joueur, ou l'équipe : la somme de tous (combats et tours : ceux du joueur le plus avancé)
+        var totals = players.Select(CardRunStats.TotalsOf).ToList();
+        var run = CardRunStats.Merge(totals.Select(t => t.Run));
+        int combats = totals.Max(t => t.RunCombats), turns = totals.Max(t => t.RunTurns);
         string Format(decimal value) => value.ToString("0.##");
         var rows = run.DisplayNames()
             .Select(name => new[]

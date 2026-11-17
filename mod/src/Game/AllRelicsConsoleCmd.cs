@@ -29,6 +29,9 @@ public sealed class AllRelicsConsoleCmd : AbstractConsoleCmd
     {
         if (issuingPlayer == null || !RunManager.Instance.IsInProgress)
             return new CmdResult(success: false, "A run does not appear to be in progress");
+        // En multijoueur, chaque joueur simule la partie : changer la sienne seule la désynchroniserait des autres
+        if (!RunManager.Instance.IsSingleplayerOrFakeMultiplayer)
+            return new CmdResult(success: false, "Only in single player (it would desync a multiplayer run)");
         var owned = issuingPlayer.Relics.Select(r => r.Id).ToHashSet();
         var relics = ModelDb.AllRelics.Where(r => !owned.Contains(r.Id)).ToList();
         if (args.Length > 0 && args[0].ToLowerInvariant() is "obtain" or "gained")
