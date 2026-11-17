@@ -129,6 +129,20 @@ public sealed class RunPanel
         panel._menu.DefaultFocusedControl?.GrabFocus();
     }
 
+    /// <summary>Touche « Collapse GUI » : replie ou déplie le panneau ; fermé, il s'ouvre déplié.</summary>
+    public static void ToggleCollapse()
+    {
+        if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
+            return;
+        if (!panel._panel.Visible)
+        {
+            panel.SetCollapsed(false);
+            panel.SetOpen(true);
+            return;
+        }
+        panel.SetCollapsed(panel._body.Visible);
+    }
+
     /// <summary>Le panneau de stats est ouvert (les infobulles des reliques n'affichent leurs stats qu'à ce moment).</summary>
     public static bool IsOpen => _current != null && GodotObject.IsInstanceValid(_current._panel) && _current._panel.Visible;
 

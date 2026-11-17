@@ -59,10 +59,21 @@ public static class ModSettingsTab
                 child.Free();
             }
             model.AddSibling(panel);
-            if (Header(__instance) is { } header)
+            var header = Header(__instance);
+            if (header != null)
                 panel.Content.AddChild(header);
+            // Une section par groupe (GUI, écran Stats, partie), titre au style de l'en-tête des colonnes
+            string? group = null;
             foreach (var hotkey in ModHotkeys.All)
+            {
+                if (hotkey.Group != group)
+                {
+                    group = hotkey.Group;
+                    if (SectionTitle(header, group) is { } title)
+                        panel.Content.AddChild(title);
+                }
                 panel.Content.AddChild(Entry(hotkey));
+            }
             AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
             // Navigation au clavier (mode clavier seul) et à la manette : le jeu chaîne les lignes du panneau entre elles
             // et choisit la première comme focus à l'ouverture de l'onglet ; à refaire une fois nos lignes prêtes
@@ -104,6 +115,45 @@ public static class ModSettingsTab
         catch (Exception e)
         {
             Log.Warn($"[{ModEntry.Id}] cannot copy the input settings header: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Titre de section : copie d'un texte de l'en-tête des colonnes, en doré, avec de l'espace au-dessus.</summary>
+    private static Control? SectionTitle(Control? header, string text)
+    {
+        try
+        {
+            if (header?.GetChildren().FirstOrDefault(c => c is Label or RichTextLabel) is not Control model)
+                return null;
+            var title = (Control)model.Duplicate();
+            switch (title)
+            {
+                case MegaLabel mega:
+                    mega.SetTextAutoSize(text);
+                    break;
+                case Label label:
+                    label.Text = text;
+                    break;
+                case RichTextLabel rich:
+                    rich.Text = text;
+                    break;
+            }
+            title.Modulate = StsColors.gold;
+            title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+            title.CustomMinimumSize = new Vector2(0, 56);
+            if (title is Label { } aligned)
+            {
+                aligned.HorizontalAlignment = HorizontalAlignment.Left;
+                aligned.VerticalAlignment = VerticalAlignment.Bottom;
+            }
+            title.MouseFilter = Control.MouseFilterEnum.Ignore;
+            title.FocusMode = Control.FocusModeEnum.None;
+            return title;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot add the settings section {text}: {e.Message}");
             return null;
         }
     }

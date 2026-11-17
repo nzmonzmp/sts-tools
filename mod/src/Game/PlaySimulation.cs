@@ -317,6 +317,7 @@ public sealed class PlaySimulation
         }
         finally
         {
+            sim.RestoreBodies();
             CurrentSim.Value = null;
             rngs.Restore();
         }
@@ -422,6 +423,7 @@ public sealed class PlaySimulation
         }
         finally
         {
+            sim.RestoreBodies();
             CurrentSim.Value = null;
             random = rngs.Changed();
             rngs.Restore();
@@ -681,6 +683,7 @@ public sealed class PlaySimulation
         try
         {
             System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
+            SyncBodies();
             Wait("event", start());
         }
         catch (Exception e)
@@ -843,8 +846,42 @@ public sealed class PlaySimulation
 
     // ---- PV et Block simulés ----
 
-    private int[] Body(Creature creature) =>
-        _bodies.TryGetValue(creature, out var body) ? body : _bodies[creature] = [creature.CurrentHp, creature.Block];
+    private int[] Body(Creature creature)
+    {
+        if (_bodies.TryGetValue(creature, out var body))
+            return body;
+        _realBodies[creature] = (creature.CurrentHp, creature.Block);
+        return _bodies[creature] = [creature.CurrentHp, creature.Block];
+    }
+
+    /// <summary>PV et Block réels des créatures touchées, remis en place à la fin de la simulation.</summary>
+    private readonly Dictionary<Creature, (int Hp, int Block)> _realBodies = new();
+
+    private static readonly FieldInfo HpField = AccessTools.Field(typeof(Creature), "_currentHp");
+    private static readonly FieldInfo BlockField = AccessTools.Field(typeof(Creature), "_block");
+
+    /// <summary>
+    /// Le code du jeu lit les PV et le Block des créatures (Plow du Ceremonial Beast : étourdi sous un seuil de PV ;
+    /// créature morte…) : pendant la simulation, ce sont les valeurs simulées, écrites directement (sans prévenir
+    /// l'interface), et remises à la fin (<see cref="RestoreBodies"/>).
+    /// </summary>
+    private void SyncBodies()
+    {
+        foreach (var (creature, body) in _bodies)
+        {
+            HpField.SetValue(creature, Math.Max(0, body[0]));
+            BlockField.SetValue(creature, Math.Max(0, body[1]));
+        }
+    }
+
+    private void RestoreBodies()
+    {
+        foreach (var (creature, (hp, block)) in _realBodies)
+        {
+            HpField.SetValue(creature, hp);
+            BlockField.SetValue(creature, block);
+        }
+    }
 
     private bool IsDead(Creature creature) => Body(creature)[0] <= 0;
 
@@ -857,7 +894,9 @@ public sealed class PlaySimulation
         {
             // Pile presque pleine (effets en chaîne) : arrêt propre plutôt que la fermeture du jeu
             System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack();
-            if (Handle(method, args) is { } result)
+            var handled = Handle(method, args);
+            SyncBodies();
+            if (handled is { } result)
                 return result;
         }
         catch (Exception e)
@@ -951,6 +990,16 @@ public sealed class PlaySimulation
                 return null;
             case "PowerCmd.ModifyAmount":
                 return Task.FromResult(ModifyAmount(Arg<PowerModel>("power")!, Amount("offset"), Arg<Creature>("applier"), Arg<CardModel>("cardSource")));
+            case "PowerCmd.Decrement" when Arg<PowerModel>("power") is { } decremented:
+                ModifyAmount(decremented, -1, null, null);
+                return null;
+            case "PowerCmd.TickDownDuration" when Arg<PowerModel>("power") is { } ticked:
+                var tickedShadow = (PowerModel)ShadowOf(ticked);
+                if (tickedShadow.SkipNextDurationTick)
+                    tickedShadow.SkipNextDurationTick = false;
+                else
+                    ModifyAmount(ticked, -1, null, null);
+                return null;
             case "PowerCmd.Remove":
                 if (Arg<PowerModel>("power") is { } removed)
                     Remove(removed);

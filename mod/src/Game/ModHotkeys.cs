@@ -16,24 +16,35 @@ namespace StsTools.Game;
 /// </summary>
 public sealed class ModHotkeys
 {
-    /// <summary>Ouvre ou ferme le panneau de stats en partie.</summary>
-    public static readonly ModHotkeys RunStats = new("RunStats", "GUI", Key.F7, RunPanel.Toggle);
+    /// <summary>Ouvre ou ferme le panneau de stats en partie (GUI).</summary>
+    public static readonly ModHotkeys RunStats = new("RunStats", "Show GUI", Key.F7, RunPanel.Toggle) { Group = GuiGroup };
+
+    /// <summary>Replie le GUI (seulement son en-tête) ou le déplie ; l'ouvre s'il est fermé.</summary>
+    public static readonly ModHotkeys CollapseGui =
+        new("CollapseGui", "Collapse GUI", Key.F10, RunPanel.ToggleCollapse) { Group = GuiGroup };
 
     /// <summary>Ouvre ou ferme l'écran Stats (historique des parties).</summary>
-    public static readonly ModHotkeys StatsScreenKey = new("StatsScreen", "Stats screen", Key.F6, StatsScreen.Toggle);
+    public static readonly ModHotkeys StatsScreenKey =
+        new("StatsScreen", "Show Stats screen", Key.F6, StatsScreen.Toggle) { Group = "Stats screen" };
 
     /// <summary>
     /// Clavier seul : met le focus dans le panneau de stats en partie (l'ouvre s'il est fermé), ou le rend au jeu.
     /// Sans touche en clavier et souris : la souris suffit pour aller dans le panneau.
     /// </summary>
     public static readonly ModHotkeys FocusRunStats =
-        new("FocusRunStats", "Focus GUI", Key.F8, RunPanel.ToggleFocus) { KeyboardOnly = true };
+        new("FocusRunStats", "Focus GUI", Key.F8, RunPanel.ToggleFocus) { KeyboardOnly = true, Group = GuiGroup };
 
     /// <summary>Cache ou réaffiche la barre des reliques (F8 est déjà Focus run stats en clavier seul : F9).</summary>
     public static readonly ModHotkeys RelicBar =
-        new("RelicBar", "Show or hide relics", Key.F8, RelicBarToggle.Toggle) { KeyboardOnlyDefault = Key.F9 };
+        new("RelicBar", "Show or hide relics", Key.F8, RelicBarToggle.Toggle) { KeyboardOnlyDefault = Key.F9, Group = "Relic bar" };
 
-    public static readonly ModHotkeys[] All = [RunStats, StatsScreenKey, FocusRunStats, RelicBar];
+    private const string GuiGroup = "GUI";
+
+    /// <summary>Dans l'ordre des options (onglet Mod), par groupe.</summary>
+    public static readonly ModHotkeys[] All = [RunStats, CollapseGui, FocusRunStats, StatsScreenKey, RelicBar];
+
+    /// <summary>Titre du groupe de la ligne dans les options (onglet Mod).</summary>
+    public string Group { get; private init; } = "";
 
     /// <summary>Touche par défaut en clavier seul, si elle diffère de celle du clavier et souris.</summary>
     public Key? KeyboardOnlyDefault { get; private init; }
