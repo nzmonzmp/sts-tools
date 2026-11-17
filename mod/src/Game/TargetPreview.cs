@@ -1,6 +1,7 @@
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Logging;
@@ -82,11 +83,101 @@ public static class TargetPreview
     {
         if (!open)
             Hide();
+        else if (_potion is { } potion)
+            ShowPotion(potion.Model, potion.Target);
         else if (_choosing != null && NCombatRoom.Instance?.Ui.Hand is { IsInCardSelection: true } hand)
             RefreshChoice(hand);
         else if (_current is { } current && GodotObject.IsInstanceValid(current.Play) && current.Play.IsInsideTree())
             Show(current.Play, current.Target);
     }
+
+    // ---- Potions en combat ----
+
+    /// <summary>Potion visée ou survolée, et sa cible, pour l'aperçu (et quand le GUI s'ouvre ensuite).</summary>
+    private static (PotionModel Model, Creature? Target)? _potion;
+
+    /// <summary>Potion qui attend sa cible (le jeu prévient de la potion choisie), null sinon.</summary>
+    private static PotionModel? _targetingPotion;
+
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.HoveredModelTracker),
+        nameof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.HoveredModelTracker.OnLocalPotionSelected))]
+    public static class PotionSelectedPatch
+    {
+        public static void Postfix(PotionModel potionModel) => _targetingPotion = potionModel;
+    }
+
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.HoveredModelTracker),
+        nameof(MegaCrit.Sts2.Core.Multiplayer.Game.PeerInput.HoveredModelTracker.OnLocalPotionDeselected))]
+    public static class PotionDeselectedPatch
+    {
+        public static void Postfix()
+        {
+            _targetingPotion = null;
+            _potion = null;
+            Hide();
+        }
+    }
+
+    /// <summary>Potion qui vise : survol d'une cible pendant le ciblage.</summary>
+    [HarmonyPatch(typeof(NTargetManager), "OnCreatureHovered")]
+    public static class PotionTargetPatch
+    {
+        public static void Postfix(NCreature creature)
+        {
+            if (_targetingPotion is not { } potion || !InCombat(potion))
+                return;
+            _potion = (potion, creature.Entity);
+            ShowPotion(potion, creature.Entity);
+        }
+    }
+
+    [HarmonyPatch(typeof(NTargetManager), "OnCreatureUnhovered")]
+    public static class PotionUntargetPatch
+    {
+        public static void Postfix()
+        {
+            if (_targetingPotion == null)
+                return;
+            _potion = null;
+            Hide();
+        }
+    }
+
+    /// <summary>
+    /// Potion sans cible (Block, Force…) : elle s'utilise d'un clic, l'aperçu s'affiche donc au survol (ou au
+    /// focus clavier) de son emplacement.
+    /// </summary>
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Nodes.Potions.NPotionHolder), "OnFocus")]
+    public static class PotionFocusPatch
+    {
+        public static void Postfix(MegaCrit.Sts2.Core.Nodes.Potions.NPotionHolder __instance)
+        {
+            if (__instance.Potion?.Model is not { } potion || !InCombat(potion) || _targetingPotion != null || NeedsTarget(potion))
+                return;
+            _potion = (potion, null);
+            ShowPotion(potion, null);
+        }
+    }
+
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Nodes.Potions.NPotionHolder), "OnUnfocus")]
+    public static class PotionUnfocusPatch
+    {
+        public static void Postfix()
+        {
+            if (_targetingPotion != null)
+                return;
+            _potion = null;
+            Hide();
+        }
+    }
+
+    private static bool InCombat(PotionModel potion) =>
+        MegaCrit.Sts2.Core.Combat.CombatManager.Instance.IsInProgress && potion.Owner?.Creature.CombatState != null
+        && MegaCrit.Sts2.Core.Context.LocalContext.IsMe(potion.Owner);
+
+    /// <summary>Comme le jeu : la potion attend une cible (ennemi, ou allié à qui la lancer).</summary>
+    private static bool NeedsTarget(PotionModel potion) =>
+        potion.TargetType is TargetType.AnyEnemy or TargetType.TargetedNoCreature || potion.CanThrowAtAlly();
 
     // ---- Choix en main pendant qu'une carte se joue (défausse, épuisement…) ----
 
@@ -188,7 +279,14 @@ public static class TargetPreview
     }
 
     /// <param name="selection">cartes choisies dans l'écran de sélection en cours, pour la carte qui le demande</param>
-    private static void ShowFor(CardModel card, Creature? target, IReadOnlyList<CardModel>? selection = null, int selectionIndex = 0)
+    private static void ShowFor(CardModel card, Creature? target, IReadOnlyList<CardModel>? selection = null, int selectionIndex = 0) =>
+        ShowOutcome(card.Owner.Creature, card.Title, () => PlaySimulation.Run(card, target, selection, selectionIndex));
+
+    private static void ShowPotion(PotionModel potion, Creature? target) =>
+        ShowOutcome(potion.Owner.Creature, potion.Title.GetFormattedText(), () => PlaySimulation.RunPotion(potion, target));
+
+    /// <param name="user">créature qui joue la carte ou boit la potion : son encadré porte le nom de l'action</param>
+    private static void ShowOutcome(Creature user, string title, Func<Outcome?> simulate)
     {
         try
         {
@@ -196,7 +294,7 @@ public static class TargetPreview
             // Seulement avec le GUI ouvert
             if (!RunPanel.IsOpen || NCombatRoom.Instance is not { } room)
                 return;
-            var outcome = WithoutVfx(() => PlaySimulation.Run(card, target, selection, selectionIndex));
+            var outcome = WithoutVfx(simulate);
             if (outcome == null)
                 return;
             Placed.Clear();
@@ -205,11 +303,10 @@ public static class TargetPreview
                 var rows = Rows(creature, stats, outcome).ToList();
                 if (rows.Count == 0 || room.GetCreatureNode(creature) is not { } node)
                     continue;
-                var title = creature == card.Owner.Creature ? card.Title : creature.Name;
                 string note = outcome.Incomplete ? "partial"
                     : outcome.Max.ContainsKey(creature) ? "range: your choice"
                     : outcome.Runs > 1 ? $"average of {outcome.Runs}" : "";
-                rows.Insert(0, [title, note]);
+                rows.Insert(0, [creature == user ? title : creature.Name, note]);
                 ShowBox(room, creature, node, rows, outcome);
             }
         }

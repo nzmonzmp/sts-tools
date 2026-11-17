@@ -31,9 +31,10 @@ dégâts subis et bloqués par le joueur.
 - Onglet Support : énergie, cartes, block, buffs et pioches donnés aux alliés, PV qui leur ont été
   rendus.
 
-## Aperçu des cartes jouées
+## Aperçu des cartes jouées et des potions
 
-Fait : GUI ouvert, en visant une créature (ou en entrant dans la zone de jeu pour une carte sans cible), un encadré
+Fait : potions en combat aussi (au survol de la cible pour celles qui visent, au survol de l'emplacement pour les
+autres). GUI ouvert, en visant une créature (ou en entrant dans la zone de jeu pour une carte sans cible), un encadré
 à côté de chaque créature concernée : dégâts, part qui passe le Block, coup fatal, étourdi, pouvoirs, Block, PV
 perdus (épines…), énergie, pioche, orbes ; dégâts annoncés évités par monstre ; pour le joueur, dégâts évités
 jusqu'à l'attaque des ennemis (fin de tour comprise : Plating, Burn, poison…) et bilan si la carte coûte des PV.

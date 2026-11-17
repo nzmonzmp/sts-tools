@@ -198,12 +198,52 @@ public sealed class PlaySimulation
         var rngs = RngState.Capture(combat);
         var baseline = BaselineOf(combat, player.Creature, rngs);
         var choice = selection == null ? null : new Choice(selection, selectionIndex, Resume: true);
-        var outcome = Simulate(card, player, target, choice, combat, rngs, baseline);
-        // Choix libre en main (Burning Pact…) : chaque choix possible ; le certain d'un côté, le reste en fourchette
+        var act = new Act(card.Id.Entry, sim => sim.Play(card, player, target), card);
+        return WithChoices(act, player, target, choice, combat, rngs, baseline);
+    }
+
+    /// <summary>Effet de <paramref name="potion"/> utilisée en combat sur <paramref name="target"/> ; null si impossible.</summary>
+    public static Outcome? RunPotion(PotionModel potion, Creature? target)
+    {
+        if (!EnsurePatched())
+            return null;
+        if (Active || potion.Owner is not { } player || player.Creature.CombatState is not { } combat)
+            return null;
+        // Sans cible, une potion qui peut viser son lanceur le vise (comme le jeu)
+        if (target == null && potion.IsValidTarget(player.Creature))
+            target = player.Creature;
+        var rngs = RngState.Capture(combat);
+        var baseline = BaselineOf(combat, player.Creature, rngs);
+        var act = new Act(potion.Id.Entry, sim => sim.UsePotion(potion, target), null);
+        return WithChoices(act, player, target, null, combat, rngs, baseline);
+    }
+
+    /// <summary>
+    /// Choix libre en main (Burning Pact, potion de défausse…) : chaque choix possible ; le certain d'un côté, le
+    /// reste en fourchette.
+    /// </summary>
+    private static Outcome WithChoices(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
+        RngState rngs, Baseline baseline)
+    {
+        var outcome = Simulate(act, player, target, choice, combat, rngs, baseline);
         if (choice == null && outcome.OpenChoice is { } open && Options(open.Cards, open.Min, open.Max) is { Count: > 1 } options)
             outcome = Outcome.Range(options.Select(o =>
-                Simulate(card, player, target, new Choice(o, open.Index, Resume: false), combat, rngs, baseline)).ToList());
+                Simulate(act, player, target, new Choice(o, open.Index, Resume: false), combat, rngs, baseline)).ToList());
         return outcome;
+    }
+
+    private static readonly MethodInfo OnUseMethod = AccessTools.Method(typeof(PotionModel), "OnUse");
+
+    /// <summary>Comme le jeu : la potion quitte son emplacement, réactions avant, son effet, réactions après.</summary>
+    private void UsePotion(PotionModel potion, Creature? target)
+    {
+        var shadow = (PotionModel)ShadowOf(potion);
+        _removed.Add(potion);
+        _removed.Add(shadow);
+        var context = new BlockingPlayerChoiceContext();
+        Event(() => Hook.BeforePotionUsed(_combat.RunState, _combat, shadow, target));
+        Wait("potion", (Task)OnUseMethod.Invoke(shadow, [context, target])!);
+        Event(() => Hook.AfterPotionUsed(_combat.RunState, _combat, shadow, target));
     }
 
     /// <summary>Choix possibles : chaque groupe du nombre minimum de cartes (au moins une), dix au plus.</summary>
@@ -232,19 +272,19 @@ public sealed class PlaySimulation
     }
 
     /// <summary>Une simulation, ou la moyenne de plusieurs si le hasard intervient.</summary>
-    private static Outcome Simulate(CardModel card, Player player, Creature? target, Choice? choice, ICombatState combat,
+    private static Outcome Simulate(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
         RngState rngs, Baseline baseline)
     {
-        var first = RunOnce(card, player, target, choice, combat, rngs, 0, baseline, out bool random);
+        var first = RunOnce(act, player, target, choice, combat, rngs, 0, baseline, out bool random);
         if (!random)
             return first;
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var runs = new List<Outcome> { first };
         for (int i = 1; i < RandomRuns; i++)
-            runs.Add(RunOnce(card, player, target, choice, combat, rngs, i, baseline, out _));
+            runs.Add(RunOnce(act, player, target, choice, combat, rngs, i, baseline, out _));
         // Moyenne coûteuse : signalée si elle ralentit le jeu
-        if (watch.ElapsedMilliseconds > 100 && Reported.Add("slow:" + card.Id.Entry))
-            Log.Info($"[{ModEntry.Id}] card preview of {card.Id.Entry}: {RandomRuns} draws in {watch.ElapsedMilliseconds} ms");
+        if (watch.ElapsedMilliseconds > 100 && Reported.Add("slow:" + act.Name))
+            Log.Info($"[{ModEntry.Id}] preview of {act.Name}: {RandomRuns} draws in {watch.ElapsedMilliseconds} ms");
         var average = Outcome.Average(runs);
         average.OpenChoice = first.OpenChoice;
         return average;
@@ -254,6 +294,9 @@ public sealed class PlaySimulation
     private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End);
 
     /// <summary>Choix du joueur en cours : cartes choisies, rang du choix.</summary>
+    /// <summary>Ce qui est simulé : une carte jouée ou une potion utilisée.</summary>
+    private sealed record Act(string Name, Action<PlaySimulation> Run, CardModel? Card);
+
     /// <param name="Resume">la carte se joue déjà : ce qui précède le choix est déjà fait (rien n'est noté)</param>
     private sealed record Choice(IReadOnlyList<CardModel> Cards, int Index, bool Resume);
 
@@ -349,7 +392,7 @@ public sealed class PlaySimulation
         return (lost + Math.Max(0, incoming.Values.Sum() - block), incoming, end);
     }
 
-    private static Outcome RunOnce(CardModel card, Player player, Creature? target, Choice? choice, ICombatState combat,
+    private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
         RngState rngs, int draw, Baseline baseline, out bool random)
     {
         var sim = new PlaySimulation(combat, target) { _choice = choice, _muted = choice is { Resume: true } };
@@ -359,11 +402,11 @@ public sealed class PlaySimulation
         CurrentSim.Value = sim;
         try
         {
-            sim.Play(card, player, target);
+            act.Run(sim);
             // Jusqu'à l'attaque des ennemis : dégâts que le joueur prendra (fin de tour comprise : Burn, Plating…),
             // et attaque de chaque ennemi, sans et avec la carte (ennemi tué, étourdi, affaibli, empoisonné…)
             var me = player.Creature;
-            var (taken, incoming, end) = sim.UntilEnemyAttacks(me, card);
+            var (taken, incoming, end) = sim.UntilEnemyAttacks(me, act.Card);
             // Ce que la carte change d'ici l'attaque des ennemis (Howl from Beyond épuisé qui se joue, Block du
             // Plating donné…) : écart avec la même fin de tour sans la carte
             sim.MergeDifference(end, baseline.End);
@@ -384,7 +427,7 @@ public sealed class PlaySimulation
             rngs.Restore();
         }
         if (Fingerprint(combat) != fingerprint)
-            Log.Warn($"[{ModEntry.Id}] the preview of {card.Id.Entry} changed the game state");
+            Log.Warn($"[{ModEntry.Id}] the preview of {act.Name} changed the game state");
         return sim._outcome;
     }
 
