@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
@@ -472,6 +473,81 @@ public sealed partial class CardRunStats
             if (creature.IsEnemy && amount < creature.CurrentHp && Live(creature.CombatState))
                 Current?.Add(EnemyHpRemoved, creature.CurrentHp - amount);
         }
+    }
+
+    // ---- Valeur des orbes (Focus…) ----
+
+    /// <summary>
+    /// Orbe en train d'agir (début de son effet passif ou de son évocation), dont la valeur n'a pas encore été
+    /// comptée. Le jeu calcule aussi cette valeur pour les textes : seul le premier calcul pendant l'effet compte.
+    /// </summary>
+    private static OrbModel? _actingOrb;
+
+    /// <summary>Effet passif et évocation de chaque sorte d'orbe (Lightning, Frost…).</summary>
+    [HarmonyPatch]
+    public static class OrbActionPatch
+    {
+        public static IEnumerable<System.Reflection.MethodBase> TargetMethods() =>
+            typeof(OrbModel).Assembly.GetTypes()
+                .Where(t => t.IsSubclassOf(typeof(OrbModel)) && !t.IsAbstract)
+                .SelectMany(t => new[] { nameof(OrbModel.Passive), nameof(OrbModel.Evoke) }
+                    .Select(name => AccessTools.DeclaredMethod(t, name)))
+                .Where(m => m != null)
+                .Cast<System.Reflection.MethodBase>();
+
+        // La valeur est lue au début de l'effet, avant sa première attente : le tout se passe entre Prefix et Postfix
+        public static void Prefix(OrbModel __instance, out OrbModel? __state)
+        {
+            __state = _actingOrb;
+            _actingOrb = __instance;
+        }
+
+        public static void Postfix(OrbModel? __state) => _actingOrb = __state;
+    }
+
+    /// <summary>Valeur d'une orbe qui agit : ce que chaque écouteur y ajoute (Focus des cartes qui l'ont donné, reliques).</summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.ModifyOrbValue))]
+    public static class OrbValuePatch
+    {
+        public static void Postfix(ICombatState combatState, OrbModel orb, decimal amount, decimal __result)
+        {
+            if (_actingOrb != orb)
+                return;
+            _actingOrb = null;
+            if (__result == amount || !Live(combatState))
+                return;
+            Guard("orb value", () =>
+            {
+                var changes = new List<(AbstractModel, decimal)>();
+                Replay(combatState.IterateHookListeners(), amount, (m, a) => m.ModifyOrbValue(orb, a), changes);
+                CreditChanges(changes, OrbBonus);
+            });
+        }
+    }
+
+    // ---- Chemin doré (Golden Compass) ----
+
+    /// <summary>Dernier étage compté pour chaque relique (une salle peut être « entrée » de nouveau au chargement).</summary>
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<RelicModel, StrongBox<int>> LastGoldenFloor = new();
+
+    /// <summary>Salle entrée pendant l'acte où Golden Compass a remplacé la carte par son chemin doré.</summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterRoomEntered))]
+    public static class GoldenPathPatch
+    {
+        public static void Prefix(IRunState runState) => Guard("golden path", () =>
+        {
+            foreach (var player in runState.Players)
+                foreach (var compass in player.Relics.OfType<MegaCrit.Sts2.Core.Models.Relics.GoldenCompass>())
+                {
+                    if (compass.GoldenPathAct != runState.CurrentActIndex)
+                        continue;
+                    var last = LastGoldenFloor.GetOrCreateValue(compass);
+                    if (runState.TotalFloor <= last.Value)
+                        continue;
+                    last.Value = runState.TotalFloor;
+                    CreditOf(compass)?.Add(GoldenPathRooms, 1);
+                }
+        });
     }
 
     // ---- Trésors sautés (Silver Crucible) ----

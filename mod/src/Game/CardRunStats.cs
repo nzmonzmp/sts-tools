@@ -81,6 +81,8 @@ public sealed partial class CardRunStats
     public const string FreeTravels = "Free travels";
     public const string OfferedUpgraded = "Offered cards upgraded";
     public const string OfferedEnchanted = "Offered cards enchanted";
+    public const string OrbBonus = "Orb bonus";
+    public const string GoldenPathRooms = "Golden path rooms";
     public const string Transformed = "Cards transformed";
     public const string Enchanted = "Cards enchanted";
     public const string Potions = "Potions obtained";
@@ -99,7 +101,7 @@ public sealed partial class CardRunStats
     [
         MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, Transformed, Enchanted, Potions, PotionSlots,
         GoldSaved, CardChoices, RewardsAdded, PotionRewards, RestOptions, TreasuresSkipped, ItemsRestocked,
-        SafeUnknownRooms, FreeTravels, OfferedUpgraded, OfferedEnchanted,
+        SafeUnknownRooms, FreeTravels, OfferedUpgraded, OfferedEnchanted, GoldenPathRooms,
     ];
 
     /// <summary>Ordre d'affichage ; les pouvoirs (« Vulnerable applied », « Strength gained »…) viennent après.</summary>
@@ -113,7 +115,7 @@ public sealed partial class CardRunStats
         PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, Forged, BlockRetained, DeathsPrevented,
         CardsRetained, ExtraTurns, XBonus, ExtraHits, OrbTriggers, DebuffsPrevented, GoldSaved, CardChoices, RewardsAdded,
         PotionRewards, RestOptions, TreasuresSkipped, ItemsRestocked, EnemyHpRemoved, SafeUnknownRooms, FreeTravels,
-        OfferedUpgraded, OfferedEnchanted,
+        OfferedUpgraded, OfferedEnchanted, OrbBonus, GoldenPathRooms,
     ];
 
     /// <summary>Icônes des stats fixes, prises dans les images du jeu</summary>
@@ -176,6 +178,8 @@ public sealed partial class CardRunStats
         [SafeUnknownRooms] = "res://images/packed/intents/intent_defend.png",
         [OfferedUpgraded] = "res://images/packed/blitz/small_tokens/entry_card_upgrade.png",
         [OfferedEnchanted] = "res://images/packed/blitz/small_tokens/entry_card_enchant.png",
+        [OrbBonus] = "res://images/orbs/lightning_orb.png",
+        [GoldenPathRooms] = "res://images/packed/sprite_fonts/gold_icon.png",
         [FreeTravels] = "res://images/packed/sprite_fonts/card_icon.png",
         [Forged] = "res://images/packed/card_portraits/token/sovereign_blade.png",
         [Transformed] = "res://images/packed/blitz/small_tokens/entry_card_transform.png",

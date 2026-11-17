@@ -110,6 +110,8 @@ public sealed class StatRelevance
         ("ShouldRefillMerchantEntry", [ItemsRestocked]),
         ("ModifyUnknownMapPointRoomTypes", [SafeUnknownRooms]),
         ("ShouldAllowFreeTravel", [FreeTravels]),
+        ("ModifyOrbValue", [OrbBonus]),
+        ("ModifyGeneratedMap", [GoldenPathRooms]),
     ];
 
     private readonly HashSet<string> _stats = [];

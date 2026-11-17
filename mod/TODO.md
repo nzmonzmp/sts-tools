@@ -17,13 +17,9 @@ améliorées ou enchantées en entrant dans le deck (œufs, Fresnel Lens), or é
 au feu de camp, choix de cartes, récompenses et options de feu de camp en plus, potions imposées, trésors sautés
 (Silver Crucible), cartes améliorées ou enchantées en vitrine puis achetées (œufs, Fresnel Lens), articles remis
 en stock (The Courier), salles inconnues sans combat (Juzu Bracelet, Golden Compass), déplacements libres
-(Winged Boots), PV retirés aux ennemis (Fur Coat). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
+(Winged Boots), PV retirés aux ennemis (Fur Coat), valeur des orbes en plus (Focus…), salles du chemin doré
+(Golden Compass). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
 
-- Effets pas encore comptés :
-  - Valeur des orbes (`ModifyOrbValue` : Focus et reliques du même genre) : le jeu la calcule aussi pour les
-    textes, il faut ne compter que les vrais déclenchements.
-  - Golden Compass : la carte « chemin doré » qu'il donne pour un acte (`ModifyGeneratedMap`) ; ses salles
-    inconnues sans combat sont comptées.
 - Multijoueur : dans l'infobulle d'une relique, la part des bonus n'est calculée que pour les reliques du joueur local.
 
 ## Stats de combat
