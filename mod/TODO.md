@@ -76,7 +76,8 @@ Fait : journal de session écrit au fil de l'eau dans `user://StsTools/reports/s
 jeu, actions du mod, exceptions), trace pas à pas de l'aperçu en cours (`preview.log`), rapport de gel si le jeu
 n'affiche plus d'image pendant 10 s (`freeze.txt`). Effacé à la fin d'une partie ou à la fermeture normale ; sinon
 archivé au lancement suivant dans `reports/crash-…` avec le log complet du jeu et les sauvegardes de la partie, et
-signalé au menu principal. Fermer le jeu sans passer par son menu (kill) crée aussi un rapport.
+signalé au menu principal. Une fermeture sans plantage (menu du jeu, Alt+F4, arrêt depuis Steam ou kill : SIGTERM) n'en crée pas,
+sauf si le jeu était figé ; un plantage ou un SIGKILL, si.
 
 ## Multijoueur
 

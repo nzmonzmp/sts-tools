@@ -63,6 +63,18 @@ public static class BugReport
                 + $"{RuntimeInformation()}");
             Log.LogCallback += OnGameLog;
             AppDomain.CurrentDomain.UnhandledException += (_, e) => Note($"UNHANDLED EXCEPTION: {e.ExceptionObject}");
+            // Fermeture sans passer par le menu du jeu : arrêt depuis Steam ou kill (SIGTERM), fin du processus
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => ClosedWithoutCrash("process exit");
+            foreach (var signal in new[] { System.Runtime.InteropServices.PosixSignal.SIGTERM,
+                         System.Runtime.InteropServices.PosixSignal.SIGINT, System.Runtime.InteropServices.PosixSignal.SIGHUP })
+                try
+                {
+                    Signals.Add(System.Runtime.InteropServices.PosixSignalRegistration.Create(signal, _ => ClosedWithoutCrash(signal.ToString())));
+                }
+                catch (Exception)
+                {
+                    // Signal non géré sur ce système (Windows : la fermeture passe par le menu du jeu)
+                }
             TaskScheduler.UnobservedTaskException += (_, e) => Note($"unobserved task exception: {e.Exception}");
         }
         catch (Exception e)
@@ -191,6 +203,31 @@ public static class BugReport
     }
 
     // ---- Fin normale : effacé ----
+
+    /// <summary>Gardées pour que les signaux restent interceptés.</summary>
+    private static readonly List<System.Runtime.InteropServices.PosixSignalRegistration> Signals = [];
+
+    /// <summary>
+    /// Jeu fermé sans plantage, mais sans passer par son menu (arrêt depuis Steam, kill) : comme une fermeture
+    /// normale, sauf si le jeu était figé (rapport de gel écrit) — c'est alors justement un jeu bloqué qu'on ferme,
+    /// le rapport est gardé.
+    /// </summary>
+    private static void ClosedWithoutCrash(string how)
+    {
+        try
+        {
+            if (File.Exists(FreezeFile))
+            {
+                Note($"game closed ({how}) after a freeze: the report is kept");
+                return;
+            }
+        }
+        catch (Exception)
+        {
+            // Dans le doute, fermeture normale
+        }
+        CleanExit();
+    }
 
     /// <summary>Partie terminée (victoire, défaite, abandon) : rien à garder, nouveau journal.</summary>
     public static void RunEnded()
