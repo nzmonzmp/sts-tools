@@ -170,6 +170,7 @@ public static class KeyboardNav
                 var owner = viewport?.GuiGetFocusOwner();
                 if (owner == null || !owner.IsVisibleInTree())
                 {
+                    BugReport.Note($"keyboard focus lost ({owner?.Name ?? "nothing"}): given back to the game");
                     ActiveScreenContext.Instance.Update();
                     ActiveScreenContext.Instance.FocusOnDefaultControl();
                 }

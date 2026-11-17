@@ -14,6 +14,8 @@ public static class ModEntry
 
     public static void Init()
     {
+        // En premier : archive la session précédente si elle a planté, journal de celle-ci
+        BugReport.Start();
         Harmony = new Harmony("nzmonzmp." + Id);
         // Seulement les patchs nécessaires avant le menu principal (EarlyPatch) ; les autres une fois le menu affiché
         foreach (var type in AccessTools.GetTypesFromAssembly(typeof(ModEntry).Assembly))

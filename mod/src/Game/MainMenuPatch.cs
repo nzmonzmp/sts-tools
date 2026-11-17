@@ -38,6 +38,8 @@ public static class MainMenuPatch
     public static void Postfix(NMainMenu __instance)
     {
         ModEntry.ApplyLatePatches();
+        BugReport.WatchFrames();
+        BugReport.ShowNotice(__instance);
         try
         {
             var button = __instance.GetNodeOrNull<NMainMenuTextButton>("MainMenuTextButtons/" + ButtonName);

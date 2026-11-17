@@ -323,6 +323,8 @@ public sealed class RunPanel
     private void SetOpen(bool open)
     {
         bool changed = _panel.Visible != open;
+        if (changed)
+            BugReport.Note($"GUI {(open ? "opened" : "closed")}, focus on {_panel.GetViewport()?.GuiGetFocusOwner()?.Name ?? "nothing"}");
         // Fermé avec le focus dedans : on le rend au jeu
         if (!open && _panel.GetViewport()?.GuiGetFocusOwner() is { } owner && _panel.IsAncestorOf(owner))
             owner.ReleaseFocus();

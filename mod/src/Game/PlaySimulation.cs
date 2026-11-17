@@ -42,6 +42,16 @@ public sealed class PlaySimulation
 {
     private static AsyncLocal<PlaySimulation?> CurrentSim => SimulationFlag.Current;
 
+    /// <summary>Dernière étape de l'aperçu en cours (rapport de gel, <see cref="BugReport"/>) ; null : aucun aperçu.</summary>
+    public static volatile string? DebugState;
+
+    /// <summary>Étape de l'aperçu en cours : trace pas à pas (<see cref="BugReport.PreviewStep"/>) et dernière étape connue.</summary>
+    private static void Trace(string what)
+    {
+        DebugState = what;
+        BugReport.PreviewStep(what);
+    }
+
     /// <summary>Une simulation est en cours : les stats ne comptent rien (<see cref="CardRunStats"/>).</summary>
     public static bool Active => SimulationFlag.Current.Value != null;
 
@@ -195,11 +205,14 @@ public sealed class PlaySimulation
             return null;
         if (Active || card.CombatState is not { } combat || card.Owner is not { } player)
             return null;
-        var rngs = RngState.Capture(combat);
-        var baseline = BaselineOf(combat, player.Creature, rngs);
         var choice = selection == null ? null : new Choice(selection, selectionIndex, Resume: true);
         var act = new Act(card.Id.Entry, sim => sim.Play(card, player, target), card);
-        return WithChoices(act, player, target, choice, combat, rngs, baseline);
+        return Traced(act, target, () =>
+        {
+            var rngs = RngState.Capture(combat);
+            var baseline = BaselineOf(combat, player.Creature, rngs);
+            return WithChoices(act, player, target, choice, combat, rngs, baseline);
+        });
     }
 
     /// <summary>Effet de <paramref name="potion"/> utilisée en combat sur <paramref name="target"/> ; null si impossible.</summary>
@@ -212,10 +225,25 @@ public sealed class PlaySimulation
         // Sans cible, une potion qui peut viser son lanceur le vise (comme le jeu)
         if (target == null && potion.IsValidTarget(player.Creature))
             target = player.Creature;
-        var rngs = RngState.Capture(combat);
-        var baseline = BaselineOf(combat, player.Creature, rngs);
         var act = new Act(potion.Id.Entry, sim => sim.UsePotion(potion, target), null);
-        return WithChoices(act, player, target, null, combat, rngs, baseline);
+        return Traced(act, target, () =>
+        {
+            var rngs = RngState.Capture(combat);
+            var baseline = BaselineOf(combat, player.Creature, rngs);
+            return WithChoices(act, player, target, null, combat, rngs, baseline);
+        });
+    }
+
+    /// <summary>Aperçu suivi par le rapport de bug : trace pas à pas, durée, étapes, résultat partiel.</summary>
+    private static Outcome Traced(Act act, Creature? target, Func<Outcome> run)
+    {
+        BugReport.BeginPreview($"{act.Name} on {target?.Name ?? "-"}");
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var outcome = run();
+        BugReport.EndPreview($"preview {act.Name} on {target?.Name ?? "-"}: {watch.ElapsedMilliseconds} ms"
+            + (outcome.Incomplete ? ", partial" : "") + (outcome.Runs > 1 ? $", {outcome.Runs} draws" : ""));
+        DebugState = null;
+        return outcome;
     }
 
     /// <summary>
@@ -341,7 +369,10 @@ public sealed class PlaySimulation
         Event(async () =>
         {
             foreach (var model in _combat.IterateHookListeners().ToList())
+            {
+                Trace($"listener {model.GetType().Name}");
                 await call(model);
+            }
         });
 
     /// <summary>
@@ -396,7 +427,8 @@ public sealed class PlaySimulation
     private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
         RngState rngs, int draw, Baseline baseline, out bool random)
     {
-        var sim = new PlaySimulation(combat, target) { _choice = choice, _muted = choice is { Resume: true } };
+        var sim = new PlaySimulation(combat, target) { _choice = choice, _muted = choice is { Resume: true }, _name = act.Name };
+        Trace($"run {draw}{(choice != null ? $" choice {string.Join("+", choice.Cards.Select(c => c.Id.Entry))}" : "")}");
         var fingerprint = Fingerprint(combat);
         if (draw > 0)
             rngs.Perturb(draw);
@@ -428,14 +460,17 @@ public sealed class PlaySimulation
             random = rngs.Changed();
             rngs.Restore();
         }
-        if (Fingerprint(combat) != fingerprint)
-            Log.Warn($"[{ModEntry.Id}] the preview of {act.Name} changed the game state");
+        var state = Fingerprint(combat);
+        if (!state.SequenceEqual(fingerprint))
+            Log.Warn($"[{ModEntry.Id}] the preview of {act.Name} changed the game state: "
+                + string.Join(", ", fingerprint.Except(state).Take(6)) + " -> " + string.Join(", ", state.Except(fingerprint).Take(6)));
         return sim._outcome;
     }
 
     /// <param name="auto">jouée par un effet (Sly défaussée, Howl from Beyond…) : sans payer son coût</param>
     private void Play(CardModel card, Player player, Creature? target, bool auto = false)
     {
+        Trace($"play {card.Id.Entry}{(auto ? " (auto)" : "")} on {target?.Name ?? "-"}");
         card = RealOf(card);
         var shadowCard = (CardModel)ShadowOf(card);
         int cost = card.EnergyCost.CostsX ? card.Owner.PlayerCombatState?.Energy ?? 0 : card.EnergyCost.GetAmountToSpend();
@@ -495,6 +530,40 @@ public sealed class PlaySimulation
             __result = Detached(monster, side, slot);
             return false;
         }
+    }
+
+    /// <summary>
+    /// Enchantement (commande qui ne renvoie pas de tâche, donc pas interceptée) : pendant la simulation, sur la
+    /// copie de la carte, jamais sur la vraie.
+    /// </summary>
+    [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Enchant), [typeof(EnchantmentModel), typeof(CardModel), typeof(decimal)])]
+    public static class EnchantPatch
+    {
+        public static void Prefix(ref CardModel card)
+        {
+            if (CurrentSim.Value is { _finished: false } sim)
+                card = (CardModel)sim.ShadowOf(card);
+        }
+    }
+
+    /// <summary>Flèches retirées pendant la simulation : créature, tireur.</summary>
+    private readonly HashSet<(Creature, Creature)> _dislodged = new();
+
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.CreatureIsImpaledByPlayersArrow))]
+    public static class ImpaledPatch
+    {
+        public static void Postfix(Creature creature, Player player, ref bool __result)
+        {
+            if (__result && CurrentSim.Value is { } sim && sim._dislodged.Contains((creature, player.Creature)))
+                __result = false;
+        }
+    }
+
+    /// <summary>Bulle de dialogue : pas pendant la simulation.</summary>
+    [HarmonyPatch(typeof(TalkCmd), nameof(TalkCmd.Play))]
+    public static class TalkPatch
+    {
+        public static bool Prefix() => !Active;
     }
 
     /// <summary>Musique changée par un effet (Infested : deuxième phase de l'élite) : pas pendant la simulation.</summary>
@@ -668,10 +737,14 @@ public sealed class PlaySimulation
     }
 
     /// <summary>Lance un événement du jeu (ses écouteurs réagissent : copies seulement).</summary>
-    private void Event(Func<Task> start)
+    private void Event(Func<Task> start, [System.Runtime.CompilerServices.CallerLineNumber] int line = 0)
     {
+        Trace($"event (PlaySimulation.cs line {line}) depth {_eventDepth}");
         // Réactions en chaîne trop profondes (boucle d'effets) : arrêtées avant de faire déborder la pile, ce qui
         // fermerait le jeu sans message
+        if (_finished || _aborted)
+            return;
+        _steps++;
         if (_eventDepth >= MaxEventDepth)
         {
             Fail("event", new InvalidOperationException("chain of effects too deep"));
@@ -708,7 +781,12 @@ public sealed class PlaySimulation
     private void Wait(string what, Task task)
     {
         if (!task.IsCompleted)
+        {
             _outcome.Incomplete = true;
+            // Sa suite reprendra plus tard : sans effet (simulation terminée, voir _finished), mais à connaître
+            if (Reported.Add("unfinished:" + what + ":" + _name))
+                Log.Info($"[{ModEntry.Id}] preview of {_name}: step {what} did not finish at once");
+        }
         else if (task.Exception is { } e)
             Fail(what, e.InnerException ?? e);
     }
@@ -771,6 +849,7 @@ public sealed class PlaySimulation
         // l'original, plutôt qu'une récursion sans fin
         if (!_copying.Add(model))
             return model;
+        Trace($"copy {model.GetType().Name}");
         try
         {
             shadow = model.MutableClone();
@@ -867,6 +946,8 @@ public sealed class PlaySimulation
     /// </summary>
     private void SyncBodies()
     {
+        if (_finished)
+            return;
         foreach (var (creature, body) in _bodies)
         {
             HpField.SetValue(creature, Math.Max(0, body[0]));
@@ -874,8 +955,43 @@ public sealed class PlaySimulation
         }
     }
 
+    /// <summary>
+    /// Simulation terminée : une suite asynchrone qui reprendrait plus tard (toujours simulée, AsyncLocal) n'a plus
+    /// aucun effet, ni sur l'aperçu ni sur la partie (sinon elle réécrirait des PV simulés dans les vraies créatures).
+    /// </summary>
+    private bool _finished;
+
+    /// <summary>
+    /// Étapes simulées (commandes, événements) : au-delà, le code du jeu tourne en rond (boucle qui attend un
+    /// changement que la simulation ne fait pas : flèche jamais retirée…). La simulation s'arrête alors en faisant
+    /// échouer la commande suivante, ce qui sort de la boucle ; sinon le jeu restait figé.
+    /// </summary>
+    private int _steps;
+
+    private const int MaxSteps = 3000;
+
+    private bool _aborted;
+
+    private sealed class AbortedException() : Exception("too many steps: the game code is looping");
+
+    private void Step()
+    {
+        if (++_steps <= MaxSteps && !_aborted)
+            return;
+        if (!_aborted)
+        {
+            _aborted = true;
+            Fail("loop", new AbortedException());
+        }
+        throw new AbortedException();
+    }
+
+    /// <summary>Nom de l'action simulée, pour le journal.</summary>
+    private string _name = "";
+
     private void RestoreBodies()
     {
+        _finished = true;
         foreach (var (creature, (hp, block)) in _realBodies)
         {
             HpField.SetValue(creature, hp);
@@ -890,6 +1006,10 @@ public sealed class PlaySimulation
     /// <summary>Commande du jeu appelée pendant la simulation : notée ; renvoie ce que la commande aurait renvoyé.</summary>
     private object? Intercept(MethodBase method, object?[] args)
     {
+        if (_finished)
+            return Defaults.For(((MethodInfo)method).ReturnType);
+        Trace($"command {method.DeclaringType?.Name}.{method.Name} (step {_steps})");
+        Step();
         try
         {
             // Pile presque pleine (effets en chaîne) : arrêt propre plutôt que la fermeture du jeu
@@ -990,6 +1110,13 @@ public sealed class PlaySimulation
                 return null;
             case "PowerCmd.ModifyAmount":
                 return Task.FromResult(ModifyAmount(Arg<PowerModel>("power")!, Amount("offset"), Arg<Creature>("applier"), Arg<CardModel>("cardSource")));
+            case "ArrowCmd.DislodgeArrow" when Arg<Creature>("target") is { } impaled && Arg<Player>("player") is { } archer:
+                // La flèche revient au joueur : la créature n'est plus transpercée par lui (Recall, Wrest, Uproot
+                // bouclent tant qu'elle l'est)
+                _dislodged.Add((impaled, archer.Creature));
+                foreach (var power in impaled.Powers.Where(p => p.Id == ModelDb.Power<MegaCrit.Sts2.Core.Models.Powers.ImpaledPower>().Id && p.Applier == archer.Creature))
+                    Remove(power);
+                return null;
             case "PowerCmd.Decrement" when Arg<PowerModel>("power") is { } decremented:
                 ModifyAmount(decremented, -1, null, null);
                 return null;
@@ -1133,6 +1260,7 @@ public sealed class PlaySimulation
     /// </summary>
     private void Die(Creature creature, CardModel? cardSource)
     {
+        Trace($"death of {creature.Name}");
         if (!_dead.Add(creature))
             return;
         var runState = _combat.RunState;
@@ -1256,6 +1384,7 @@ public sealed class PlaySimulation
     /// <summary>Comme <see cref="AttackCommand.Execute"/> : nombre de coups modifié, cibles vivantes, chaque coup.</summary>
     private async Task<AttackCommand> Attack(AttackCommand attack, PlayerChoiceContext? context)
     {
+        Trace($"attack by {attack.Attacker?.Name} from {attack.ModelSource?.GetType().Name}");
         var attacker = attack.Attacker;
         if (attacker == null || IsDead(attacker))
             return attack;
@@ -1300,7 +1429,9 @@ public sealed class PlaySimulation
         {
             if (CurrentSim.Value is not { } sim)
                 return true;
-            __result = sim._muted ? Task.FromResult(__instance) : sim.Attack(__instance, choiceContext);
+            if (!sim._finished && !sim._muted)
+                sim.Step();
+            __result = sim._muted || sim._finished ? Task.FromResult(__instance) : sim.Attack(__instance, choiceContext);
             return false;
         }
     }
@@ -1449,28 +1580,30 @@ public sealed class PlaySimulation
 
     // ---- Empreinte de l'état (vérification) ----
 
-    private static string Fingerprint(ICombatState combat)
+    /// <summary>État observé (une entrée par élément), pour vérifier qu'un aperçu ne l'a pas changé et dire quoi.</summary>
+    private static List<string> Fingerprint(ICombatState combat)
     {
         try
         {
             var parts = new List<string>();
             foreach (var creature in combat.Creatures)
             {
-                parts.Add($"{creature.CombatId}:{creature.CurrentHp}/{creature.MaxHp}/{creature.Block}/{creature.Powers.Count}");
-                parts.AddRange(creature.Powers.Select(p => $"{p.Id.Entry}={p.Amount}"));
+                parts.Add($"{creature.Name} hp {creature.CurrentHp}/{creature.MaxHp} block {creature.Block} powers {creature.Powers.Count}");
+                parts.AddRange(creature.Powers.Select(p => $"{creature.Name} {p.Id.Entry}={p.Amount}"));
             }
             foreach (var player in combat.Players)
                 if (player.PlayerCombatState is { } state)
                 {
-                    parts.Add($"{player.NetId}:{state.Energy}/{state.Stars}/{player.Gold}");
-                    parts.AddRange(state.AllPiles.Select(p => $"{p.Type}={p.Cards.Count}"));
-                    parts.AddRange(state.Hand.Cards.Select(c => $"{c.Id.Entry}/{c.IsUpgraded}/{c.EnergyCost.GetWithModifiers(CostModifiers.All)}"));
+                    parts.Add($"energy {state.Energy} stars {state.Stars} gold {player.Gold}");
+                    parts.AddRange(state.AllPiles.Select(p => $"{p.Type} {p.Cards.Count} cards"));
+                    parts.AddRange(state.Hand.Cards.Select((c, i) =>
+                        $"hand {i} {c.Id.Entry}{(c.IsUpgraded ? "+" : "")} cost {c.EnergyCost.GetWithModifiers(CostModifiers.All)}{(c.Enchantment != null ? " " + c.Enchantment.Id.Entry : "")}"));
                 }
-            return string.Join(",", parts);
+            return parts;
         }
         catch (Exception)
         {
-            return "";
+            return [];
         }
     }
 }

@@ -187,6 +187,7 @@ public sealed class ModHotkeys
                 {
                     try
                     {
+                        BugReport.Note($"hotkey {hotkey.Id}");
                         hotkey._action();
                     }
                     catch (Exception e)

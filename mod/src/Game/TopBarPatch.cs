@@ -26,6 +26,7 @@ public static class TopBarPatch
             if (player == null)
                 return;
             CardRunStats.Track(runState, player);
+            BugReport.RunStarted(runState);
             AddButton(__instance);
             RunPanel.Attach(__instance, player);
         }
