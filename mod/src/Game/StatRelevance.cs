@@ -21,7 +21,6 @@ public sealed class StatRelevance
         ("DamageCmd.Attack", [Damage, Kills]),
         ("CreatureCmd.Damage", [Damage, Kills, SelfDamage]),
         ("CreatureCmd.Kill", [Kills]),
-        ("ArrowCmd.ShootArrowAtTarget", [Damage, Kills]),
         ("CreatureCmd.GainBlock", [Block]),
         ("CardPileCmd.Draw", [CardsDrawn]),
         ("CardCmd.Discard", [CardsDiscarded]),
@@ -60,6 +59,10 @@ public sealed class StatRelevance
         ("CreatureCmd.SetCurrentHp", [EnemyHpRemoved]),
         ("CardPileCmd.Add", [DeckAdded]),
         ("CardCmd.Upgrade", [Upgraded, UpgradedInCombat]),
+        ("ArrowCmd.ShootArrowAtTarget", [Damage, Kills, ArrowsShot]),
+        ("ArrowCmd.TryShootArrow", [ArrowsShot]),
+        ("ArrowCmd.DislodgeArrow", [ArrowsRetrieved]),
+        ("ArrowCmd.GainArrowSlot", [ArrowSlots]),
     ];
 
     /// <summary>Calcul du jeu redéfini (méthode déclarée) → stats que ce bonus indirect produit.</summary>

@@ -2,6 +2,10 @@ using System.Reflection;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.CardSelection;
 using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Combat.History;
+using MegaCrit.Sts2.Core.Combat.History.Entries;
+using MegaCrit.Sts2.Core.Entities.FoolArrows;
+using MegaCrit.Sts2.Core.Models.Powers;
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.Commands.Builders;
 using MegaCrit.Sts2.Core.Entities.Cards;
@@ -52,6 +56,26 @@ public sealed class PlaySimulation
         BugReport.PreviewStep(what);
     }
 
+    private static bool _testModeBefore;
+
+    /// <summary>
+    /// Début de simulation. Le mode test du jeu est activé le temps du calcul : le jeu y saute lui-même son affichage
+    /// (nœuds des créatures, effets visuels…), que le code simulé toucherait sinon pour de vrai (Reattach rendait un
+    /// segment de Decimillipede impossible à viser et effaçait son intention).
+    /// </summary>
+    private static void Enter(PlaySimulation sim)
+    {
+        _testModeBefore = MegaCrit.Sts2.Core.TestSupport.TestMode.IsOn;
+        MegaCrit.Sts2.Core.TestSupport.TestMode.IsOn = true;
+        CurrentSim.Value = sim;
+    }
+
+    private static void Exit()
+    {
+        CurrentSim.Value = null;
+        MegaCrit.Sts2.Core.TestSupport.TestMode.IsOn = _testModeBefore;
+    }
+
     /// <summary>Une simulation est en cours : les stats ne comptent rien (<see cref="CardRunStats"/>).</summary>
     public static bool Active => SimulationFlag.Current.Value != null;
 
@@ -75,6 +99,14 @@ public sealed class PlaySimulation
         public const string Avoided = "Incoming damage avoided";
         public const string Prevented = "Damage prevented";
         public const string Channel = "Channel ";
+        public const string ArrowsShot = "Arrows shot";
+        public const string ArrowsRetrieved = "Arrows retrieved";
+        public const string ArrowSlots = "Arrow slots";
+        public const string Upgraded = "Cards upgraded";
+        public const string Transformed = "Cards transformed";
+
+        /// <summary>Suivi du nom d'une pile (« Cards to Hand »).</summary>
+        public const string MovedTo = "Cards to ";
     }
 
     /// <summary>
@@ -331,7 +363,7 @@ public sealed class PlaySimulation
     private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
     {
         var sim = new PlaySimulation(combat, null);
-        CurrentSim.Value = sim;
+        Enter(sim);
         try
         {
             var (taken, incoming, end) = sim.UntilEnemyAttacks(me);
@@ -346,7 +378,7 @@ public sealed class PlaySimulation
         finally
         {
             sim.RestoreBodies();
-            CurrentSim.Value = null;
+            Exit();
             rngs.Restore();
         }
     }
@@ -432,7 +464,7 @@ public sealed class PlaySimulation
         var fingerprint = Fingerprint(combat);
         if (draw > 0)
             rngs.Perturb(draw);
-        CurrentSim.Value = sim;
+        Enter(sim);
         try
         {
             act.Run(sim);
@@ -456,7 +488,7 @@ public sealed class PlaySimulation
         finally
         {
             sim.RestoreBodies();
-            CurrentSim.Value = null;
+            Exit();
             random = rngs.Changed();
             rngs.Restore();
         }
@@ -483,7 +515,7 @@ public sealed class PlaySimulation
         if (!auto)
             Event(() => Hook.AfterEnergySpent(_combat, shadowCard, energy));
 
-        int playCount = Hook.ModifyCardPlayCount(_combat, shadowCard, 1, target, out _);
+        int playCount = PlayCount(shadowCard, target);
         var resultPile = ResultPile(shadowCard);
         for (int i = 0; i < playCount; i++)
         {
@@ -500,12 +532,17 @@ public sealed class PlaySimulation
                 PlayIndex = i,
                 PlayCount = playCount,
             };
+            var history = CombatManager.Instance.History;
+            // Reprise après un choix : le début de la carte est déjà dans l'historique réel
+            if (!_muted)
+                AddHistory(new CardPlayStartedEntry(play, _combat.RoundNumber, _combat.CurrentSide, history, _combat.Players));
             Event(() => Hook.BeforeCardPlayed(_combat, play));
             Wait("card", OnPlay(shadowCard, context, play));
             if (shadowCard.Enchantment is { } enchantment)
                 Wait("enchantment", enchantment.OnPlay(context, play));
             if (shadowCard.Affliction is { } affliction)
                 Wait("affliction", affliction.OnPlay(context, target));
+            AddHistory(new CardPlayFinishedEntry(play, _combat.RoundNumber, _combat.CurrentSide, history, _combat.Players));
             Event(() => Hook.AfterCardPlayed(_combat, context, play));
         }
         MoveTo(card, resultPile);
@@ -546,17 +583,174 @@ public sealed class PlaySimulation
         }
     }
 
-    /// <summary>Flèches retirées pendant la simulation : créature, tireur.</summary>
-    private readonly HashSet<(Creature, Creature)> _dislodged = new();
+    // ---- Flèches (The Fool) ----
 
+    /// <summary>Flèches disponibles en plus (récupérées) ou en moins (tirées) pendant la simulation, par joueur.</summary>
+    private readonly Dictionary<Player, int> _arrows = new();
+
+    private int AvailableArrows(Player player) =>
+        Math.Max(0, (player.PlayerCombatState?.AvailableArrowCount ?? 0) + _arrows.GetValueOrDefault(player));
+
+    /// <summary>Impaled sur la créature dans l'état simulé (copies des réels, pouvoirs donnés, sans les retirés).</summary>
+    private List<ImpaledPower> ImpaledOn(Creature target, Creature? applier) =>
+        target.Powers.OfType<ImpaledPower>().Where(p => !_removed.Contains(p)).Select(p => (ImpaledPower)ShadowOf(p))
+            .Concat(_added.OfType<ImpaledPower>().Where(p => p.Owner == target))
+            .Where(p => !_removed.Contains(p) && (applier == null || p.Applier == applier))
+            .Distinct().ToList();
+
+    /// <summary>Comme le jeu : une flèche disponible part (réactions au tir), sinon rien.</summary>
+    private ArrowSlot? TakeArrow(Player player, CardModel? source)
+    {
+        var context = new BlockingPlayerChoiceContext();
+        if (AvailableArrows(player) <= 0)
+        {
+            Event(() => Hook.AfterArrowShot(_combat, player, null, context, source));
+            return null;
+        }
+        _arrows[player] = _arrows.GetValueOrDefault(player) - 1;
+        _outcome.Add(player.Creature, Stat.ArrowsShot, 1);
+        // Flèche à part : les réactions peuvent la modifier, les vraies ne bougent pas
+        var slot = new ArrowSlot(player) { Status = ArrowStatus.Away };
+        Event(() => Hook.AfterArrowShot(_combat, player, slot, context, source));
+        return slot;
+    }
+
+    private bool Shoot(Creature target, Player player, CardModel? card, AttackCommand? attack, Func<Task>? action)
+    {
+        if (IsDead(target) || TakeArrow(player, card) is not { } slot)
+            return false;
+        Impale(target, slot, action, attack, card);
+        return true;
+    }
+
+    /// <summary>
+    /// Comme le jeu : l'attaque de la flèche, puis Impaled sur la cible (une flèche de plus si elle l'est déjà),
+    /// réactions ; flèche détruite, ou retirée si la cible est morte.
+    /// </summary>
+    private void Impale(Creature target, ArrowSlot slot, Func<Task>? action, AttackCommand? attack, CardModel? card)
+    {
+        if (IsDead(target))
+            return;
+        var context = new BlockingPlayerChoiceContext();
+        if (attack != null)
+            Wait("arrow attack", attack.Execute(context));
+        else if (action != null)
+            Wait("arrow action", action());
+        var archer = slot.owner.Creature;
+        var impaled = ImpaledOn(target, archer).FirstOrDefault();
+        if (impaled == null)
+        {
+            Apply(ModelDb.Power<ImpaledPower>().ToMutable(), target, 1, archer, card);
+            impaled = ImpaledOn(target, archer).FirstOrDefault();
+        }
+        if (impaled == null)
+            return;
+        impaled.AddArrow(slot);
+        Event(() => Hook.AfterArrowImpaled(_combat, impaled, slot, context, card));
+        if (slot.DestroyAfterImpaled)
+        {
+            impaled.RemoveFirstArrow();
+            if (impaled.Arrows.Count == 0)
+                Remove(impaled);
+        }
+        else if (IsDead(target))
+            Dislodge(impaled, card);
+    }
+
+    /// <summary>Comme le jeu : la première flèche quitte Impaled et revient à son tireur (sauf détruite), réactions.</summary>
+    private void Dislodge(ImpaledPower power, CardModel? source)
+    {
+        var impaled = (ImpaledPower)ShadowOf(power);
+        if (impaled.Arrows.Count == 0)
+            return;
+        // Copie : une vraie flèche (déjà plantée avant l'aperçu) ne doit pas changer
+        var arrow = (ArrowSlot)Copy.Object(impaled.RemoveFirstArrow())!;
+        Copy.ClearEvents(arrow);
+        if (arrow.DestroyAfterImpaled)
+            return;
+        _arrows[arrow.owner] = _arrows.GetValueOrDefault(arrow.owner) + 1;
+        _outcome.Add(arrow.owner.Creature, Stat.ArrowsRetrieved, 1);
+        Event(() => Hook.AfterArrowDislodged(_combat, impaled, arrow, new BlockingPlayerChoiceContext(), source));
+    }
+
+    /// <summary>Tests du jeu sur les flèches : dans l'état simulé pendant la simulation.</summary>
     [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.CreatureIsImpaledByPlayersArrow))]
-    public static class ImpaledPatch
+    public static class ImpaledByPlayerPatch
     {
         public static void Postfix(Creature creature, Player player, ref bool __result)
         {
-            if (__result && CurrentSim.Value is { } sim && sim._dislodged.Contains((creature, player.Creature)))
-                __result = false;
+            if (CurrentSim.Value is { _finished: false } sim)
+                __result = sim.ImpaledOn(creature, player.Creature).Count > 0;
         }
+    }
+
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.CreatureIsImpaledByArrow))]
+    public static class ImpaledPatch
+    {
+        public static void Postfix(Creature creature, ref bool __result)
+        {
+            if (CurrentSim.Value is { _finished: false } sim)
+                __result = sim.ImpaledOn(creature, null).Count > 0;
+        }
+    }
+
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.PlayerHasAnyArrows))]
+    public static class HasArrowsPatch
+    {
+        public static void Postfix(Player player, ref bool __result)
+        {
+            if (CurrentSim.Value is { _finished: false } sim)
+                __result = sim.AvailableArrows(player) > 0;
+        }
+    }
+
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.GetAvailableArrowCount))]
+    public static class ArrowCountPatch
+    {
+        public static void Postfix(Player player, ref int __result)
+        {
+            if (CurrentSim.Value is { _finished: false } sim)
+                __result = sim.AvailableArrows(player);
+        }
+    }
+
+    // ---- Historique du combat : les cartes simulées comptent (mélodies Wah, Cho, Ki…) ----
+
+    private static readonly FieldInfo HistoryEntries = AccessTools.Field(typeof(CombatHistory), "_entries");
+
+    /// <summary>Entrées ajoutées à l'historique réel pendant la simulation, retirées à la fin.</summary>
+    private readonly List<CombatHistoryEntry> _history = [];
+
+    /// <summary>
+    /// Le jeu compte les cartes jouées ce tour dans son historique (première Wah du tour : Lost Lute, Motif, Song
+    /// Path…) : la carte simulée y est ajoutée directement (sans ses événements), et retirée à la fin.
+    /// </summary>
+    private void AddHistory(CombatHistoryEntry entry)
+    {
+        if (HistoryEntries.GetValue(CombatManager.Instance.History) is List<CombatHistoryEntry> entries)
+        {
+            entries.Add(entry);
+            _history.Add(entry);
+        }
+    }
+
+    private void RemoveHistory()
+    {
+        if (_history.Count > 0 && HistoryEntries.GetValue(CombatManager.Instance.History) is List<CombatHistoryEntry> entries)
+            foreach (var entry in _history)
+                entries.Remove(entry);
+        _history.Clear();
+    }
+
+    /// <summary>
+    /// Notification « l'état du combat a changé » pour l'interface : pas pendant la simulation (rien n'a vraiment
+    /// changé). En mode test (activé pendant la simulation), le jeu la refuse même par une exception, ce qui faisait
+    /// échouer tous les aperçus.
+    /// </summary>
+    [HarmonyPatch(typeof(CombatStateTracker), "NotifyCombatStateChanged")]
+    public static class CombatStateChangedPatch
+    {
+        public static bool Prefix() => !Active;
     }
 
     /// <summary>Bulle de dialogue : pas pendant la simulation.</summary>
@@ -696,6 +890,14 @@ public sealed class PlaySimulation
         }
     }
 
+    /// <summary>
+    /// Ce qui compte de la fin de tour dans l'effet de la carte : dégâts, morts, étourdis, Block, soins (Howl from
+    /// Beyond épuisé, Plating donné…). Pas les pouvoirs : en fin de tour, ce sont surtout des restitutions (Tender
+    /// rend la Force et la Dextérité perdues ce tour), qui annuleraient l'effet de la carte pendant le tour.
+    /// </summary>
+    private static readonly HashSet<string> TurnEndStats =
+        [Stat.Damage, Stat.Hits, Stat.ThroughBlock, Stat.Lethal, Stat.Stunned, Stat.HpLost, Stat.Block, Stat.Healed];
+
     /// <summary>Ajoute l'écart entre deux fins de tour simulées (avec et sans la carte).</summary>
     private void MergeDifference(Outcome with, Outcome without)
     {
@@ -705,6 +907,8 @@ public sealed class PlaySimulation
             var b = without.Creatures.GetValueOrDefault(creature);
             foreach (var stat in (a?.Keys ?? Enumerable.Empty<string>()).Union(b?.Keys ?? Enumerable.Empty<string>()))
             {
+                if (!TurnEndStats.Contains(stat))
+                    continue;
                 double delta = (a?.GetValueOrDefault(stat) ?? 0) - (b?.GetValueOrDefault(stat) ?? 0);
                 if (delta == 0)
                     continue;
@@ -719,6 +923,31 @@ public sealed class PlaySimulation
     }
 
     private static readonly MethodInfo OnPlayMethod = AccessTools.Method(typeof(CardModel), "OnPlay");
+    private static readonly MethodInfo PlayCountMethod = AccessTools.Method(typeof(CardModel), "GeneratePlayCount");
+
+    /// <summary>
+    /// Nombre de fois où la carte se joue, calculé par le jeu : rejeux de son enchantement (Glam), puis effets qui
+    /// le modifient (Echo Form, Ki Verse…), et leurs réactions (sur les copies).
+    /// </summary>
+    private int PlayCount(CardModel shadowCard, Creature? target)
+    {
+        bool outer = _inEvent;
+        _inEvent = true;
+        try
+        {
+            if (PlayCountMethod.Invoke(shadowCard, [_combat, target]) is Task<int> { IsCompletedSuccessfully: true } task)
+                return task.Result;
+        }
+        catch (Exception e)
+        {
+            Fail("play count", e);
+        }
+        finally
+        {
+            _inEvent = outer;
+        }
+        return Hook.ModifyCardPlayCount(_combat, shadowCard, 1, target, out _);
+    }
     private static readonly MethodInfo ResultLocationMethod = AccessTools.Method(typeof(CardModel), "GetResultLocationForCardPlay");
 
     private static Task OnPlay(CardModel card, PlayerChoiceContext context, CardPlay play) =>
@@ -992,6 +1221,7 @@ public sealed class PlaySimulation
     private void RestoreBodies()
     {
         _finished = true;
+        RemoveHistory();
         foreach (var (creature, (hp, block)) in _realBodies)
         {
             HpField.SetValue(creature, hp);
@@ -1110,12 +1340,53 @@ public sealed class PlaySimulation
                 return null;
             case "PowerCmd.ModifyAmount":
                 return Task.FromResult(ModifyAmount(Arg<PowerModel>("power")!, Amount("offset"), Arg<Creature>("applier"), Arg<CardModel>("cardSource")));
-            case "ArrowCmd.DislodgeArrow" when Arg<Creature>("target") is { } impaled && Arg<Player>("player") is { } archer:
-                // La flèche revient au joueur : la créature n'est plus transpercée par lui (Recall, Wrest, Uproot
-                // bouclent tant qu'elle l'est)
-                _dislodged.Add((impaled, archer.Creature));
-                foreach (var power in impaled.Powers.Where(p => p.Id == ModelDb.Power<MegaCrit.Sts2.Core.Models.Powers.ImpaledPower>().Id && p.Applier == archer.Creature))
-                    Remove(power);
+            case "CardPileCmd.Add":
+                var moved = Arg<IEnumerable<CardModel>>("cards") ?? (Arg<CardModel>("card") is { } one ? [one] : []);
+                var destination = Arg<CardPile>("newPile")?.Type ?? Arg<PileType>("newPileType");
+                foreach (var card in moved.Select(RealOf).ToList())
+                {
+                    if (card.Pile?.Type == destination || card.Owner is not { } mover)
+                        continue;
+                    MoveTo(card, destination);
+                    _outcome.Add(mover.Creature, Stat.MovedTo + destination, 1);
+                }
+                return null;
+            case "CardCmd.Upgrade":
+                var upgraded = Arg<IEnumerable<CardModel>>("cards") ?? (Arg<CardModel>("card") is { } toUpgrade ? [toUpgrade] : []);
+                foreach (var card in upgraded.Where(c => c.IsUpgradable))
+                    if (card.Owner is { } upgrader)
+                        _outcome.Add(upgrader.Creature, Stat.Upgraded, 1);
+                return null;
+            case "CardCmd.Transform":
+                var transformations = Arg<IEnumerable<CardTransformation>>("transformations")?.ToList();
+                var transformedOwner = (Arg<CardModel>("original") ?? (transformations is { Count: > 0 } ? transformations[0].Original : null))?.Owner;
+                int transformed = transformations?.Count ?? 1;
+                if (transformedOwner != null)
+                    _outcome.Add(transformedOwner.Creature, Stat.Transformed, transformed);
+                return null;
+            case "ArrowCmd.ShootArrowAtTarget" when Arg<Creature>("target") is { } shotTarget && Arg<Player>("player") is { } shooter:
+                var shot = Arg<AttackCommand>("attackCommand");
+                return Task.FromResult(Shoot(shotTarget, shooter, Arg<CardModel>("card") ?? shot?.CardPlay?.Card, shot,
+                    Arg<Func<Task>>("actionToPerform")));
+            case "ArrowCmd.TryShootArrow" when Arg<Player>("player") is { } archer:
+                return Task.FromResult(TakeArrow(archer, Arg<CardModel>("source")));
+            case "ArrowCmd.ImpaleTarget" when Arg<Creature>("target") is { } impaleTarget && Arg<ArrowSlot>("arrowSlot") is { } slot:
+                Impale(impaleTarget, slot, Arg<Func<Task>>("actionToPerform"), null, Arg<CardModel>("card"));
+                return null;
+            case "ArrowCmd.DislodgeArrow":
+                if (Arg<ImpaledPower>("impaledArrow") is { } impaledArrow)
+                    Dislodge(impaledArrow, Arg<CardModel>("source"));
+                else if (Arg<Creature>("target") is { } dislodgeTarget && Arg<Player>("player") is { } owner
+                    && ImpaledOn(dislodgeTarget, owner.Creature).FirstOrDefault() is { } impaled)
+                {
+                    Dislodge(impaled, Arg<CardModel>("source"));
+                    if (impaled.Arrows.Count == 0)
+                        Remove(impaled);
+                }
+                return null;
+            case "ArrowCmd.GainArrowSlot" when Arg<Player>("player") is { } gainer:
+                _arrows[gainer] = _arrows.GetValueOrDefault(gainer) + 1;
+                _outcome.Add(gainer.Creature, Stat.ArrowSlots, 1);
                 return null;
             case "PowerCmd.Decrement" when Arg<PowerModel>("power") is { } decremented:
                 ModifyAmount(decremented, -1, null, null);
@@ -1755,25 +2026,13 @@ internal sealed class RngState
 
     private readonly List<(Rng Rng, SerializableRng State)> _saved = [];
     private readonly List<(System.Collections.IDictionary Rngs, HashSet<object> Keys)> _sets = [];
-    private readonly List<(MonsterModel Monster, Rng? Rng, object?[] Fields)> _monsters = [];
-
-    private static readonly Dictionary<Type, FieldInfo[]> MonsterFields = new();
+    private readonly List<(MonsterModel Monster, Rng? Rng)> _monsters = [];
 
     /// <summary>
-    /// Champs d'un monstre : un pouvoir copié peut le modifier directement (Ravenous : IsRavenous des Corpse
-    /// Slugs) ; remis tels quels après la simulation.
+    /// Monstres et leur machine à états des coups : un pouvoir copié peut les modifier directement (Ravenous :
+    /// IsRavenous des Corpse Slugs ; Reattach : coup suivant du segment de Decimillipede) ; remis tels quels.
     /// </summary>
-    private static FieldInfo[] FieldsOf(MonsterModel monster)
-    {
-        var type = monster.GetType();
-        if (MonsterFields.TryGetValue(type, out var cached))
-            return cached;
-        var fields = new List<FieldInfo>();
-        for (var t = type; t != null && t != typeof(AbstractModel); t = t.BaseType)
-            fields.AddRange(t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
-                .Where(f => !typeof(Delegate).IsAssignableFrom(f.FieldType)));
-        return MonsterFields[type] = fields.ToArray();
-    }
+    private readonly List<ObjectState> _objects = [];
 
     public static RngState Capture(ICombatState combat)
     {
@@ -1787,7 +2046,10 @@ internal sealed class RngState
                 if (creature.Monster is { IsMutable: true } monster && MonsterRng != null)
                 {
                     var rng = MonsterRng.GetValue(monster) as Rng;
-                    state._monsters.Add((monster, rng, FieldsOf(monster).Select(f => f.GetValue(monster)).ToArray()));
+                    state._monsters.Add((monster, rng));
+                    state._objects.Add(new ObjectState(monster, typeof(AbstractModel)));
+                    if (monster.MoveStateMachine is { } moves)
+                        state._objects.Add(new ObjectState(moves, typeof(object)));
                     if (rng != null)
                         state._saved.Add((rng, rng.ToSerializable()));
                 }
@@ -1852,17 +2114,61 @@ internal sealed class RngState
             foreach (var (rngs, keys) in _sets)
                 foreach (var key in rngs.Keys.Cast<object>().Where(k => !keys.Contains(k)).ToList())
                     rngs.Remove(key);
-            foreach (var (monster, _, values) in _monsters)
-            {
-                var fields = FieldsOf(monster);
-                for (int i = 0; i < fields.Length; i++)
-                    if (!Equals(fields[i].GetValue(monster), values[i]))
-                        fields[i].SetValue(monster, values[i]);
-            }
+            foreach (var saved in _objects)
+                saved.Restore();
         }
         catch (Exception e)
         {
             Log.Warn($"[{ModEntry.Id}] cannot restore the random generators: {e.Message}");
+        }
+    }
+}
+
+/// <summary>
+/// Champs d'un objet du jeu (et contenu de ses listes), sauvegardés puis remis tels quels : ce que le code simulé
+/// modifie directement, hors commandes, sur un objet qu'on ne peut pas copier.
+/// </summary>
+internal sealed class ObjectState
+{
+    private static readonly Dictionary<(Type, Type), FieldInfo[]> Fields = new();
+
+    private readonly object _target;
+    private readonly FieldInfo[] _fields;
+    private readonly object?[] _values;
+    private readonly object?[]?[] _lists;
+
+    /// <param name="stopAt">classe de base dont les champs ne sont pas pris</param>
+    public ObjectState(object target, Type stopAt)
+    {
+        _target = target;
+        var type = target.GetType();
+        if (!Fields.TryGetValue((type, stopAt), out var fields))
+        {
+            var list = new List<FieldInfo>();
+            for (var t = type; t != null && t != stopAt && t != typeof(object); t = t.BaseType)
+                list.AddRange(t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                    .Where(f => !typeof(Delegate).IsAssignableFrom(f.FieldType)));
+            Fields[(type, stopAt)] = fields = list.ToArray();
+        }
+        _fields = fields;
+        _values = fields.Select(f => f.GetValue(target)).ToArray();
+        _lists = _values.Select(v => v is System.Collections.IList list ? list.Cast<object?>().ToArray() : null).ToArray();
+    }
+
+    public void Restore()
+    {
+        for (int i = 0; i < _fields.Length; i++)
+        {
+            if (!Equals(_fields[i].GetValue(_target), _values[i]))
+                _fields[i].SetValue(_target, _values[i]);
+            // Même liste, contenu changé (coup ajouté à l'historique des coups…)
+            if (_values[i] is System.Collections.IList { IsReadOnly: false, IsFixedSize: false } list && _lists[i] is { } items
+                && (list.Count != items.Length || !list.Cast<object?>().SequenceEqual(items)))
+            {
+                list.Clear();
+                foreach (var item in items)
+                    list.Add(item);
+            }
         }
     }
 }

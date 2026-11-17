@@ -76,7 +76,8 @@ public static class StatsTable
         row.AddThemeConstantOverride("separation", 6);
         row.AddChild(new TextureRect
         {
-            Texture = icon,
+            // Une image libérée entre-temps ferait échouer tout le tableau : case vide à la place
+            Texture = icon != null && GodotObject.IsInstanceValid(icon) ? icon : null,
             CustomMinimumSize = new Vector2(IconSize, IconSize),
             ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
             StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
@@ -94,7 +95,8 @@ public static class StatsTable
     {
         if (path == null)
             return null;
-        if (Loaded.TryGetValue(path, out var cached))
+        // Image libérée par le jeu (il vide son cache de temps en temps) : rechargée
+        if (Loaded.TryGetValue(path, out var cached) && (cached == null || GodotObject.IsInstanceValid(cached)))
             return cached;
         Texture2D? texture = null;
         try

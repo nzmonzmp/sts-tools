@@ -347,7 +347,8 @@ public static class TargetPreview
 
     /// <summary>Caractéristiques sans signe (des quantités, pas des gains ou des pertes).</summary>
     private static readonly HashSet<string> Unsigned =
-        [Stat.Damage, Stat.ThroughBlock, Stat.HpLost, Stat.Draw, Stat.Created, Stat.Avoided, Stat.Prevented];
+        [Stat.Damage, Stat.ThroughBlock, Stat.HpLost, Stat.Draw, Stat.Created, Stat.Avoided, Stat.Prevented,
+            Stat.ArrowsShot, Stat.ArrowsRetrieved, Stat.Upgraded, Stat.Transformed];
 
     /// <summary>Lignes d'une créature, dans l'ordre où les effets arrivent ; les dégâts d'abord.</summary>
     /// <summary>
@@ -409,7 +410,7 @@ public static class TargetPreview
                     if (stat.StartsWith(Stat.Channel))
                         yield return [stat, MaxOf(stat) != null ? "depends" : value > 1.05 ? $"×{Format(value)}" : ""];
                     else
-                        yield return [stat, Value(stat, value, Unsigned.Contains(stat) ? Format : Signed)];
+                        yield return [stat, Value(stat, value, Unsigned.Contains(stat) || stat.StartsWith(Stat.MovedTo) ? Format : Signed)];
                     break;
             }
         }

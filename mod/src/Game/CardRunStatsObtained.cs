@@ -189,6 +189,37 @@ public sealed partial class CardRunStats
         }
     }
 
+    // ---- Flèches (The Fool) ----
+
+    /// <summary>Flèche tirée (s'il en reste une) : pour la carte ou la relique qui la tire.</summary>
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.TryShootArrow))]
+    public static class ArrowShotPatch
+    {
+        public static void Prefix(Player player)
+        {
+            if (ArrowCmd.PlayerHasAnyArrows(player))
+                Current?.Add(ArrowsShot, 1);
+        }
+    }
+
+    /// <summary>Flèche retirée d'un ennemi (et rendue au joueur, sauf détruite).</summary>
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.DislodgeArrow), [typeof(ICombatState), typeof(MegaCrit.Sts2.Core.Models.Powers.ImpaledPower),
+        typeof(PlayerChoiceContext), typeof(CardModel)])]
+    public static class ArrowDislodgedPatch
+    {
+        public static void Prefix(MegaCrit.Sts2.Core.Models.Powers.ImpaledPower impaledArrow)
+        {
+            if (impaledArrow.Arrows.FirstOrDefault() is { DestroyAfterImpaled: false })
+                Current?.Add(ArrowsRetrieved, 1);
+        }
+    }
+
+    [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.GainArrowSlot))]
+    public static class ArrowSlotPatch
+    {
+        public static void Prefix() => Current?.Add(ArrowSlots, 1);
+    }
+
     /// <summary>Forge (Regent) : dégâts ajoutés à Sovereign Blade.</summary>
     [HarmonyPatch(typeof(ForgeCmd), nameof(ForgeCmd.Forge))]
     public static class ForgePatch

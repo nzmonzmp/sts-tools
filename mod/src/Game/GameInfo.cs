@@ -22,6 +22,10 @@ public sealed class GameInfo : IGameInfo
     private readonly Dictionary<(string, string), string> _names = new();
     private readonly Dictionary<string, Texture2D?> _icons = new();
 
+    /// <summary>Icône déjà chargée, sauf si le jeu l'a libérée entre-temps (il vide son cache de temps en temps).</summary>
+    private bool TryIcon(string key, out Texture2D? icon) =>
+        _icons.TryGetValue(key, out icon) && (icon == null || GodotObject.IsInstanceValid(icon));
+
     public IReadOnlySet<string> Characters { get; }
 
     private List<AncientInfo>? _ancients;
@@ -107,7 +111,7 @@ public sealed class GameInfo : IGameInfo
     /// <summary>Icône de l'Ancien, celle de l'historique des parties ; null si introuvable.</summary>
     public Texture2D? AncientIcon(string id)
     {
-        if (_icons.TryGetValue("ANCIENT." + id, out var icon))
+        if (TryIcon("ANCIENT." + id, out var icon))
             return icon;
         try
         {
@@ -186,7 +190,7 @@ public sealed class GameInfo : IGameInfo
     /// <summary>Tête du personnage, telle qu'affichée en haut à gauche pendant une partie ; null si introuvable.</summary>
     public Texture2D? CharacterIcon(string id)
     {
-        if (_icons.TryGetValue(id, out var icon))
+        if (TryIcon(id, out var icon))
             return icon;
         try
         {
@@ -203,7 +207,7 @@ public sealed class GameInfo : IGameInfo
     /// <summary>Icône de la relique ; null si introuvable (par exemple un choix d'Ancien qui n'est pas une relique).</summary>
     public Texture2D? RelicIcon(string id)
     {
-        if (_icons.TryGetValue("RELIC." + id, out var icon))
+        if (TryIcon("RELIC." + id, out var icon))
             return icon;
         try
         {
@@ -225,7 +229,7 @@ public sealed class GameInfo : IGameInfo
     /// </summary>
     public Texture2D? EncounterIcon(string id)
     {
-        if (_icons.TryGetValue("ENCOUNTER." + id, out var icon))
+        if (TryIcon("ENCOUNTER." + id, out var icon))
             return icon;
         var encounter = SafeModel<EncounterModel>("ENCOUNTER", id);
         string? path = null;
@@ -248,7 +252,7 @@ public sealed class GameInfo : IGameInfo
 
     /// <summary>Icône générique d'événement de l'écran Historique.</summary>
     public Texture2D? EventIcon() =>
-        _icons.TryGetValue("EVENT", out var icon) ? icon
+        TryIcon("EVENT", out var icon) ? icon
             : _icons["EVENT"] = LoadTexture(ImageHelper.GetRoomIconPath(MapPointType.Unknown, RoomType.Event, null));
 
     private static Texture2D? LoadTexture(string? path)

@@ -61,6 +61,9 @@ public sealed partial class CardRunStats
     public const string OrbsEvoked = "Orbs evoked";
     public const string OrbSlots = "Orb slots";
     public const string Forged = "Forged";
+    public const string ArrowsShot = "Arrows shot";
+    public const string ArrowsRetrieved = "Arrows retrieved";
+    public const string ArrowSlots = "Arrow slots";
     public const string BlockRetained = "Block retained";
     public const string DeathsPrevented = "Deaths prevented";
     public const string CardsRetained = "Cards retained";
@@ -112,7 +115,7 @@ public sealed partial class CardRunStats
         EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
         CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
         MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, UpgradedInCombat, Transformed, Enchanted, Potions,
-        PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, Forged, BlockRetained, DeathsPrevented,
+        PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, ArrowsShot, ArrowsRetrieved, ArrowSlots, Forged, BlockRetained, DeathsPrevented,
         CardsRetained, ExtraTurns, XBonus, ExtraHits, OrbTriggers, DebuffsPrevented, GoldSaved, CardChoices, RewardsAdded,
         PotionRewards, RestOptions, TreasuresSkipped, ItemsRestocked, EnemyHpRemoved, SafeUnknownRooms, FreeTravels,
         OfferedUpgraded, OfferedEnchanted, OrbBonus, GoldenPathRooms,
@@ -196,7 +199,8 @@ public sealed partial class CardRunStats
     /// <summary>Icône d'une stat, ou null si elle n'en a pas ou si l'image n'existe pas dans le jeu.</summary>
     public static Texture2D? IconFor(string name)
     {
-        if (LoadedIcons.TryGetValue(name, out var cached))
+        // Image libérée par le jeu (il vide son cache de temps en temps) : rechargée
+        if (LoadedIcons.TryGetValue(name, out var cached) && (cached == null || GodotObject.IsInstanceValid(cached)))
             return cached;
         Texture2D? texture = null;
         try
