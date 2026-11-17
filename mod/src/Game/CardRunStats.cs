@@ -193,8 +193,9 @@ public sealed partial class CardRunStats
             return;
         Values[name] = Values.GetValueOrDefault(name) + amount;
         AnyChanged?.Invoke();
-        // Une carte du joueur local : compte aussi pour le combat et le tour en cours (onglet Combat)
-        if (_owner != null && _owner == _player)
+        // Une carte du joueur local : compte aussi pour le combat et le tour en cours (onglet Combat). Sauf les
+        // soins : les onglets Combat et Game comptent tous les PV rendus au joueur, quelle qu'en soit la source
+        if (_owner != null && _owner == _player && name != Healed)
             AddToCombat(name, amount);
     }
 
@@ -247,6 +248,16 @@ public sealed partial class CardRunStats
 
     /// <summary>Une stat du joueur local a changé pendant le combat.</summary>
     public static event Action? Changed;
+
+    /// <summary>
+    /// Les intentions des ennemis ont été mises à jour (nouveau tour, pouvoir appliqué…) : l'onglet Combat se
+    /// redessine, pour les dégâts annoncés.
+    /// </summary>
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature), nameof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature.UpdateIntent))]
+    public static class IntentPatch
+    {
+        public static void Postfix() => Changed?.Invoke();
+    }
 
     private static CardRunStats _combat = new(), _turnStats = new();
     private static int _turn, _combatTurns;
@@ -876,8 +887,25 @@ public sealed partial class CardRunStats
     {
         public static void Prefix(Creature creature, decimal amount)
         {
-            if (creature is { IsEnemy: false } && Current is { } credit)
-                credit.Add(Healed, Math.Max(0, Math.Min(amount, creature.MaxHp - creature.CurrentHp)));
+            if (creature is not { IsEnemy: false })
+                return;
+            decimal healed = Math.Max(0, Math.Min(amount, creature.MaxHp - creature.CurrentHp));
+            Current?.Add(Healed, healed);
+            // PV rendus au joueur local, de toute source (cartes, reliques, potions, feu de camp…) : onglets Combat
+            // (pendant un combat) et Game
+            if (healed > 0 && creature.Player is { } player && player == _player)
+            {
+                if (CombatManager.Instance.IsInProgress)
+                {
+                    if (creature.CombatState?.IsLiveCombat() ?? true)
+                        AddToCombat(Healed, healed);
+                }
+                else
+                {
+                    _run.Values[Healed] = _run[Healed] + healed;
+                    Changed?.Invoke();
+                }
+            }
         }
     }
 

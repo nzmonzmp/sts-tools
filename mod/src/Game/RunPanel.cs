@@ -1,4 +1,6 @@
 using Godot;
+using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.MonsterMoves.Intents;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
@@ -655,13 +657,63 @@ internal sealed class CombatTab : IRunPanelTab
         var rows = combat.DisplayNames()
             .Select(name => new[] { name, Format(combat[name]), Format(turn[name]), turns > 0 ? Format(combat[name] / turns) : "-" })
             .ToList();
-        if (rows.Count == 0)
+        bool inCombat = CombatManager.Instance.IsInProgress;
+        if (rows.Count == 0 && !inCombat)
         {
             content.AddChild(RunPanel.Label("No stats for this combat yet.", 18, StsColors.halfTransparentCream));
             return;
         }
-        content.AddChild(RunPanel.Label(turns > 0 ? $"Turn {turns}" : "Last combat", 18, StsColors.halfTransparentCream));
-        content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows]));
+        content.AddChild(RunPanel.Label(turns > 0 ? $"Turn {turns}" : inCombat ? "Combat" : "Last combat", 18, StsColors.halfTransparentCream));
+        if (inCombat && IncomingDamage(player) is { } incoming)
+        {
+            // Icône d'attaque des intentions, libellé atténué, nombre en clair : comme une ligne du tableau
+            var line = new HBoxContainer();
+            line.AddThemeConstantOverride("separation", 6);
+            line.AddChild(new TextureRect
+            {
+                Texture = StatsTable.LoadIcon("res://images/packed/intents/attack/intent_attack_1.png"),
+                CustomMinimumSize = new Vector2(22, 22),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+                MouseFilter = Control.MouseFilterEnum.Ignore,
+            });
+            line.AddChild(RunPanel.Label("Incoming damage", 18, StsColors.halfTransparentCream));
+            line.AddChild(RunPanel.Label(incoming.ToString(), 18, StsColors.cream));
+            content.AddChild(line);
+        }
+        if (rows.Count > 0)
+            content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows]));
+    }
+
+    /// <summary>
+    /// Dégâts annoncés par les intentions d'attaque des ennemis en vie pour leur prochain tour, comme les chiffres
+    /// affichés au-dessus d'eux : coups multiples compris, avec la Force des ennemis, Weak, Vulnerable… calculés
+    /// par le jeu contre le joueur local (avant son Block). Null s'il n'y a pas de combat.
+    /// </summary>
+    private static int? IncomingDamage(Player player)
+    {
+        try
+        {
+            if (player.Creature.CombatState is not CombatState state)
+                return null;
+            var targets = state.Allies;
+            int total = 0;
+            foreach (var enemy in state.Enemies)
+            {
+                if (enemy.IsDead || enemy.Monster?.NextMove is not { } move)
+                    continue;
+                foreach (var intent in move.Intents)
+                    if (intent is AttackIntent attack && attack.DamageCalc != null)
+                        total += attack.GetTotalDamage(targets, enemy);
+            }
+            return total;
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] cannot compute incoming damage: {e.Message}");
+            return null;
+        }
     }
 }
 
