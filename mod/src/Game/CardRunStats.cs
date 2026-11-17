@@ -61,6 +61,26 @@ public sealed partial class CardRunStats
     public const string OrbsEvoked = "Orbs evoked";
     public const string OrbSlots = "Orb slots";
     public const string Forged = "Forged";
+    public const string BlockRetained = "Block retained";
+    public const string DeathsPrevented = "Deaths prevented";
+    public const string CardsRetained = "Cards retained";
+    public const string ExtraTurns = "Extra turns";
+    public const string XBonus = "X bonus";
+    public const string ExtraHits = "Extra hits";
+    public const string OrbTriggers = "Extra orb triggers";
+    public const string DebuffsPrevented = "Debuffs prevented";
+    public const string GoldSaved = "Gold saved";
+    public const string CardChoices = "Card choices added";
+    public const string RewardsAdded = "Rewards added";
+    public const string PotionRewards = "Potion rewards forced";
+    public const string RestOptions = "Rest site options added";
+    public const string TreasuresSkipped = "Treasures skipped";
+    public const string ItemsRestocked = "Items restocked";
+    public const string EnemyHpRemoved = "Enemy HP removed";
+    public const string SafeUnknownRooms = "Unknown rooms without combat";
+    public const string FreeTravels = "Free travels";
+    public const string OfferedUpgraded = "Offered cards upgraded";
+    public const string OfferedEnchanted = "Offered cards enchanted";
     public const string Transformed = "Cards transformed";
     public const string Enchanted = "Cards enchanted";
     public const string Potions = "Potions obtained";
@@ -71,6 +91,17 @@ public sealed partial class CardRunStats
     public const string OstyTanked = "Tanked by Osty";
     public const string Summoned = "Summoned";
 
+    /// <summary>
+    /// Stats hors combat (deck, récompenses, boutique, carte du jeu) : leurs moyennes par combat ou par tour, et leur
+    /// part du combat en cours, n'ont pas de sens.
+    /// </summary>
+    public static readonly HashSet<string> OutOfCombat =
+    [
+        MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, Transformed, Enchanted, Potions, PotionSlots,
+        GoldSaved, CardChoices, RewardsAdded, PotionRewards, RestOptions, TreasuresSkipped, ItemsRestocked,
+        SafeUnknownRooms, FreeTravels, OfferedUpgraded, OfferedEnchanted,
+    ];
+
     /// <summary>Ordre d'affichage ; les pouvoirs (« Vulnerable applied », « Strength gained »…) viennent après.</summary>
     public static readonly string[] Order =
     [
@@ -79,7 +110,10 @@ public sealed partial class CardRunStats
         EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
         CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
         MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, UpgradedInCombat, Transformed, Enchanted, Potions,
-        PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, Forged,
+        PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, Forged, BlockRetained, DeathsPrevented,
+        CardsRetained, ExtraTurns, XBonus, ExtraHits, OrbTriggers, DebuffsPrevented, GoldSaved, CardChoices, RewardsAdded,
+        PotionRewards, RestOptions, TreasuresSkipped, ItemsRestocked, EnemyHpRemoved, SafeUnknownRooms, FreeTravels,
+        OfferedUpgraded, OfferedEnchanted,
     ];
 
     /// <summary>Icônes des stats fixes, prises dans les images du jeu</summary>
@@ -123,6 +157,26 @@ public sealed partial class CardRunStats
         [Stunned] = "res://images/packed/intents/intent_stun.png",
         [OrbsEvoked] = "res://images/orbs/lightning_orb.png",
         [OrbSlots] = "res://images/orbs/empty_orb.png",
+        [BlockRetained] = "res://images/ui/combat/block.png",
+        [DeathsPrevented] = "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+        [CardsRetained] = "res://images/packed/sprite_fonts/card_icon.png",
+        [ExtraTurns] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
+        [XBonus] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
+        [ExtraHits] = "res://images/packed/intents/attack/intent_attack_1.png",
+        [OrbTriggers] = "res://images/orbs/lightning_orb.png",
+        [DebuffsPrevented] = "res://images/packed/intents/intent_defend.png",
+        [GoldSaved] = "res://images/packed/sprite_fonts/gold_icon.png",
+        [CardChoices] = "res://images/packed/sprite_fonts/card_icon.png",
+        [RewardsAdded] = "res://images/packed/sprite_fonts/card_icon.png",
+        [PotionRewards] = "res://images/packed/sprite_fonts/potion_icon.png",
+        [RestOptions] = "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+        [TreasuresSkipped] = "res://images/packed/sprite_fonts/gold_icon.png",
+        [ItemsRestocked] = "res://images/packed/sprite_fonts/gold_icon.png",
+        [EnemyHpRemoved] = "res://images/packed/intents/attack/intent_attack_1.png",
+        [SafeUnknownRooms] = "res://images/packed/intents/intent_defend.png",
+        [OfferedUpgraded] = "res://images/packed/blitz/small_tokens/entry_card_upgrade.png",
+        [OfferedEnchanted] = "res://images/packed/blitz/small_tokens/entry_card_enchant.png",
+        [FreeTravels] = "res://images/packed/sprite_fonts/card_icon.png",
         [Forged] = "res://images/packed/card_portraits/token/sovereign_blade.png",
         [Transformed] = "res://images/packed/blitz/small_tokens/entry_card_transform.png",
         [Enchanted] = "res://images/packed/blitz/small_tokens/entry_card_enchant.png",

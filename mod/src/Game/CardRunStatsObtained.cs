@@ -1,6 +1,8 @@
 using System.Reflection;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Creatures;
 using MegaCrit.Sts2.Core.Entities.Players;
@@ -134,7 +136,15 @@ public sealed partial class CardRunStats
     [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Enchant), [typeof(EnchantmentModel), typeof(CardModel), typeof(decimal)])]
     public static class EnchantPatch
     {
-        public static void Prefix() => Current?.Add(Enchanted, 1);
+        /// <summary>
+        /// Seulement une carte du joueur (deck, piles de combat) : pas les copies enchantées pour être proposées
+        /// (Glitter sur les récompenses), comptées si la carte est prise (<see cref="CreationModifiedAddedPatch"/>).
+        /// </summary>
+        public static void Prefix(CardModel card)
+        {
+            if (card.Pile != null)
+                Current?.Add(Enchanted, 1);
+        }
     }
 
     /// <summary>Potion donnée : comptée seulement si elle a trouvé une place.</summary>
@@ -204,6 +214,62 @@ public sealed partial class CardRunStats
             if (amount > 0)
                 Current?.Add(Forged, amount);
         }
+    }
+
+    // ---- Block gardé, mort évitée ----
+
+    /// <summary>
+    /// Ce qui a empêché le Block d'être retiré en début de tour (Barricade, Calipers) est « ce qui agit » pendant
+    /// son effet (Calipers retire alors une partie du Block) ; ensuite, le Block resté est crédité comme gardé.
+    /// Seulement pour le camp du joueur.
+    /// </summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterPreventingBlockClear))]
+    internal static class BlockRetainedPatch
+    {
+        public static void Prefix(AbstractModel preventer, out Frame __state)
+        {
+            __state = new Frame { Listener = preventer };
+            _frames.Add(__state);
+        }
+
+        public static void Postfix(ref Task __result, ICombatState combatState, AbstractModel preventer, Creature creature, Frame __state) =>
+            __result = AfterEffect(__result, __state, () =>
+            {
+                if (!creature.IsEnemy && combatState.IsLiveCombat() && CreditOf(preventer) is { } credit)
+                    credit.Add(BlockRetained, creature.Block);
+            });
+    }
+
+    /// <summary>
+    /// Ce qui a empêché une mort (Lizard Tail) est « ce qui agit » pendant son effet (PV rendus), et compte une mort
+    /// évitée. Seulement pour le camp du joueur.
+    /// </summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterPreventingDeath))]
+    internal static class DeathPreventedPatch
+    {
+        public static void Prefix(AbstractModel preventer, Creature creature, out Frame __state)
+        {
+            __state = new Frame { Listener = preventer };
+            _frames.Add(__state);
+            if (!creature.IsEnemy)
+                CreditOf(preventer)?.Add(DeathsPrevented, 1);
+        }
+
+        public static void Postfix(ref Task __result, Frame __state) => __result = AfterEffect(__result, __state, null);
+    }
+
+    /// <summary>Attend la fin de l'effet, retire son élément de « ce qui agit », puis fait <paramref name="after"/>.</summary>
+    private static async Task AfterEffect(Task effect, Frame frame, Action? after)
+    {
+        try
+        {
+            await effect;
+        }
+        finally
+        {
+            _frames.Remove(frame);
+        }
+        after?.Invoke();
     }
 
     // ---- Tours joués avec chaque relique ----

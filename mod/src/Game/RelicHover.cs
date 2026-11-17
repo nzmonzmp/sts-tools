@@ -163,21 +163,25 @@ public static class RelicHover
             return Format(value);
         }
 
-        string[] Row(string name) =>
-        [
-            name, Format(s[name]),
-            s.Combats > 0 ? Format(s[name] / s.Combats) : "-",
-            s.Turns > 0 ? Format(s[name] / s.Turns) : "-",
-            Combat(name),
-        ];
-
         // Stats non nulles : liées à la relique d'abord, puis, à part, les autres
         var (related, others) = StatRelevance.For(model).Arrange(s);
         var rows = new List<string[]>();
         if (related.Count == 0 && others.Count == 0)
             return rows;
+        // Relique qui n'agit que hors combat (Glitter, œufs, Membership Card…) : le total seulement ; sinon, pour
+        // ses stats hors combat, pas de moyennes par combat ou par tour
+        bool combatColumns = related.Concat(others).Any(name => !CardRunStats.OutOfCombat.Contains(name));
+        string[] Row(string name) => !combatColumns ? [name, Format(s[name])]
+            : CardRunStats.OutOfCombat.Contains(name) ? [name, Format(s[name]), "", "", ""]
+            :
+            [
+                name, Format(s[name]),
+                s.Combats > 0 ? Format(s[name] / s.Combats) : "-",
+                s.Turns > 0 ? Format(s[name] / s.Turns) : "-",
+                Combat(name),
+            ];
         string combatTitle = CombatManager.Instance.IsInProgress ? "This combat" : "Last combat";
-        rows.Add(["", "Total", "Per combat", "Per turn", combatTitle]);
+        rows.Add(combatColumns ? ["", "Total", "Per combat", "Per turn", combatTitle] : ["", "Total"]);
         rows.AddRange(related.Select(Row));
         if (others.Count > 0)
         {

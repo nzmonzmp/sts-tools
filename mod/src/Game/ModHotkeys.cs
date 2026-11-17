@@ -29,7 +29,14 @@ public sealed class ModHotkeys
     public static readonly ModHotkeys FocusRunStats =
         new("FocusRunStats", "Focus run stats", Key.F8, RunPanel.ToggleFocus) { KeyboardOnly = true };
 
-    public static readonly ModHotkeys[] All = [RunStats, StatsScreenKey, FocusRunStats];
+    /// <summary>Cache ou réaffiche la barre des reliques (F8 est déjà Focus run stats en clavier seul : F9).</summary>
+    public static readonly ModHotkeys RelicBar =
+        new("RelicBar", "Show or hide relics", Key.F8, RelicBarToggle.Toggle) { KeyboardOnlyDefault = Key.F9 };
+
+    public static readonly ModHotkeys[] All = [RunStats, StatsScreenKey, FocusRunStats, RelicBar];
+
+    /// <summary>Touche par défaut en clavier seul, si elle diffère de celle du clavier et souris.</summary>
+    public Key? KeyboardOnlyDefault { get; private init; }
 
     /// <summary>Action du mode clavier seul : pas de touche (ni réglable) en clavier et souris.</summary>
     public bool KeyboardOnly { get; private init; }
@@ -76,7 +83,8 @@ public sealed class ModHotkeys
         if (!CanBind(mode))
             return null;
         if (!_bindings.TryGetValue(mode, out var binding))
-            _bindings[mode] = binding = SavedSettings.Load().Hotkeys.GetValueOrDefault(SaveKey(mode)) ?? _default.ToString();
+            _bindings[mode] = binding = SavedSettings.Load().Hotkeys.GetValueOrDefault(SaveKey(mode))
+                ?? (mode == InputType.KeyboardOnlyMode && KeyboardOnlyDefault is { } kbOnly ? kbOnly : _default).ToString();
         return binding;
     }
 

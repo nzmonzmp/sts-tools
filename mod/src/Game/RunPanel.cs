@@ -584,7 +584,10 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
         string Format(decimal value) => value.ToString("0.##");
         string PerCombat(decimal total) => s.Combats > 0 ? Format(total / s.Combats) : "-";
         string PerCard(decimal total) => s.Combats > 0 && copies > 0 ? Format(total / s.Combats / copies) : "-";
-        string[] Row(string name) => [name, Format(s[name]), PerCombat(s[name]), PerCard(s[name])];
+        // Stats hors combat (cartes ajoutées au deck…) : pas de moyennes par combat
+        string[] Row(string name) => CardRunStats.OutOfCombat.Contains(name)
+            ? [name, Format(s[name]), "", ""]
+            : [name, Format(s[name]), PerCombat(s[name]), PerCard(s[name])];
 
         var (related, others) = StatRelevance.For(card).Arrange(s);
         // Aucune stat : pas de tableau, la carte s'affiche seule

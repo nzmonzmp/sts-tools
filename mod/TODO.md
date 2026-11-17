@@ -10,21 +10,21 @@ pioche du début de tour, énergie (gains augmentés, énergie de chaque tour), 
 Rod), pouvoirs donnés en plus, cartes rejouées. Effets à la prise d'une relique : PV max, or, cartes
 ajoutées, retirées, améliorées (deck ou combat), transformées ou enchantées, potions et emplacements de potion.
 Aussi : énergie et étoiles économisées sur le coût des cartes, ennemis étourdis, orbes évoquées, emplacements
-d'orbe, forge (Sovereign Blade). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
+d'orbe, forge (Sovereign Blade), Block gardé d'un tour à l'autre (Calipers, Barricade), mort évitée (Lizard
+Tail, avec ses PV rendus), cartes gardées en main (Runic Pyramid, seulement celles qui auraient été défaussées),
+tour en plus, X augmenté (Chemical X), coups et déclenchements d'orbe en plus, debuffs évités (Artifact), cartes
+améliorées ou enchantées en entrant dans le deck (œufs, Fresnel Lens), or économisé en boutique, soins en plus
+au feu de camp, choix de cartes, récompenses et options de feu de camp en plus, potions imposées, trésors sautés
+(Silver Crucible), cartes améliorées ou enchantées en vitrine puis achetées (œufs, Fresnel Lens), articles remis
+en stock (The Courier), salles inconnues sans combat (Juzu Bracelet, Golden Compass), déplacements libres
+(Winged Boots), PV retirés aux ennemis (Fur Coat). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
 
-- Énergie max ajoutée une fois pour toutes à la prise d'une relique (sans passer par les écouteurs).
-- Effets pas encore comptés (écouteurs du jeu redéfinis par des reliques ou des pouvoirs) :
-  - Block gardé d'un tour à l'autre (`ShouldClearBlock` : Calipers, Barricade) ; cartes gardées en main
-    (`ShouldFlush` : Runic Pyramid) ; mort évitée (`ShouldDieLate` : Lizard Tail).
-  - Cartes modifiées en entrant dans le deck (`ModifyCardBeingAddedToDeck` : les œufs) ; X augmenté
-    (`ModifyXValue` : Chemical X) ; coups en plus (`ModifyAttackHitCount`) ; valeur des orbes
-    (`ModifyOrbValue`) et déclenchements en plus (`ModifyOrbPassiveTriggerCounts`) ; tour en plus
-    (`ShouldTakeExtraTurn`) ; debuffs évités (`TryModifyPowerAmountReceived` : Artifact).
-  - Hors combat : or économisé en boutique (`ModifyMerchantPrice` : Membership Card), soins en plus au feu de
-    camp (`ModifyRestSiteHealAmount`), choix de cartes en plus (`TryModifyCardRewardOptions…`,
-    `ModifyCardRewardCreationOptions`), récompenses en plus (`TryModifyRewards…`, `ShouldForcePotionReward`),
-    options de feu de camp (`TryModifyRestSiteOptions`), trésors (`ShouldGenerateTreasure`).
-- Multijoueur : dans l'onglet Combat, la part des bonus n'est calculée que pour les reliques du joueur local.
+- Effets pas encore comptés :
+  - Valeur des orbes (`ModifyOrbValue` : Focus et reliques du même genre) : le jeu la calcule aussi pour les
+    textes, il faut ne compter que les vrais déclenchements.
+  - Golden Compass : la carte « chemin doré » qu'il donne pour un acte (`ModifyGeneratedMap`) ; ses salles
+    inconnues sans combat sont comptées.
+- Multijoueur : dans l'infobulle d'une relique, la part des bonus n'est calculée que pour les reliques du joueur local.
 
 ## Stats de combat
 
