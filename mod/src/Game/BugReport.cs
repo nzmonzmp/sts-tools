@@ -61,21 +61,6 @@ public static class BugReport
             Open();
             Note($"session start: mod {typeof(BugReport).Assembly.GetName().Version} built {BuildTime():yyyy-MM-dd HH:mm}, "
                 + $"{RuntimeInformation()}");
-            Log.LogCallback += OnGameLog;
-            AppDomain.CurrentDomain.UnhandledException += (_, e) => Note($"UNHANDLED EXCEPTION: {e.ExceptionObject}");
-            // Fermeture sans passer par le menu du jeu : arrêt depuis Steam ou kill (SIGTERM), fin du processus
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => ClosedWithoutCrash("process exit");
-            foreach (var signal in new[] { System.Runtime.InteropServices.PosixSignal.SIGTERM,
-                         System.Runtime.InteropServices.PosixSignal.SIGINT, System.Runtime.InteropServices.PosixSignal.SIGHUP })
-                try
-                {
-                    Signals.Add(System.Runtime.InteropServices.PosixSignalRegistration.Create(signal, _ => ClosedWithoutCrash(signal.ToString())));
-                }
-                catch (Exception)
-                {
-                    // Signal non géré sur ce système (Windows : la fermeture passe par le menu du jeu)
-                }
-            TaskScheduler.UnobservedTaskException += (_, e) => Note($"unobserved task exception: {e.Exception}");
         }
         catch (Exception e)
         {
@@ -270,7 +255,6 @@ public static class BugReport
         }
     }
 
-    [EarlyPatch]
     [HarmonyPatch(typeof(NGame), nameof(NGame.Quit))]
     public static class QuitPatch
     {
@@ -362,6 +346,37 @@ public static class BugReport
 
     // ---- Gel : le jeu n'affiche plus d'images ----
 
+    /// <summary>
+    /// Copie du log du jeu, exceptions, signaux de fin : branchés au premier affichage du menu principal, pas au
+    /// démarrage (le jeu se bloque parfois avant le menu si son initialisation est ralentie). Le log du jeu de cette
+    /// phase est de toute façon copié dans un rapport (game.log).
+    /// </summary>
+    private static void Listen()
+    {
+        try
+        {
+            Log.LogCallback += OnGameLog;
+            AppDomain.CurrentDomain.UnhandledException += (_, e) => Note($"UNHANDLED EXCEPTION: {e.ExceptionObject}");
+            // Fermeture sans passer par le menu du jeu : arrêt depuis Steam ou kill (SIGTERM), fin du processus
+            AppDomain.CurrentDomain.ProcessExit += (_, _) => ClosedWithoutCrash("process exit");
+            foreach (var signal in new[] { System.Runtime.InteropServices.PosixSignal.SIGTERM,
+                         System.Runtime.InteropServices.PosixSignal.SIGINT, System.Runtime.InteropServices.PosixSignal.SIGHUP })
+                try
+                {
+                    Signals.Add(System.Runtime.InteropServices.PosixSignalRegistration.Create(signal, _ => ClosedWithoutCrash(signal.ToString())));
+                }
+                catch (Exception)
+                {
+                    // Signal non géré sur ce système (Windows : la fermeture passe par le menu du jeu)
+                }
+            TaskScheduler.UnobservedTaskException += (_, e) => Note($"unobserved task exception: {e.Exception}");
+        }
+        catch (Exception e)
+        {
+            Log.Warn($"[{ModEntry.Id}] bug reports: cannot listen to the game: {e.Message}");
+        }
+    }
+
     private static long _lastFrame;
     private static bool _watching;
 
@@ -373,6 +388,7 @@ public static class BugReport
     {
         if (_watching || Engine.GetMainLoop() is not SceneTree tree)
             return;
+        Listen();
         _watching = true;
         Interlocked.Exchange(ref _lastFrame, Stopwatch.GetTimestamp());
         tree.ProcessFrame += () => Interlocked.Exchange(ref _lastFrame, Stopwatch.GetTimestamp());

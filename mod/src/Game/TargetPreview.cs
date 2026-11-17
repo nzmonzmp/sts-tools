@@ -268,6 +268,25 @@ public static class TargetPreview
         foreach (var box in Boxes.Values)
             if (GodotObject.IsInstanceValid(box.Panel))
                 box.Panel.Visible = false;
+        foreach (var skull in Skulls)
+            if (GodotObject.IsInstanceValid(skull))
+                skull.QueueFree();
+        Skulls.Clear();
+    }
+
+    /// <summary>Têtes de mort posées par l'aperçu en cours, retirées avec lui.</summary>
+    private static readonly List<TextureRect> Skulls = [];
+
+    /// <summary>La carte tuerait la créature à coup sûr : la tête de mort rouge qui clignote par-dessus.</summary>
+    private static void ShowSkull(NCombatRoom room, Creature creature, Color color)
+    {
+        if (room.GetCreatureNode(creature) is not { } node)
+            return;
+        var box = node.Hitbox;
+        var skull = LethalWarning.Skull(Math.Clamp(Math.Min(box.Size.X, box.Size.Y), 140, 280), color);
+        node.AddChild(skull);
+        skull.GlobalPosition = box.GetGlobalRect().GetCenter() - skull.Size / 2;
+        Skulls.Add(skull);
     }
 
     private static void Show(NCardPlay play, Creature? target)
@@ -300,6 +319,10 @@ public static class TargetPreview
             Placed.Clear();
             foreach (var (creature, stats) in outcome.Creatures)
             {
+                if (stats.GetValueOrDefault(Stat.Lethal) >= 0.999 && outcome.Max.GetValueOrDefault(creature)?.ContainsKey(Stat.Lethal) != true)
+                    ShowSkull(room, creature, LethalWarning.SkullRed);
+                else if (stats.GetValueOrDefault(Stat.LethalLate) >= 0.999 && outcome.Max.GetValueOrDefault(creature)?.ContainsKey(Stat.LethalLate) != true)
+                    ShowSkull(room, creature, LethalWarning.SkullViolet);
                 var rows = Rows(creature, stats, outcome).ToList();
                 if (rows.Count == 0 || room.GetCreatureNode(creature) is not { } node)
                     continue;
@@ -371,7 +394,7 @@ public static class TargetPreview
         {
             Stat.Damage => 0,
             Stat.ThroughBlock => 1,
-            Stat.Lethal => 2,
+            Stat.Lethal or Stat.LethalLate => 2,
             Stat.Stunned => 3,
             Stat.HpLost => 4,
             Stat.Prevented => 5,
@@ -396,7 +419,10 @@ public static class TargetPreview
                         || Math.Abs((MaxOf(stat) ?? value) - (MaxOf(Stat.Damage) ?? stats.GetValueOrDefault(Stat.Damage))) >= 0.05)
                         yield return [stat, Value(stat, value, Format)];
                     break;
-                case Stat.Lethal or Stat.Stunned:
+                case Stat.Lethal or Stat.LethalLate when value >= 0.999 && MaxOf(stat) == null:
+                    // Mort certaine : la tête de mort sur la créature à la place de la ligne
+                    break;
+                case Stat.Lethal or Stat.LethalLate or Stat.Stunned:
                     yield return [stat, MaxOf(stat) != null ? "depends" : outcome.Runs > 1 ? $"{value * 100:0}%" : "✔"];
                     break;
                 case Stat.Prevented:
@@ -431,6 +457,7 @@ public static class TargetPreview
         [Stat.Damage] = CardRunStats.Damage,
         [Stat.ThroughBlock] = CardRunStats.SelfDamage,
         [Stat.Lethal] = CardRunStats.Kills,
+        [Stat.LethalLate] = CardRunStats.Kills,
         [Stat.Stunned] = CardRunStats.Stunned,
         [Stat.Block] = CardRunStats.Block,
         [Stat.HpLost] = CardRunStats.SelfDamage,

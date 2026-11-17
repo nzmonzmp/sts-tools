@@ -89,6 +89,9 @@ public sealed class PlaySimulation
         public const string ThroughBlock = "Through Block";
         public const string HpLost = "HP lost";
         public const string Lethal = "Lethal";
+
+        /// <summary>Mort après avoir agi (Doom à la fin du tour ennemi) : n'empêche pas son attaque.</summary>
+        public const string LethalLate = "Dies after acting";
         public const string Stunned = "Stunned";
         public const string Block = "Block";
         public const string Healed = "Healed";
@@ -225,8 +228,9 @@ public sealed class PlaySimulation
     private readonly Dictionary<Creature, int[]> _bodies = new();
 
     /// <summary>
-    /// Pendant un événement (carte jouée, attaque…), les écouteurs qu'on ne sait pas copier (monstres, modificateurs
-    /// de la partie) sont écartés : leur réaction changerait la vraie partie. Pour les calculs purs, ils comptent.
+    /// Pendant un événement (carte jouée, attaque…), les écouteurs qu'on ne sait pas copier sont écartés (leur
+    /// réaction changerait la vraie partie), sauf les monstres, dont l'état est remis après. Pour les calculs purs,
+    /// tous comptent.
     /// </summary>
     private bool _inEvent;
 
@@ -370,7 +374,7 @@ public sealed class PlaySimulation
 
     /// <summary>Ce qui attend le joueur sans jouer la carte : dégâts qu'il prendra, attaques de chaque ennemi.</summary>
     private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End, bool Dies = false,
-        AbstractModel? ExtraTurn = null);
+        AbstractModel? ExtraTurn = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null);
 
     /// <summary>Ce qui accorde un tour supplémentaire au joueur en fin de tour (Pael's Eye…), dans la simulation.</summary>
     private AbstractModel? _extraTurn;
@@ -389,13 +393,16 @@ public sealed class PlaySimulation
     /// <returns>Forced : le joueur meurt déjà pendant la fin de tour ou le début du tour ennemi (Sandpit…), mort
     /// que rien n'a empêchée</returns>
     /// <returns>ExtraTurn : ce qui accorde un tour supplémentaire en terminant le tour maintenant (Pael's Eye…)</returns>
-    public static (int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn)? PredictTurnEnd(Player player)
+    /// <returns>DeadEnemies : ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom…)</returns>
+    public static (int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn, IReadOnlyList<Creature> DeadEnemies,
+        IReadOnlyList<Creature> LateDeadEnemies)? PredictTurnEnd(Player player)
     {
         if (!EnsurePatched() || Active || player.Creature.CombatState is not { } combat)
             return null;
         var rngs = RngState.Capture(combat);
         var baseline = BaselineOf(combat, player.Creature, rngs);
-        return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn);
+        return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn, baseline.DeadEnemies ?? [],
+            baseline.LateDeadEnemies ?? []);
     }
 
     private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
@@ -408,7 +415,8 @@ public sealed class PlaySimulation
         {
             var (taken, incoming, end) = sim.UntilEnemyAttacks(me);
             bool dies = sim._dead.Contains(me);
-            return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn);
+            return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn,
+                sim._dead.Where(c => c.IsEnemy && !sim._lateDead.Contains(c)).ToList(), sim._lateDead.Where(c => c.IsEnemy).ToList());
         }
         catch (Exception e)
         {
@@ -501,6 +509,27 @@ public sealed class PlaySimulation
         var incoming = IncomingDamage(_combat, this);
         int lost = Math.Max(0, hpBefore - Body(me)[0]);
         int block = IsDead(me) ? 0 : Body(me)[1];
+        // Fin du tour ennemi, après leurs attaques (Doom les tue alors) : ces morts n'empêchent pas leur attaque
+        var kept2 = _outcome;
+        _outcome = end;
+        _late = true;
+        try
+        {
+            var context = new BlockingPlayerChoiceContext();
+            var enemies = _combat.Enemies.Where(e => !IsDead(e)).ToList();
+            foreach (var step in BeforeTurnEndSteps)
+                EachListener(m => step(m, context, CombatSide.Enemy, enemies));
+        }
+        catch (Exception e)
+        {
+            Fail("enemy turn end", e);
+        }
+        finally
+        {
+            _late = false;
+            kept.Incomplete |= _outcome.Incomplete;
+            _outcome = kept2;
+        }
         return (lost + Math.Max(0, incoming.Values.Sum() - block), incoming, end);
     }
 
@@ -957,7 +986,7 @@ public sealed class PlaySimulation
     /// rend la Force et la Dextérité perdues ce tour), qui annuleraient l'effet de la carte pendant le tour.
     /// </summary>
     private static readonly HashSet<string> TurnEndStats =
-        [Stat.Damage, Stat.Hits, Stat.ThroughBlock, Stat.Lethal, Stat.Stunned, Stat.HpLost, Stat.Block, Stat.Healed];
+        [Stat.Damage, Stat.Hits, Stat.ThroughBlock, Stat.Lethal, Stat.LethalLate, Stat.Stunned, Stat.HpLost, Stat.Block, Stat.Healed];
 
     /// <summary>Ajoute l'écart entre deux fins de tour simulées (avec et sans la carte).</summary>
     private void MergeDifference(Outcome with, Outcome without)
@@ -980,7 +1009,7 @@ public sealed class PlaySimulation
                 }
                 _outcome.Add(creature, stat, delta);
                 // Mort, étourdi : oui ou non
-                if (stat is Stat.Lethal or Stat.Stunned)
+                if (stat is Stat.Lethal or Stat.LethalLate or Stat.Stunned)
                     _outcome.Of(creature)[stat] = Math.Clamp(_outcome.Of(creature)[stat], 0, 1);
             }
         }
@@ -1113,9 +1142,12 @@ public sealed class PlaySimulation
                 yield return model;
                 continue;
             }
+            // Pas de copie possible : dans les calculs, toujours ; dans les événements, seulement les monstres (leurs
+            // champs et leur machine à états des coups sont sauvegardés et remis, l'affichage est coupé : la Queen
+            // passe en coup enragé à la mort de son Amalgam…), pas les modificateurs de la partie
             if (!Copyable(model))
             {
-                if (!_inEvent)
+                if (!_inEvent || model is MonsterModel)
                     yield return model;
                 continue;
             }
@@ -1622,6 +1654,11 @@ public sealed class PlaySimulation
             Die(dead, cardSource);
     }
 
+    /// <summary>Fin du tour ennemi simulée (après leurs attaques) : les morts y sont « après avoir agi ».</summary>
+    private bool _late;
+
+    private readonly HashSet<Creature> _lateDead = new();
+
     /// <summary>Créatures mortes, étourdies dans la simulation.</summary>
     private readonly HashSet<Creature> _dead = new(), _stunned = new();
 
@@ -1644,7 +1681,9 @@ public sealed class PlaySimulation
             _dead.Remove(creature);
             return;
         }
-        _outcome.Of(creature)[Stat.Lethal] = 1;
+        _outcome.Of(creature)[_late ? Stat.LethalLate : Stat.Lethal] = 1;
+        if (_late)
+            _lateDead.Add(creature);
         Event(() => Hook.AfterDeath(runState, _combat, creature, cardSource, false, 0f));
     }
 
@@ -1698,30 +1737,41 @@ public sealed class PlaySimulation
             ModifyAmount(existing, amount, applier, cardSource);
             return;
         }
+        if (!power.IsMutable)
+            power = power.ToMutable();
+        power.Applier = applier;
+        var context = new BlockingPlayerChoiceContext();
+        var applied = power;
+        // Comme le jeu : réactions avant, quantité modifiée, le pouvoir s'applique, réactions après (Vicious fait
+        // piocher quand on applique du Vulnerable…)
+        Event(() => Hook.BeforePowerAmountChanged(_combat, applied, amount, target, applier, cardSource));
         decimal modified = ModifiedAmount(power, target, amount, applier, cardSource);
         if (_combat.Players.Count > 1 && (target.IsPrimaryEnemy || target.IsSecondaryEnemy) && power.ShouldScaleInMultiplayer)
             modified = power.GetScaledAmountForMultiplayer(_combat, applier, modified, target, cardSource);
+        Event(() => applied.BeforeApplied(target, modified, applier, cardSource));
         if ((int)modified == 0)
             return;
         // Le pouvoir neuf n'entre pas dans la partie : il est seulement vu des calculs simulés
-        if (!power.IsMutable)
-            power = power.ToMutable();
         PowerOwner.SetValue(power, target);
         PowerAmount.SetValue(power, (int)modified);
-        power.Applier = applier;
         _added.Add(power);
         _clones.Add(power);
         Note(target, power, (int)modified);
+        Event(() => applied.AfterApplied(applier, cardSource));
+        Event(() => Hook.AfterPowerAmountChanged(_combat, context, applied, modified, applier, cardSource));
     }
 
     private int ModifyAmount(PowerModel power, decimal offset, Creature? applier, CardModel? cardSource)
     {
         var shadow = (PowerModel)ShadowOf(power);
         var owner = shadow.Owner;
+        Event(() => Hook.BeforePowerAmountChanged(_combat, shadow, offset, owner, applier, cardSource));
         decimal modified = ModifiedAmount(shadow, owner, offset, applier, cardSource);
         int amount = shadow.Amount + (int)modified;
         PowerAmount.SetValue(shadow, amount);
         Note(owner, shadow, (int)modified);
+        if ((int)modified != 0)
+            Event(() => Hook.AfterPowerAmountChanged(_combat, new BlockingPlayerChoiceContext(), shadow, modified, applier, cardSource));
         // Comme le jeu : plus de charge, le pouvoir est retiré (et réagit à son retrait)
         if (shadow.ShouldRemoveDueToAmount())
             Remove(shadow, noted: true);

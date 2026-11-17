@@ -160,6 +160,9 @@ public sealed class RunPanel
         var cardHover = new CardHover(_panel, centerCursor: true);
         _tabs = [new DeckTab(cardHover), new GameTab(), new CombatTab()];
         var saved = SavedSettings.Load();
+        _right = saved.RunPanelRight ?? DefaultRight;
+        _top = saved.RunPanelTop ?? DefaultTop;
+        _height = saved.RunPanelHeight;
         _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab));
         _subTabs = new Dictionary<string, string>(saved.RunPanelSubTabs);
         _changed = _tabs.Select((_, i) => (Action)(() =>
@@ -191,10 +194,25 @@ public sealed class RunPanel
         page.AddThemeConstantOverride("separation", 10);
         _panel.AddChild(page);
 
-        var header = new HBoxContainer();
+        // L'en-tête sert de poignée pour déplacer le panneau
+        var header = new HBoxContainer
+        {
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            MouseDefaultCursorShape = Control.CursorShape.Move,
+            TooltipText = "Drag to move",
+        };
+        header.GuiInput += OnHeaderInput;
         page.AddChild(header);
+        // La marge du panneau au-dessus et à gauche de l'en-tête sert aussi de poignée
+        _panel.GuiInput += ev =>
+        {
+            if (ev is InputEventMouseButton { Pressed: true } press && press.GlobalPosition.Y > header.GetGlobalRect().End.Y)
+                return;
+            OnHeaderInput(ev);
+        };
         header.AddChild(Label("GUI", 24, StsColors.gold));
-        header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
+        // Espace vide de l'en-tête : laisse passer les clics (poignée de déplacement)
+        header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, MouseFilter = Control.MouseFilterEnum.Ignore });
         header.AddChild(Label($"[{ModHotkeys.RunStats.Display}]", 16, StsColors.halfTransparentCream));
         // Replier : il ne reste que l'en-tête (titre, flèche pour déplier, croix)
         _collapse = new Button { Flat = true, TooltipText = "Show or hide the panel content" };
@@ -249,6 +267,23 @@ public sealed class RunPanel
         _content = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _content.AddThemeConstantOverride("separation", 6);
         _scroll.AddChild(_content);
+
+        // Poignée du bas : glisser pour fixer la hauteur, double-clic pour revenir à la hauteur du contenu
+        var grip = new Panel
+        {
+            CustomMinimumSize = new Vector2(0, 10),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+            MouseDefaultCursorShape = Control.CursorShape.Vsize,
+            TooltipText = "Drag to resize, double-click for automatic height",
+        };
+        grip.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(StsColors.gold, 0.25f),
+            CornerRadiusTopLeft = 3, CornerRadiusTopRight = 3, CornerRadiusBottomLeft = 3, CornerRadiusBottomRight = 3,
+            ContentMarginTop = 4, ContentMarginBottom = 4,
+        });
+        grip.GuiInput += OnGripInput;
+        _body.AddChild(grip);
 
         // Pour le jeu, écran actif depuis son ouverture tant que le focus n'est pas reparti sur le jeu
         // Focus par défaut : premier sous-onglet, sinon premier élément de la liste, sinon le bouton de fermeture
@@ -535,7 +570,8 @@ public sealed class RunPanel
             return;
         const float bottomMargin = 32;
         float available = _panel.GetViewportRect().Size.Y - _scroll.GlobalPosition.Y - bottomMargin;
-        float wanted = _content.GetCombinedMinimumSize().Y;
+        // Hauteur choisie par le joueur (poignée du bas), sinon celle du contenu
+        float wanted = _height ?? _content.GetCombinedMinimumSize().Y;
         _scroll.CustomMinimumSize = new Vector2(0, Math.Max(60, Math.Min(wanted, available)));
         // ResetSize ramène la hauteur à celle du contenu mais garde le bord gauche ; Place recolle ensuite
         // le panneau au bord droit avec sa largeur fixe
@@ -549,9 +585,87 @@ public sealed class RunPanel
     /// </summary>
     private void Place()
     {
-        _panel.OffsetLeft = -16 - Width;
-        _panel.OffsetRight = -16;
-        _panel.OffsetTop = _panel.OffsetBottom = TopBarHeight + 12;
+        // Toujours dans l'écran, où que le joueur l'ait mis
+        var screen = _panel.IsInsideTree() ? _panel.GetViewportRect().Size : Vector2.Zero;
+        if (screen.X > 0)
+        {
+            // Largeur réelle : le panneau s'élargit vers la gauche si son contenu le demande
+            float width = Math.Max(Width, _panel.Size.X);
+            _right = Math.Clamp(_right, 0, Math.Max(0, screen.X - width));
+            // Jamais sous la barre du haut du jeu, ni plus bas que le bas de l'écran (le panneau entier y tient)
+            const float bottomMargin = 8;
+            float height = Math.Max(_panel.Size.Y, 60);
+            _top = Math.Clamp(_top, TopBarHeight, Math.Max(TopBarHeight, screen.Y - height - bottomMargin));
+        }
+        _panel.OffsetLeft = -_right - Width;
+        _panel.OffsetRight = -_right;
+        _panel.OffsetTop = _panel.OffsetBottom = _top;
+    }
+
+    // ---- Position et hauteur choisies par le joueur ----
+
+    private const float DefaultRight = 16;
+    private const float DefaultTop = TopBarHeight + 12;
+
+    /// <summary>Écart au bord droit de l'écran, haut du panneau ; hauteur de la zone de défilement (null : automatique).</summary>
+    private float _right, _top;
+
+    private float? _height;
+
+    private Vector2? _dragFrom;
+    private (float Right, float Top) _dragStart;
+    private float? _resizeFrom;
+    private float _resizeStart;
+
+    /// <summary>Glisser l'en-tête déplace le panneau ; relâcher garde la position.</summary>
+    private void OnHeaderInput(InputEvent ev)
+    {
+        switch (ev)
+        {
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } press:
+                _dragFrom = press.GlobalPosition;
+                _dragStart = (_right, _top);
+                _panel.AcceptEvent();
+                break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } when _dragFrom != null:
+                _dragFrom = null;
+                Save(s => (s.RunPanelRight, s.RunPanelTop) = (_right, _top));
+                break;
+            case InputEventMouseMotion motion when _dragFrom is { } from:
+                var delta = motion.GlobalPosition - from;
+                (_right, _top) = (_dragStart.Right - delta.X, _dragStart.Top + delta.Y);
+                FitHeight();
+                _panel.AcceptEvent();
+                break;
+        }
+    }
+
+    /// <summary>Glisser la poignée du bas change la hauteur ; double-clic : de nouveau celle du contenu.</summary>
+    private void OnGripInput(InputEvent ev)
+    {
+        switch (ev)
+        {
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true, DoubleClick: true }:
+                _resizeFrom = null;
+                _height = null;
+                Save(s => s.RunPanelHeight = null);
+                FitHeight();
+                break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } press:
+                _resizeFrom = press.GlobalPosition.Y;
+                _resizeStart = _scroll.Size.Y;
+                _panel.AcceptEvent();
+                break;
+            case InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: false } when _resizeFrom != null:
+                _resizeFrom = null;
+                Save(s => s.RunPanelHeight = _height);
+                break;
+            case InputEventMouseMotion motion when _resizeFrom is { } from:
+                _height = Math.Max(60, _resizeStart + motion.GlobalPosition.Y - from);
+                FitHeight();
+                _panel.AcceptEvent();
+                break;
+        }
     }
 
     /// <summary>

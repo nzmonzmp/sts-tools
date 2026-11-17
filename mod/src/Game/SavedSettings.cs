@@ -28,6 +28,11 @@ public sealed class SavedSettings
     /// <summary>Onglet affiché dans le panneau de stats en partie (RunPanel)</summary>
     public string? RunPanelTab { get; set; }
 
+    /// <summary>Position du panneau de stats en partie (écart au bord droit, haut) et hauteur de son contenu ; null : par défaut</summary>
+    public float? RunPanelRight { get; set; }
+    public float? RunPanelTop { get; set; }
+    public float? RunPanelHeight { get; set; }
+
     /// <summary>Panneau de stats en partie replié (seulement son en-tête)</summary>
     public bool RunPanelCollapsed { get; set; }
 

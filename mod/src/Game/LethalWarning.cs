@@ -20,8 +20,10 @@ namespace StsTools.Game;
 public static class LethalWarning
 {
     private const string IconName = "StsToolsLethalIcon";
-    private const string TextName = "StsToolsLethalText";
     private const string DeathIcon = "res://images/packed/intents/intent_death_blow.png";
+
+    /// <summary>Tête de mort du jeu (emote multijoueur), pour les monstres condamnés.</summary>
+    private const string SkullIcon = "res://images/ui/emote/skull.png";
 
     /// <summary>Couleurs d'une mort annoncée, sur le modèle des PV en danger du jeu : texte vif, contour sombre.</summary>
     private static readonly Color LethalColor = new("FF5A4D");
@@ -77,6 +79,7 @@ public static class LethalWarning
                 // Mort évitée par un effet (Lizard Tail…) : pas une mort, sauf mort imposée (Sandpit…)
                 && (t.Forced || Hook.ShouldDie(combat!.RunState, combat, me!.Creature, out _)) ? (t.Taken, t.Hp, t.Forced) : null);
             ShowExtraTurn(button, turn?.ExtraTurn);
+            ShowDoomed(turn?.DeadEnemies ?? [], turn?.LateDeadEnemies ?? []);
         }
         catch (Exception e)
         {
@@ -85,7 +88,9 @@ public static class LethalWarning
     }
 
     /// <summary>Ce qui se passerait si le joueur terminait son tour maintenant (GUI ouvert, son tour) ; sinon null.</summary>
-    private static (int Taken, int Hp, bool Forced, MegaCrit.Sts2.Core.Models.AbstractModel? ExtraTurn)? Predict(
+    private static (int Taken, int Hp, bool Forced, MegaCrit.Sts2.Core.Models.AbstractModel? ExtraTurn,
+        IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> DeadEnemies,
+        IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> LateDeadEnemies)? Predict(
         CombatState? state, out CombatState? combat, out MegaCrit.Sts2.Core.Entities.Players.Player? me)
     {
         combat = state;
@@ -96,6 +101,49 @@ public static class LethalWarning
             return null;
         me = player;
         return PlaySimulation.PredictTurnEnd(player);
+    }
+
+    private const string DoomedName = "StsToolsDoomed";
+
+    /// <summary>Ennemis marqués comme condamnés (pour retirer la marque quand ils ne le sont plus).</summary>
+    private static readonly HashSet<MegaCrit.Sts2.Core.Entities.Creatures.Creature> Doomed = [];
+
+    /// <summary>
+    /// Ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom, effets de fin de tour…) :
+    /// une tête de mort en transparence par-dessus, qui clignote.
+    /// </summary>
+    /// <param name="late">ceux qui meurent après avoir agi (Doom à la fin de leur tour) : tête de mort violette</param>
+    private static void ShowDoomed(IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> early,
+        IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> late)
+    {
+        if (NCombatRoom.Instance is not { } room)
+            return;
+        var dead = early.Concat(late).ToList();
+        // Marque à refaire si la couleur change (mort avant ou après avoir agi)
+        foreach (var creature in Doomed.Where(c => !dead.Contains(c)
+                     || room.GetCreatureNode(c)?.GetNodeOrNull<TextureRect>(DoomedName) is { } m && m.SelfModulate != (late.Contains(c) ? SkullViolet : SkullRed)).ToList())
+        {
+            // Retirée tout de suite (pas seulement à la fin de l'image) : la nouvelle marque prend sa place aussitôt
+            if (room.GetCreatureNodeIncludingDying(creature)?.GetNodeOrNull(DoomedName) is { } mark)
+            {
+                mark.GetParent().RemoveChild(mark);
+                mark.QueueFree();
+            }
+            Doomed.Remove(creature);
+        }
+        foreach (var creature in dead)
+        {
+            if (room.GetCreatureNode(creature) is not { } node || node.GetNodeOrNull(DoomedName) != null)
+                continue;
+            var box = node.Hitbox;
+            float side = Math.Clamp(Math.Min(box.Size.X, box.Size.Y), 140, 280);
+            var mark = Skull(side, late.Contains(creature) ? SkullViolet : SkullRed);
+            mark.Name = DoomedName;
+            node.AddChild(mark);
+            // Au centre de la silhouette, en coordonnées d'écran (la créature peut être retournée ou mise à l'échelle)
+            mark.GlobalPosition = box.GetGlobalRect().GetCenter() - mark.Size / 2;
+            Doomed.Add(creature);
+        }
     }
 
     private const string ExtraIconName = "StsToolsExtraTurnIcon";
@@ -155,52 +203,55 @@ public static class LethalWarning
     {
         var label = Label(button);
         var visuals = Visuals(button);
-        var icon = visuals.GetNodeOrNull<TextureRect>(IconName);
-        var text = visuals.GetNodeOrNull<Label>(TextName);
-        if (lethal is not { } turn)
+        var skull = visuals.GetNodeOrNull<TextureRect>(IconName);
+        if (lethal == null)
         {
-            if (icon == null)
+            if (skull == null)
                 return;
-            icon.Visible = false;
-            if (text != null)
-                text.Visible = false;
+            skull.QueueFree();
             label.RemoveThemeColorOverride("font_color");
             label.RemoveThemeColorOverride("font_outline_color");
             return;
         }
-        if (icon == null)
+        // La tête de mort rouge qui clignote, sur le bouton (comme sur les monstres condamnés) ; elle laisse passer
+        // les clics : elle prévient, n'empêche pas de terminer le tour
+        if (skull == null)
         {
-            icon = new TextureRect
-            {
-                Name = IconName,
-                Texture = StatsTable.LoadIcon(DeathIcon),
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-                Size = new Vector2(56, 56),
-                MouseFilter = Control.MouseFilterEnum.Ignore,
-            };
-            visuals.AddChild(icon);
-            text = new Label
-            {
-                Name = TextName,
-                MouseFilter = Control.MouseFilterEnum.Ignore,
-                HorizontalAlignment = HorizontalAlignment.Center,
-            };
-            text.AddThemeFontSizeOverride("font_size", 22);
-            text.AddThemeColorOverride("font_color", LethalColor);
-            text.AddThemeColorOverride("font_outline_color", LethalOutline);
-            text.AddThemeConstantOverride("outline_size", 8);
-            visuals.AddChild(text);
+            skull = Skull(110);
+            skull.Name = IconName;
+            visuals.AddChild(skull);
         }
-        // Icône à gauche du bouton, chiffres au-dessus
         var size = visuals.Size.X > 0 ? visuals.Size : button.Size;
-        icon.Position = new Vector2(-icon.Size.X * 0.6f, (size.Y - icon.Size.Y) / 2);
-        icon.Visible = true;
-        text!.Text = $"Lethal: -{turn.Taken} HP ({turn.Hp} left)";
-        text.ResetSize();
-        text.Position = new Vector2((size.X - text.Size.X) / 2, -text.Size.Y - 4);
-        text.Visible = true;
+        skull.Position = (size - skull.Size) / 2;
         label.AddThemeColorOverride("font_color", LethalColor);
         label.AddThemeColorOverride("font_outline_color", LethalOutline);
+    }
+
+    /// <summary>Tête de mort rouge en transparence, qui clignote : mort annoncée (bouton de fin de tour, monstre condamné).</summary>
+    /// <summary>Rouge : mort avant d'agir. Violet (couleur de Doom dans les barres de vie) : mort après avoir agi.</summary>
+    internal static readonly Color SkullRed = new(1, 0.12f, 0.08f), SkullViolet = new(0.78f, 0.3f, 1f);
+
+    internal static TextureRect Skull(float side, Color? color = null)
+    {
+        var skull = new TextureRect
+        {
+            Texture = StatsTable.LoadIcon(SkullIcon) ?? StatsTable.LoadIcon(DeathIcon),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            CustomMinimumSize = new Vector2(side, side),
+            Size = new Vector2(side, side),
+            SelfModulate = color ?? SkullRed,
+            Modulate = new Color(1, 1, 1, 0.35f),
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+            ZIndex = 50,
+        };
+        // Clignotement lancé une fois dans la scène (une animation a besoin de l'arbre des nœuds)
+        skull.Ready += () =>
+        {
+            var tween = skull.CreateTween().SetLoops();
+            tween.TweenProperty(skull, "modulate:a", 0.9f, 0.7).SetTrans(Tween.TransitionType.Sine);
+            tween.TweenProperty(skull, "modulate:a", 0.35f, 0.7).SetTrans(Tween.TransitionType.Sine);
+        };
+        return skull;
     }
 }

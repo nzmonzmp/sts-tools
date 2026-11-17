@@ -43,9 +43,13 @@ interceptées, hasard remis en place ; moyenne si le hasard intervient, fourchet
 intervient, effet combiné des cartes choisies pendant un écran de choix (Sly, épuisement…).
 
 Aussi : fin de tour séparée (« End of turn: »), cibles au hasard des cartes jouées par un effet (fourchette et
-espérance), bouton de fin de tour (mort annoncée, tour supplémentaire de Pael's Eye), Sandpit.
+espérance), bouton de fin de tour (tête de mort si terminer le tour tue le joueur, tour supplémentaire de
+Pael's Eye), Sandpit, réactions aux pouvoirs donnés (Vicious), tête de mort sur les monstres qui mourront sans rien
+faire (rouge : avant d'agir ; violet : après, Doom) et sur ceux que la carte tue à coup sûr.
 
-- Les réactions des monstres eux-mêmes (MonsterModel) ne sont pas simulées.
+- Les réactions des monstres eux-mêmes (MonsterModel) sont simulées sur le vrai monstre, dont l'état (champs,
+  machine à états des coups) est sauvegardé puis remis : tout nouvel état d'un monstre modifié directement doit y
+  être couvert.
 - Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
   toujours renvoyer un objet utilisable (créatures détachées, résultats vides).
 - **Bug : jeu figé le 2026-11-17 (840995e), combat de boss AEONGLASS_BOSS, The Fool.** Image fixe, plus aucun
@@ -78,6 +82,11 @@ n'affiche plus d'image pendant 10 s (`freeze.txt`). Effacé à la fin d'une part
 archivé au lancement suivant dans `reports/crash-…` avec le log complet du jeu et les sauvegardes de la partie, et
 signalé au menu principal. Une fermeture sans plantage (menu du jeu, Alt+F4, arrêt depuis Steam ou kill : SIGTERM) n'en crée pas,
 sauf si le jeu était figé ; un plantage ou un SIGKILL, si.
+
+## GUI
+
+Fait : déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et
+sous la barre du haut, repliable (flèche, touche Collapse GUI).
 
 ## Multijoueur
 
