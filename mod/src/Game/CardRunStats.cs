@@ -22,7 +22,7 @@ namespace StsTools.Game;
 /// Stats d'une carte du deck pendant la partie en cours (panneau Run stats, sans lien avec l'écran Stats) :
 /// des valeurs nommées, pour pouvoir suivre tout ce que le jeu note, quel que soit le personnage.
 /// </summary>
-public sealed class CardRunStats
+public sealed partial class CardRunStats
 {
     // Noms des stats, aussi utilisés comme libellés et comme clés dans la sauvegarde
     public const string Played = "Played";
@@ -44,9 +44,27 @@ public sealed class CardRunStats
     public const string Orbs = "Orbs channeled";
     public const string BonusDamage = "Bonus damage";
     public const string Prevented = "Damage prevented";
+    public const string BonusBlock = "Bonus block";
     public const string Healed = "HP healed";
     public const string EnergyGained = "Energy gained";
     public const string Gold = "Gold gained";
+    // Hors combat surtout : ce qu'une relique fait quand on la prend (et les cartes qui font la même chose)
+    public const string MaxHpGained = "Max HP gained";
+    public const string MaxHpLost = "Max HP lost";
+    public const string DeckAdded = "Cards added to deck";
+    public const string DeckRemoved = "Cards removed from deck";
+    public const string Upgraded = "Cards upgraded";
+    public const string UpgradedInCombat = "Cards upgraded in combat";
+    public const string EnergySaved = "Energy saved";
+    public const string StarsSaved = "Stars saved";
+    public const string Stunned = "Enemies stunned";
+    public const string OrbsEvoked = "Orbs evoked";
+    public const string OrbSlots = "Orb slots";
+    public const string Forged = "Forged";
+    public const string Transformed = "Cards transformed";
+    public const string Enchanted = "Cards enchanted";
+    public const string Potions = "Potions obtained";
+    public const string PotionSlots = "Potion slots";
     // Seulement dans l'onglet Combat : ce que le joueur a reçu, quelle que soit la source
     public const string DamageTaken = "Damage taken";
     public const string DamageBlocked = "Damage blocked";
@@ -56,10 +74,12 @@ public sealed class CardRunStats
     /// <summary>Ordre d'affichage ; les pouvoirs (« Vulnerable applied », « Strength gained »…) viennent après.</summary>
     public static readonly string[] Order =
     [
-        Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, DamageTaken, DamageBlocked, OstyTanked, Block, Prevented,
+        Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, DamageTaken, DamageBlocked, OstyTanked, Block, BonusBlock, Prevented,
         Healed, SelfDamage, Energy,
         EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
         CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
+        MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, UpgradedInCombat, Transformed, Enchanted, Potions,
+        PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, Forged,
     ];
 
     /// <summary>Icônes des stats fixes, prises dans les images du jeu</summary>
@@ -84,6 +104,7 @@ public sealed class CardRunStats
         [Orbs] = "res://images/orbs/empty_orb.png",
         [BonusDamage] = "res://images/atlases/power_atlas.sprites/strength_power.tres",
         [Prevented] = "res://images/packed/intents/intent_defend.png",
+        [BonusBlock] = "res://images/ui/combat/block.png",
         [Healed] = "res://images/packed/intents/intent_heal.png",
         [EnergyGained] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
         [Gold] = "res://images/packed/sprite_fonts/gold_icon.png",
@@ -91,6 +112,22 @@ public sealed class CardRunStats
         [DamageBlocked] = "res://images/ui/combat/block.png",
         [OstyTanked] = "res://images/atlases/relic_atlas.sprites/ostys_devotion.tres",
         [Summoned] = "res://images/packed/intents/intent_summon.png",
+        [MaxHpGained] = "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+        [MaxHpLost] = "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+        [DeckAdded] = "res://images/packed/sprite_fonts/card_icon.png",
+        [DeckRemoved] = "res://images/packed/sprite_fonts/card_icon.png",
+        [Upgraded] = "res://images/packed/blitz/small_tokens/entry_card_upgrade.png",
+        [UpgradedInCombat] = "res://images/packed/blitz/small_tokens/entry_card_upgrade.png",
+        [EnergySaved] = "res://images/packed/sprite_fonts/colorless_energy_icon.png",
+        [StarsSaved] = "res://images/packed/sprite_fonts/star_icon.png",
+        [Stunned] = "res://images/packed/intents/intent_stun.png",
+        [OrbsEvoked] = "res://images/orbs/lightning_orb.png",
+        [OrbSlots] = "res://images/orbs/empty_orb.png",
+        [Forged] = "res://images/packed/card_portraits/token/sovereign_blade.png",
+        [Transformed] = "res://images/packed/blitz/small_tokens/entry_card_transform.png",
+        [Enchanted] = "res://images/packed/blitz/small_tokens/entry_card_enchant.png",
+        [Potions] = "res://images/packed/sprite_fonts/potion_icon.png",
+        [PotionSlots] = "res://images/packed/sprite_fonts/potion_icon.png",
     };
 
     /// <summary>Icône de chaque pouvoir suivi (« Vulnerable applied » → icône de Vulnerable), sauvegardée avec la partie</summary>
@@ -122,6 +159,27 @@ public sealed class CardRunStats
     /// <summary>Combats commencés depuis que la carte est dans le deck</summary>
     public int Combats;
 
+    /// <summary>Tours joués depuis que la relique est là (seulement pour les reliques)</summary>
+    public int Turns;
+
+    /// <summary>Valeurs au début du combat en cours, pour en déduire ce combat ; null avant le premier combat (reliques)</summary>
+    public Dictionary<string, decimal>? CombatStart { get; private set; }
+
+    /// <summary>Ce qui a été fait depuis le début du combat en cours (ou du dernier), ou null s'il n'y en a pas eu.</summary>
+    public CardRunStats? SinceCombatStart()
+    {
+        if (CombatStart == null)
+            return null;
+        var since = new CardRunStats();
+        foreach (var (name, value) in Values)
+            if (value - CombatStart.GetValueOrDefault(name) is var delta and not 0)
+                since.Values[name] = delta;
+        return since;
+    }
+
+    /// <summary>Une stat a changé, pour n'importe qui (carte, relique) : pour rafraîchir ce qui est affiché.</summary>
+    public static event Action? AnyChanged;
+
     public Dictionary<string, decimal> Values { get; } = new();
 
     public decimal this[string name] => Values.GetValueOrDefault(name);
@@ -134,6 +192,7 @@ public sealed class CardRunStats
         if (amount == 0)
             return;
         Values[name] = Values.GetValueOrDefault(name) + amount;
+        AnyChanged?.Invoke();
         // Une carte du joueur local : compte aussi pour le combat et le tour en cours (onglet Combat)
         if (_owner != null && _owner == _player)
             AddToCombat(name, amount);
@@ -239,6 +298,14 @@ public sealed class CardRunStats
 
     public static CardRunStats? Of(CardModel deckCard) => Stats.TryGetValue(deckCard, out var stats) ? stats : null;
 
+    /// <summary>
+    /// Stats par relique possédée : ce que ses effets ont fait (dégâts, Block, pouvoirs donnés et leurs effets…).
+    /// Elles ne comptent pas dans les onglets Combat et Game, réservés aux cartes. Sauvegardées comme celles des cartes.
+    /// </summary>
+    private static readonly ConditionalWeakTable<RelicModel, CardRunStats> RelicStats = new();
+
+    public static CardRunStats? Of(RelicModel relic) => RelicStats.TryGetValue(relic, out var stats) ? stats : null;
+
     /// <summary>Somme des stats de plusieurs copies (une ligne « 4× Strike »).</summary>
     public static CardRunStats Sum(IEnumerable<CardModel> deckCards)
     {
@@ -262,13 +329,17 @@ public sealed class CardRunStats
 
     /// <summary>Joueur local et identifiant de la partie en cours, pour savoir quoi sauvegarder.</summary>
     private static Player? _player;
+
+    /// <summary>Joueur local de la partie en cours.</summary>
+    public static Player? LocalPlayer => _player;
     private static string? _runKey;
 
     private sealed record SavedCard(int Index, string Id, string Title, int Combats, Dictionary<string, decimal>? Values,
         // Format de la première version, relu pour ne pas perdre une partie en cours
         int Played = 0, int Damage = 0, int Block = 0, int Drawn = 0);
+    private sealed record SavedRelic(int Index, string Id, int Combats, Dictionary<string, decimal> Values, int Turns = 0);
     private sealed record SavedRun(string Key, List<SavedCard> Cards, Dictionary<string, string>? Icons = null,
-        Dictionary<string, decimal>? RunValues = null, int RunCombats = 0, int RunTurns = 0);
+        Dictionary<string, decimal>? RunValues = null, int RunCombats = 0, int RunTurns = 0, List<SavedRelic>? Relics = null);
 
     /// <summary>
     /// Début ou reprise d'une partie : retient le joueur local et, si le fichier vient de cette même partie,
@@ -297,6 +368,7 @@ public sealed class CardRunStats
                 _run.Values[name] = value;
             (_runCombats, _runTurns) = (saved.RunCombats, saved.RunTurns);
             Restore(PileType.Deck.GetPile(player).Cards, saved.Cards);
+            RestoreRelics(player.Relics, saved.Relics ?? []);
         }
         catch (Exception e)
         {
@@ -363,6 +435,36 @@ public sealed class CardRunStats
         }
     }
 
+    /// <summary>Même principe que pour les cartes : la relique à la même place, sinon la même relique pas encore servie.</summary>
+    private static void RestoreRelics(IReadOnlyList<RelicModel> relics, List<SavedRelic> saved)
+    {
+        var used = new HashSet<RelicModel>();
+        var pending = new List<SavedRelic>();
+        foreach (var r in saved)
+        {
+            if (r.Index < relics.Count && relics[r.Index].Id.ToString() == r.Id && used.Add(relics[r.Index]))
+                ApplyRelic(relics[r.Index], r);
+            else
+                pending.Add(r);
+        }
+        foreach (var r in pending)
+            if (relics.FirstOrDefault(relic => !used.Contains(relic) && relic.Id.ToString() == r.Id) is { } relic)
+            {
+                used.Add(relic);
+                ApplyRelic(relic, r);
+            }
+    }
+
+    private static void ApplyRelic(RelicModel relic, SavedRelic saved)
+    {
+        var s = RelicStats.GetOrCreateValue(relic);
+        s.Combats = saved.Combats;
+        s.Turns = saved.Turns;
+        s.Values.Clear();
+        foreach (var (name, value) in saved.Values)
+            s.Values[name] = value;
+    }
+
     private static void Save()
     {
         if (_player == null || _runKey == null)
@@ -374,8 +476,13 @@ public sealed class CardRunStats
             for (int i = 0; i < deck.Count; i++)
                 if (Of(deck[i]) is { } s)
                     cards.Add(new SavedCard(i, deck[i].Id.ToString(), deck[i].Title, s.Combats, new(s.Values)));
+            var relics = new List<SavedRelic>();
+            for (int i = 0; i < _player.Relics.Count; i++)
+                if (Of(_player.Relics[i]) is { } s)
+                    relics.Add(new SavedRelic(i, _player.Relics[i].Id.ToString(), s.Combats, new(s.Values), s.Turns));
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedRun(_runKey, cards, new(PowerIcons), new(_run.Values), _runCombats, _runTurns), Json));
+            File.WriteAllText(FilePath, JsonSerializer.Serialize(
+                new SavedRun(_runKey, cards, new(PowerIcons), new(_run.Values), _runCombats, _runTurns, relics), Json));
         }
         catch (Exception e)
         {
@@ -403,7 +510,7 @@ public sealed class CardRunStats
         return stats;
     }
 
-    /// <summary>Début d'un combat : un combat de plus pour chaque carte du deck de chaque joueur.</summary>
+    /// <summary>Début d'un combat : un combat de plus pour chaque carte du deck et chaque relique de chaque joueur.</summary>
     [HarmonyPatch(typeof(CombatManager), nameof(CombatManager.SetUpCombat))]
     public static class CombatStartPatch
     {
@@ -422,6 +529,13 @@ public sealed class CardRunStats
                 foreach (var player in state.Players)
                     foreach (var card in PileType.Deck.GetPile(player).Cards)
                         Stats.GetOrCreateValue(card).Combats++;
+                foreach (var player in state.Players)
+                    foreach (var relic in player.Relics)
+                    {
+                        var stats = RelicStats.GetOrCreateValue(relic);
+                        stats.Combats++;
+                        stats.CombatStart = new(stats.Values);
+                    }
             }
             catch (Exception e)
             {
@@ -433,10 +547,10 @@ public sealed class CardRunStats
     /// <summary>
     /// Ce qui agit en ce moment, le plus récent en dernier : une carte en train d'être jouée, ou un pouvoir, une
     /// relique, une carte… dont le jeu exécute un effet (début de tour, après une carte jouée…). Ce qui se passe
-    /// pendant ce temps (pioche, pouvoirs, dégâts sans carte source…) est attribué à la carte du dernier élément,
-    /// ou à personne si c'est une relique ou un effet ennemi.
+    /// pendant ce temps (pioche, pouvoirs, dégâts sans carte source…) est attribué à la carte ou à la relique du
+    /// dernier élément, ou à personne si c'est un effet ennemi.
     /// </summary>
-    private sealed class Frame
+    internal sealed class Frame
     {
         /// <summary>Carte en train d'être jouée, ou null pour un écouteur</summary>
         public CardModel? PlayedCard;
@@ -480,13 +594,17 @@ public sealed class CardRunStats
         : _frames[^1].Listener is { } listener ? CreditOf(listener)
         : null;
 
-    /// <summary>Cartes du deck à qui reviennent les effets d'un écouteur du jeu (pouvoir donné par des cartes, carte).</summary>
+    /// <summary>
+    /// Cartes du deck ou reliques à qui reviennent les effets d'un écouteur du jeu (pouvoir donné par des cartes ou
+    /// des reliques, carte, relique).
+    /// </summary>
     private static Credit? CreditOf(AbstractModel model) => model switch
     {
         PowerModel power => PowerSources.TryGetValue(power, out var sources) && sources.Count > 0
             ? new Credit(sources.Select(s => (s.Key, s.Value / sources.Values.Sum())).ToList())
             : null,
         CardModel card => CreditFor(card),
+        RelicModel relic => Credit.One(RelicStats.GetOrCreateValue(relic)),
         _ => null,
     };
 

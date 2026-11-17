@@ -2,14 +2,29 @@
 
 ## Stats des reliques
 
-- Afficher les stats à côté de la description de chaque relique.
-- Dans le tooltip de chaque relique, la valeur qu'elle a apportée : dégâts, block, énergie, cartes,
-  or, soins.
-- Suivre plusieurs valeurs pour les reliques complexes (Snecko Eye, Pen Nib…).
-- Découper chaque valeur : total de la run, moyenne par tour, moyenne par combat (ou combat en cours
-  puis total).
-- Afficher des valeurs réelles, corrigées de Weak, Vulnerable, etc., et les bonus en pourcentage en
-  direct.
+Fait : sous la description de chaque relique possédée (survol), mises à jour en direct, les mêmes stats que
+les cartes (dégâts, Block, énergie, cartes, or, soins, pouvoirs donnés et leurs effets), avec le total, la
+moyenne par combat, la moyenne par tour et le combat en cours (part des dégâts et du Block du joueur pour les
+bonus). Bonus indirects, pour les cartes comme pour les reliques : Block en plus (Dexterity, Pael's Legion),
+pioche du début de tour, énergie (gains augmentés, énergie de chaque tour), or, PV perdus évités (Tungsten
+Rod), pouvoirs donnés en plus, cartes rejouées. Effets à la prise d'une relique : PV max, or, cartes
+ajoutées, retirées, améliorées (deck ou combat), transformées ou enchantées, potions et emplacements de potion.
+Aussi : énergie et étoiles économisées sur le coût des cartes, ennemis étourdis, orbes évoquées, emplacements
+d'orbe, forge (Sovereign Blade). Lignes affichées selon le code de la carte ou de la relique, les autres à part.
+
+- Énergie max ajoutée une fois pour toutes à la prise d'une relique (sans passer par les écouteurs).
+- Effets pas encore comptés (écouteurs du jeu redéfinis par des reliques ou des pouvoirs) :
+  - Block gardé d'un tour à l'autre (`ShouldClearBlock` : Calipers, Barricade) ; cartes gardées en main
+    (`ShouldFlush` : Runic Pyramid) ; mort évitée (`ShouldDieLate` : Lizard Tail).
+  - Cartes modifiées en entrant dans le deck (`ModifyCardBeingAddedToDeck` : les œufs) ; X augmenté
+    (`ModifyXValue` : Chemical X) ; coups en plus (`ModifyAttackHitCount`) ; valeur des orbes
+    (`ModifyOrbValue`) et déclenchements en plus (`ModifyOrbPassiveTriggerCounts`) ; tour en plus
+    (`ShouldTakeExtraTurn`) ; debuffs évités (`TryModifyPowerAmountReceived` : Artifact).
+  - Hors combat : or économisé en boutique (`ModifyMerchantPrice` : Membership Card), soins en plus au feu de
+    camp (`ModifyRestSiteHealAmount`), choix de cartes en plus (`TryModifyCardRewardOptions…`,
+    `ModifyCardRewardCreationOptions`), récompenses en plus (`TryModifyRewards…`, `ShouldForcePotionReward`),
+    options de feu de camp (`TryModifyRestSiteOptions`), trésors (`ShouldGenerateTreasure`).
+- Multijoueur : dans l'onglet Combat, la part des bonus n'est calculée que pour les reliques du joueur local.
 
 ## Stats de combat
 

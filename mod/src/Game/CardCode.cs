@@ -7,13 +7,17 @@ using MegaCrit.Sts2.Core.Models;
 namespace StsTools.Game;
 
 /// <summary>
-/// Ce que fait une carte d'après son code : les commandes du jeu qu'elle appelle (attaquer, gagner du Block,
-/// piocher, appliquer tel pouvoir…). Plus fiable que ses valeurs affichées : la valeur « Cards » sert à piocher
-/// comme à défausser, et certains effets n'ont pas de valeur du tout.
+/// Ce que fait une carte (ou une relique, un pouvoir, un enchantement) d'après son code : les commandes du jeu
+/// qu'elle appelle (attaquer, gagner du Block, piocher, appliquer tel pouvoir…) et les calculs du jeu qu'elle
+/// modifie (méthodes redéfinies : ModifyBlockAdditive…). Plus fiable que ses valeurs affichées : la valeur
+/// « Cards » sert à piocher comme à défausser, et certains effets n'ont pas de valeur du tout.
 /// </summary>
 public static class CardCode
 {
-    public sealed record Effects(HashSet<string> Commands, HashSet<string> Powers, bool Readable);
+    /// <param name="PowerTypes">pouvoirs appliqués, par type</param>
+    /// <param name="Methods">méthodes déclarées par la classe elle-même (redéfinitions des écouteurs du jeu)</param>
+    public sealed record Effects(HashSet<string> Commands, HashSet<string> Powers, bool Readable,
+        HashSet<Type> PowerTypes, HashSet<string> Methods);
 
     private static readonly Dictionary<Type, Effects> Cache = new();
 
@@ -24,13 +28,17 @@ public static class CardCode
     /// Commandes appelées par le code de la classe de la carte et de ses classes internes (méthodes async et
     /// lambdas compilées), sous la forme « CardPileCmd.Draw » ; pouvoirs appliqués par nom (« Strength »).
     /// </summary>
-    public static Effects Of(CardModel card)
+    public static Effects Of(CardModel card) => Of(card.GetType());
+
+    /// <summary>Même lecture pour n'importe quelle classe du jeu (relique, pouvoir, enchantement…), sans ses classes parentes.</summary>
+    public static Effects Of(Type type)
     {
-        var type = card.GetType();
         if (Cache.TryGetValue(type, out var cached))
             return cached;
         var commands = new HashSet<string>();
         var powers = new HashSet<string>();
+        var powerTypes = new HashSet<Type>();
+        var methods = type.GetMethods(AllDeclared).Select(m => m.Name).ToHashSet();
         bool readable = true;
         try
         {
@@ -46,7 +54,10 @@ public static class CardCode
                     // PowerCmd.Apply<StrengthPower>(…) : le pouvoir est l'argument de type
                     if (owner == typeof(PowerCmd) && called.IsGenericMethod)
                         foreach (var arg in called.GetGenericArguments().Where(t => typeof(PowerModel).IsAssignableFrom(t)))
+                        {
                             powers.Add(arg.Name.EndsWith("Power") ? arg.Name[..^"Power".Length] : arg.Name);
+                            powerTypes.Add(arg);
+                        }
                 }
             }
         }
@@ -55,7 +66,7 @@ public static class CardCode
             readable = false;
             Log.Warn($"[{ModEntry.Id}] cannot read the code of {type.Name}: {e.Message}");
         }
-        return Cache[type] = new Effects(commands, powers, readable);
+        return Cache[type] = new Effects(commands, powers, readable, powerTypes, methods);
     }
 
     public static bool Calls(CardModel card, params string[] commands)

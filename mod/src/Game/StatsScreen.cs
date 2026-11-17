@@ -1,4 +1,5 @@
 using Godot;
+using MegaCrit.Sts2.Core.Nodes;
 using MegaCrit.Sts2.Core.Nodes.Combat;
 using MegaCrit.Sts2.Core.Nodes.Cards;
 using MegaCrit.Sts2.Core.Models;
@@ -90,6 +91,38 @@ public sealed class StatsScreen
         }
     }
 
+    /// <summary>
+    /// Touche du mod : ferme l'écran s'il est ouvert, sinon l'ouvre par-dessus le menu principal ou la partie.
+    /// </summary>
+    public static void Toggle()
+    {
+        if (_current != null && GodotObject.IsInstanceValid(_current._layer))
+        {
+            _current.Close();
+            return;
+        }
+        if (NGame.Instance is not { } game)
+            return;
+        if (game.MainMenu is { } menu)
+            Open(menu);
+        else
+            Open(game, FindAnyFont(game));
+    }
+
+    /// <summary>Police d'un texte du jeu affiché (barre du haut en partie), à défaut de celle du menu principal.</summary>
+    private static Font? FindAnyFont(Node root)
+    {
+        try
+        {
+            return root.FindChildren("*", "Label", true, false).OfType<Label>()
+                .FirstOrDefault(l => l.IsVisibleInTree() && l.HasThemeFontOverride("font"))?.GetThemeFont("font");
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Police des boutons du menu, pour que l'écran ressemble au reste du jeu.</summary>
     private static Font? FindGameFont(Node parent)
     {
@@ -162,6 +195,7 @@ public sealed class StatsScreen
                     other.SetSelected(t == _tab);
                 Refresh();
             };
+            // Pas atteignable au clavier : les onglets changent avec les touches d'onglet du jeu (KeyboardNav)
             _tabButtons.Add((tab, tabButton));
             header.AddChild(tabButton.Button);
         }
@@ -173,12 +207,15 @@ public sealed class StatsScreen
         var reload = new Button { Text = "Reload" };
         StyleReloadButton(reload);
         reload.Pressed += () => { Load(); Refresh(); };
+        KeyboardNav.Focusable(reload, _root);
         var reloadOffset = new MarginContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         reloadOffset.AddThemeConstantOverride("margin_top", 2 * ReloadDropY);
         reloadOffset.AddChild(reload);
         var close = new Button { Text = "Close", SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
         StyleCloseButton(close);
         close.Pressed += Close;
+        // Cadre de focus centré sur la bannière, dessinée dans le bas du bouton (ReloadDropY sous son centre)
+        KeyboardNav.Focusable(close, _root, KeyboardNav.RingShiftedDown(ReloadDropY));
         // Reload et Close sont placés à part (PlaceActions) ; une case vide de même taille garde leur place
         // dans la barre, pour que les onglets et les filtres ne bougent pas
         var actions = new HBoxContainer();
@@ -223,6 +260,11 @@ public sealed class StatsScreen
             option.ItemSelected += _ => Refresh();
         _gameMode.ItemSelected += _ => { FillAscensions(); Refresh(); };
         _min.ValueChanged += _ => Refresh();
+        // Filtres au clavier : la touche de sélection passe au choix suivant, augmente le nombre, coche
+        foreach (var option in new[] { _mode, _ascension, _character, _gameMode, _sort })
+            KeyboardNav.Focusable(option, _root);
+        KeyboardNav.Focusable(_min.GetLineEdit(), _root);
+        KeyboardNav.Focusable(_ancientRelics, _root);
 
         _status = MakeLabel("", 18, StsColors.cream with { A = 0.6f });
         page.AddChild(_status);
@@ -232,6 +274,7 @@ public sealed class StatsScreen
         page.AddChild(scrollArea);
         _scroll = new ScrollContainer();
         _scroll.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        KeyboardNav.ScrollWithKeys(_scroll, _root);
         scrollArea.AddChild(_scroll);
         _sticky = new PanelContainer { Visible = false, MouseFilter = Control.MouseFilterEnum.Ignore };
         _sticky.AddThemeStyleboxOverride("panel", new StyleBoxFlat
@@ -277,7 +320,33 @@ public sealed class StatsScreen
         });
         _root.AddChild(_monsterHover);
 
+        // Écran actif pour le jeu tant qu'il est ouvert : au clavier, le jeu y met le focus (onglet affiché)
+        // Focus par défaut : le premier élément (premier filtre)
+        var menu = new KeyboardNav.Menu(_root, () => null)
+        {
+            Cancel = Close,
+            // Touches d'onglet du jeu (comme ses propres menus) : seul moyen de changer d'onglet au clavier ; onglet
+            // précédent ou suivant, sans boucler
+            SwitchTab = delta =>
+            {
+                int index = Math.Clamp(_tabButtons.FindIndex(t => t.Tab == _tab) + delta, 0, _tabButtons.Count - 1);
+                if (_tabButtons[index].Tab != _tab)
+                    _tabButtons[index].Button.Button.EmitSignal(BaseButton.SignalName.Pressed);
+            },
+        };
+        KeyboardNav.Register(menu, _root);
         parent.AddChild(_layer);
+        KeyboardNav.ScreenChanged();
+        // Au clavier, la liste défile pour montrer l'élément qui a le focus, mais l'en-tête épinglé recouvre le haut
+        // de la liste : l'élément ne doit pas rester dessous
+        var viewport = _root.GetViewport();
+        Callable onFocus = Callable.From<Control>(KeepBelowSticky);
+        viewport.Connect(Viewport.SignalName.GuiFocusChanged, onFocus);
+        _layer.TreeExiting += () =>
+        {
+            if (viewport.IsConnected(Viewport.SignalName.GuiFocusChanged, onFocus))
+                viewport.Disconnect(Viewport.SignalName.GuiFocusChanged, onFocus);
+        };
         var tree = _root.GetTree();
         Action updateSticky = UpdateSticky;
         tree.ProcessFrame += updateSticky;
@@ -289,7 +358,7 @@ public sealed class StatsScreen
         _layer.TreeExiting += InspectCursor.Restore;
         Load();
         Refresh();
-        _root.CallDeferred(Control.MethodName.GrabFocus);
+        // Pas de focus à l'ouverture : au clavier, il vient à la première flèche ou sélection (KeyboardNav)
     }
 
     /// <param name="label">libellé devant le contrôle, ou null (case à cocher, qui a son propre texte)</param>
@@ -709,7 +778,8 @@ public sealed class StatsScreen
     /// En-tête d'un tableau : une case à cocher sans texte, centrée au-dessus de chaque colonne (sauf celle des
     /// noms), puis les noms des colonnes. Mêmes largeurs que les lignes des tableaux.
     /// </summary>
-    private GridContainer BuildHeader(Table table)
+    /// <param name="sticky">copie épinglée en haut : ses cases ne sont pas atteignables au clavier (celles de l'original le sont)</param>
+    private GridContainer BuildHeader(Table table, bool sticky = false)
     {
         var (hidden, order) = ColumnOrder(table);
         var grid = NewGrid(table.Headers.Length);
@@ -728,6 +798,8 @@ public sealed class StatsScreen
                 SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter,
             };
             StyleCheckBox(box);
+            if (!sticky)
+                KeyboardNav.Focusable(box, _root);
             box.Toggled += shown =>
             {
                 if (shown)
@@ -735,7 +807,8 @@ public sealed class StatsScreen
                 else
                     _hiddenColumns.Add((_tab, header));
                 // Différé : la case est détruite par la reconstruction de l'écran
-                Callable.From(() => Refresh(keepScroll: true)).CallDeferred();
+                // Au clavier, le focus revient sur la case reconstruite
+                Callable.From(() => KeyboardNav.KeepFocus(_content, () => Refresh(keepScroll: true))).CallDeferred();
             };
             grid.AddChild(box);
         }
@@ -803,7 +876,7 @@ public sealed class StatsScreen
                 control.CustomMinimumSize = new Vector2(width, control.CustomMinimumSize.Y);
                 if (item is { Kind: ItemKind.Card } card && _game?.Card(card.Id) is { } cardModel)
                 {
-                    _cardHover.Attach(control, cardModel);
+                    _cardHover.Attach(control, cardModel, focusFallback: _root);
                 }
                 if (item is { Kind: ItemKind.Encounter } encounter)
                 {
@@ -811,6 +884,7 @@ public sealed class StatsScreen
                     control.MouseDefaultCursorShape = Control.CursorShape.Help;
                     control.MouseEntered += () => ShowMonsters(encounter.Id);
                     control.MouseExited += HideHover;
+                    KeyboardNav.FocusableHover(control, () => ShowMonsters(encounter.Id), HideHover, _root);
                     control.GuiInput += ev =>
                     {
                         if (ev is InputEventMouseMotion && _monsterHover.Visible)
@@ -825,6 +899,7 @@ public sealed class StatsScreen
                     control.MouseDefaultCursorShape = Control.CursorShape.Help;
                     control.MouseEntered += () => ShowHover(tooltip);
                     control.MouseExited += HideHover;
+                    KeyboardNav.FocusableHover(control, () => ShowHover(tooltip), HideHover, _root);
                     // Le panneau suit la souris tant qu'elle reste sur le nom
                     control.GuiInput += ev =>
                     {
@@ -832,10 +907,35 @@ public sealed class StatsScreen
                             PlaceHover();
                     };
                 }
+                // Toute ligne atteignable au clavier par son nom, même sans rien à afficher au survol (étages des
+                // défaites, personnages…) : la liste défile ainsi jusqu'à elle
+                if (i == 0 && control.FocusMode != Control.FocusModeEnum.All)
+                    KeyboardNav.Focusable(control, _root);
                 grid.AddChild(control);
             }
         _content.AddChild(WithTableMargin(grid));
         _tables.Add((grid, key, table));
+    }
+
+    /// <summary>
+    /// Élément de la liste qui reçoit le focus (clavier) : une fois que la liste a défilé jusqu'à lui et que
+    /// l'en-tête épinglé est à jour, s'il est caché sous l'en-tête, la liste remonte d'autant.
+    /// </summary>
+    private void KeepBelowSticky(Control focused)
+    {
+        if (!KeyboardNav.Active || !GodotObject.IsInstanceValid(_scroll) || !_scroll.IsAncestorOf(focused))
+            return;
+        _scroll.GetTree().CreateTimer(0).Timeout += () =>
+        {
+            if (!GodotObject.IsInstanceValid(focused) || !GodotObject.IsInstanceValid(_sticky) || !focused.HasFocus())
+                return;
+            UpdateSticky();
+            if (!_sticky.Visible)
+                return;
+            float hidden = _sticky.GetGlobalRect().End.Y - focused.GetGlobalRect().Position.Y;
+            if (hidden > 0)
+                _scroll.ScrollVertical -= (int)Math.Ceiling(hidden) + 4;
+        };
     }
 
     /// <summary>
@@ -868,7 +968,7 @@ public sealed class StatsScreen
         {
             foreach (var child in _sticky.GetChildren())
                 child.QueueFree();
-            _sticky.AddChild(BuildHeader(table.Table));
+            _sticky.AddChild(BuildHeader(table.Table, sticky: true));
             _stickyKey = table.Key;
         }
         _sticky.Visible = true;
@@ -1132,7 +1232,7 @@ public sealed class StatsScreen
     private void PlaceAboveMouse(Control panel, Vector2 size)
     {
         var screen = _root.GetViewportRect().Size;
-        var mouse = _root.GetGlobalMousePosition();
+        var mouse = KeyboardNav.PointerPosition(_root);
         var x = Math.Clamp(mouse.X - size.X / 2, 0, Math.Max(0, screen.X - size.X));
         var y = mouse.Y - size.Y - 16;
         if (y < 0)

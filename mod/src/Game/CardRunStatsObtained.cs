@@ -1,0 +1,226 @@
+using System.Reflection;
+using HarmonyLib;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Players;
+using MegaCrit.Sts2.Core.Entities.Potions;
+using MegaCrit.Sts2.Core.GameActions.Multiplayer;
+using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
+using MegaCrit.Sts2.Core.Random;
+
+namespace StsTools.Game;
+
+/// <summary>
+/// Ce qu'une relique fait quand on la prend (PV max, or, cartes ajoutées, retirées, améliorées…), hors des écouteurs
+/// du jeu, et les tours joués avec chaque relique. Les mêmes stats comptent aussi pour les cartes qui font ces
+/// actions en combat (amélioration d'une carte, PV max gagnés…).
+/// </summary>
+public sealed partial class CardRunStats
+{
+    /// <summary>
+    /// Effet de prise d'une relique : elle est « ce qui agit » jusqu'à la fin de son effet, même s'il attend un choix
+    /// du joueur (carte à retirer, à améliorer…).
+    /// </summary>
+    [HarmonyPatch]
+    internal static class AfterObtainedPatch
+    {
+        public static IEnumerable<MethodBase> TargetMethods() =>
+            typeof(RelicModel).Assembly.GetTypes()
+                .Where(t => t.IsSubclassOf(typeof(RelicModel)) && !t.IsAbstract)
+                .Select(t => AccessTools.DeclaredMethod(t, nameof(RelicModel.AfterObtained), Type.EmptyTypes))
+                .Where(m => m != null)
+                .Cast<MethodBase>();
+
+        public static void Prefix(RelicModel __instance, out Frame __state)
+        {
+            __state = new Frame { Listener = __instance };
+            _frames.Add(__state);
+        }
+
+        public static void Postfix(ref Task __result, Frame __state) => __result = Release(__result, __state);
+
+        private static async Task Release(Task effect, Frame frame)
+        {
+            try
+            {
+                await effect;
+            }
+            finally
+            {
+                _frames.Remove(frame);
+            }
+        }
+    }
+
+    /// <summary>Matérialise une liste de cartes passée au jeu, pour la compter sans la parcourir deux fois.</summary>
+    private static int CountOnce<T>(ref IEnumerable<T> items)
+    {
+        if (!items.TryGetNonEnumeratedCount(out int count))
+        {
+            var list = items.ToList();
+            items = list;
+            count = list.Count;
+        }
+        return count;
+    }
+
+    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.GainMaxHp))]
+    public static class GainMaxHpPatch
+    {
+        public static void Prefix(Creature creature, decimal amount)
+        {
+            if (creature is { IsEnemy: false } && amount > 0)
+                Current?.Add(MaxHpGained, amount);
+        }
+    }
+
+    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.LoseMaxHp))]
+    public static class LoseMaxHpPatch
+    {
+        public static void Prefix(PlayerChoiceContext choiceContext, Creature creature, decimal amount)
+        {
+            if (creature is { IsEnemy: false } && amount > 0)
+                Current?.Add(MaxHpLost, amount);
+        }
+    }
+
+    /// <summary>Toutes les façons d'ajouter des cartes à une pile finissent ici ; seulement celles qui vont dans le deck.</summary>
+    [HarmonyPatch(typeof(CardPileCmd), nameof(CardPileCmd.Add),
+        [typeof(IEnumerable<CardModel>), typeof(CardPile), typeof(CardPilePosition), typeof(AbstractModel), typeof(bool), typeof(bool)])]
+    public static class DeckAddPatch
+    {
+        public static void Prefix(ref IEnumerable<CardModel> cards, CardPile newPile)
+        {
+            if (newPile.Type == PileType.Deck && Current is { } credit)
+                credit.Add(DeckAdded, CountOnce(ref cards));
+        }
+    }
+
+    [HarmonyPatch(typeof(CardPileCmd), nameof(CardPileCmd.RemoveFromDeck), [typeof(IReadOnlyList<CardModel>), typeof(bool)])]
+    public static class DeckRemovePatch
+    {
+        public static void Prefix(IReadOnlyList<CardModel> cards) => Current?.Add(DeckRemoved, cards.Count);
+    }
+
+    [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Upgrade), [typeof(IEnumerable<CardModel>), typeof(CardPreviewStyle)])]
+    public static class UpgradePatch
+    {
+        public static void Prefix(ref IEnumerable<CardModel> cards)
+        {
+            if (Current is not { } credit)
+                return;
+            var list = cards.ToList();
+            cards = list;
+            // Pour le reste de la partie (carte du deck), ou seulement pour ce combat (carte d'une pile de combat).
+            // Une carte hors de toute pile (Astrolabe améliore la carte qu'il crée) : comptée par sa transformation
+            var upgradable = list.Where(c => c.IsUpgradable).ToList();
+            credit.Add(Upgraded, upgradable.Count(c => c.Pile?.Type == PileType.Deck));
+            credit.Add(UpgradedInCombat, upgradable.Count(c => c.Pile is { IsCombatPile: true }));
+        }
+    }
+
+    [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Transform), [typeof(IEnumerable<CardTransformation>), typeof(Rng), typeof(CardPreviewStyle)])]
+    public static class TransformPatch
+    {
+        public static void Prefix(ref IEnumerable<CardTransformation> transformations)
+        {
+            if (Current is { } credit)
+                credit.Add(Transformed, CountOnce(ref transformations));
+        }
+    }
+
+    [HarmonyPatch(typeof(CardCmd), nameof(CardCmd.Enchant), [typeof(EnchantmentModel), typeof(CardModel), typeof(decimal)])]
+    public static class EnchantPatch
+    {
+        public static void Prefix() => Current?.Add(Enchanted, 1);
+    }
+
+    /// <summary>Potion donnée : comptée seulement si elle a trouvé une place.</summary>
+    [HarmonyPatch(typeof(PotionCmd), nameof(PotionCmd.TryToProcure), [typeof(PotionModel), typeof(Player), typeof(int)])]
+    public static class PotionPatch
+    {
+        public static void Postfix(ref Task<PotionProcureResult> __result)
+        {
+            if (Current is { } credit)
+                __result = Count(__result, credit);
+        }
+
+        private static async Task<PotionProcureResult> Count(Task<PotionProcureResult> procure, Credit credit)
+        {
+            var result = await procure;
+            if (result.success)
+                credit.Add(Potions, 1);
+            return result;
+        }
+    }
+
+    [HarmonyPatch(typeof(PlayerCmd), nameof(PlayerCmd.GainMaxPotionCount))]
+    public static class PotionSlotsPatch
+    {
+        public static void Prefix(int amount)
+        {
+            if (amount > 0)
+                Current?.Add(PotionSlots, amount);
+        }
+    }
+
+    // ---- Combat : ennemis étourdis, orbes, forge ----
+
+    [HarmonyPatch(typeof(CreatureCmd), nameof(CreatureCmd.Stun), [typeof(Creature), typeof(Func<IReadOnlyList<Creature>, Task>), typeof(string)])]
+    public static class StunPatch
+    {
+        public static void Prefix(Creature creature)
+        {
+            if (creature.IsEnemy)
+                Current?.Add(Stunned, 1);
+        }
+    }
+
+    /// <summary>Toutes les évocations (EvokeNext, EvokeLast, orbe chassée par une nouvelle) passent par là.</summary>
+    [HarmonyPatch(typeof(OrbCmd), "Evoke")]
+    public static class EvokePatch
+    {
+        public static void Prefix() => Current?.Add(OrbsEvoked, 1);
+    }
+
+    [HarmonyPatch(typeof(OrbCmd), nameof(OrbCmd.AddSlots))]
+    public static class OrbSlotsPatch
+    {
+        public static void Prefix(int amount)
+        {
+            if (amount > 0)
+                Current?.Add(OrbSlots, amount);
+        }
+    }
+
+    /// <summary>Forge (Regent) : dégâts ajoutés à Sovereign Blade.</summary>
+    [HarmonyPatch(typeof(ForgeCmd), nameof(ForgeCmd.Forge))]
+    public static class ForgePatch
+    {
+        public static void Prefix(decimal amount)
+        {
+            if (amount > 0)
+                Current?.Add(Forged, amount);
+        }
+    }
+
+    // ---- Tours joués avec chaque relique ----
+
+    private static readonly AccessTools.FieldRef<PlayerCombatState, Player> CombatPlayer =
+        AccessTools.FieldRefAccess<PlayerCombatState, Player>("_player");
+
+    [HarmonyPatch(typeof(PlayerCombatState), nameof(PlayerCombatState.IncrementTurnNumber))]
+    public static class TurnPatch
+    {
+        public static void Postfix(PlayerCombatState __instance) => Guard("relic turns", () =>
+        {
+            var player = CombatPlayer(__instance);
+            if (!Live(player.Creature.CombatState))
+                return;
+            foreach (var relic in player.Relics)
+                RelicStats.GetOrCreateValue(relic).Turns++;
+        });
+    }
+}

@@ -51,7 +51,7 @@ public static class TopBarPatch
             Name = ButtonName,
             CustomMinimumSize = new Vector2(side, side),
             FocusMode = Control.FocusModeEnum.None,
-            TooltipText = $"Run stats ({RunPanel.Hotkey})",
+            TooltipText = $"Run stats ({ModHotkeys.RunStats.Display})",
         };
         foreach (var state in new[] { "normal", "hover", "pressed", "focus", "disabled" })
             button.AddThemeStyleboxOverride(state, new StyleBoxEmpty());
@@ -93,17 +93,6 @@ public static class TopBarPatch
 
         row.AddChild(button);
         row.MoveChild(button, map.GetIndex());
-    }
-}
-
-/// <summary>Touche <see cref="RunPanel.Hotkey"/> : ouvre ou ferme le panneau de stats pendant une partie.</summary>
-[HarmonyPatch(typeof(NTopBar), nameof(NTopBar._Input))]
-public static class TopBarInputPatch
-{
-    public static void Postfix(InputEvent inputEvent)
-    {
-        if (inputEvent is InputEventKey { Pressed: true, Echo: false } key && key.Keycode == RunPanel.Hotkey)
-            RunPanel.Toggle();
     }
 }
 

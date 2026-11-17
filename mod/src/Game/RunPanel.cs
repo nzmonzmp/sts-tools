@@ -30,14 +30,13 @@ public interface IRunPanelTab
 
 /// <summary>
 /// Panneau de stats en partie, ancré à droite sous la barre du haut. Il ne bloque pas le jeu : on continue à jouer
-/// pendant qu'il est ouvert. S'ouvre et se ferme avec le bouton de la barre du haut ou la touche <see cref="Hotkey"/> ;
+/// pendant qu'il est ouvert. S'ouvre et se ferme avec le bouton de la barre du haut ou la touche <see cref="ModHotkeys.RunStats"/> ;
 /// il est fermé en début de partie et à l'ouverture du menu Échap. L'onglet choisi est gardé d'une partie à l'autre.
 /// Sa hauteur est limitée à l'écran : au-delà, le contenu défile.
 /// Construit, comme <see cref="StatsScreen"/>, uniquement avec des nœuds Godot standards.
 /// </summary>
 public sealed class RunPanel
 {
-    public const Key Hotkey = Key.F7;
     public const string NodeName = "StsToolsRunPanel";
 
     private const float Width = 400;
@@ -59,6 +58,7 @@ public sealed class RunPanel
     /// <summary>Par onglet : redessine le panneau si c'est l'onglet affiché qui a changé</summary>
     private readonly Action[] _changed;
     private int _tab;
+    private readonly KeyboardNav.Menu _menu;
 
     /// <summary>Crée le panneau dans la barre du haut d'une partie, fermé ou ouvert selon le dernier état.</summary>
     public static void Attach(Control topBar, Player player)
@@ -79,6 +79,33 @@ public sealed class RunPanel
         if (_current != null && GodotObject.IsInstanceValid(_current._panel))
             _current.SetOpen(!_current._panel.Visible);
     }
+
+    /// <summary>
+    /// Touche « Focus run stats » (clavier seul) : panneau fermé, il s'ouvre avec le focus dedans ; ouvert sans le focus,
+    /// le focus y va ; focus déjà dedans, il est rendu au jeu (le panneau reste ouvert).
+    /// </summary>
+    public static void ToggleFocus()
+    {
+        if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
+            return;
+        if (!panel._panel.Visible)
+        {
+            panel.SetOpen(true);
+            panel._menu.Engage();
+            return;
+        }
+        if (panel._panel.GetViewport()?.GuiGetFocusOwner() is { } owner && panel._panel.IsAncestorOf(owner))
+        {
+            owner.ReleaseFocus();
+            panel._menu.Disengage();
+            return;
+        }
+        panel._menu.Engage();
+        panel._menu.DefaultFocusedControl?.GrabFocus();
+    }
+
+    /// <summary>Le panneau de stats est ouvert (les infobulles des reliques n'affichent leurs stats qu'à ce moment).</summary>
+    public static bool IsOpen => _current != null && GodotObject.IsInstanceValid(_current._panel) && _current._panel.Visible;
 
     public static void Close()
     {
@@ -129,8 +156,9 @@ public sealed class RunPanel
         page.AddChild(header);
         header.AddChild(Label("Run stats", 24, StsColors.gold));
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill });
-        header.AddChild(Label($"[{Hotkey}]", 16, StsColors.halfTransparentCream));
-        var close = new Button { Text = "✕", FocusMode = Control.FocusModeEnum.None, Flat = true };
+        header.AddChild(Label($"[{ModHotkeys.RunStats.Display}]", 16, StsColors.halfTransparentCream));
+        var close = new Button { Text = "✕", Flat = true };
+        KeyboardNav.Focusable(close);
         close.AddThemeColorOverride("font_color", StsColors.cream);
         close.AddThemeColorOverride("font_hover_color", StsColors.gold);
         close.Pressed += () => SetOpen(false);
@@ -142,6 +170,7 @@ public sealed class RunPanel
         for (int i = 0; i < _tabs.Length; i++)
         {
             int index = i;
+            // Pas atteignable au clavier : les onglets changent avec les touches d'onglet du jeu (KeyboardNav)
             var button = new Button
             {
                 Text = _tabs[i].Title,
@@ -159,10 +188,38 @@ public sealed class RunPanel
 
         // Défilement vertical seulement : la largeur du contenu reste celle du panneau
         _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        KeyboardNav.ScrollWithKeys(_scroll);
+
         page.AddChild(_scroll);
         _content = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _content.AddThemeConstantOverride("separation", 6);
         _scroll.AddChild(_content);
+
+        // Pour le jeu, écran actif depuis son ouverture tant que le focus n'est pas reparti sur le jeu
+        // Focus par défaut : premier sous-onglet, sinon premier élément de la liste, sinon le bouton de fermeture
+        _menu = new KeyboardNav.Menu(_panel, () =>
+            _subTabButtons.FirstOrDefault(b => b.IsVisibleInTree())
+            ?? _content.FindChildren("*", "Control", true, false).OfType<Control>()
+                .FirstOrDefault(c => c.FocusMode == Control.FocusModeEnum.All && c.IsVisibleInTree())
+            ?? _scroll)
+        {
+            IsOpen = () => GodotObject.IsInstanceValid(_panel) && _panel.Visible,
+            Overlay = true,
+            // Au clavier, le retour du jeu ferme le panneau quand il a le focus
+            Cancel = () => SetOpen(false),
+            // Touches d'onglet du jeu, seulement quand le panneau a le focus : seul moyen de changer d'onglet au
+            // clavier ; onglet précédent ou suivant, sans boucler. Le focus reste dans le panneau
+            SwitchTab = delta =>
+            {
+                int index = Math.Clamp(_tab + delta, 0, _tabs.Length - 1);
+                if (index == _tab)
+                    return;
+                bool subTabFocused = _subTabButtons.Any(b => b.HasFocus());
+                SelectTab(index);
+                KeepFocusInPanel(subTabFocused);
+            },
+        };
+        KeyboardNav.Register(_menu, _panel);
 
         // Sous les autres enfants de la barre, pour ne pas passer devant ses infobulles
         topBar.AddChild(_panel);
@@ -183,12 +240,24 @@ public sealed class RunPanel
         SetOpen(false);
     }
 
+    /// <summary>Le panneau vient de s'ouvrir ou de se fermer.</summary>
+    public static event Action? OpenChanged;
+
     private void SetOpen(bool open)
     {
+        bool changed = _panel.Visible != open;
+        // Fermé avec le focus dedans : on le rend au jeu
+        if (!open && _panel.GetViewport()?.GuiGetFocusOwner() is { } owner && _panel.IsAncestorOf(owner))
+            owner.ReleaseFocus();
         _panel.Visible = open;
+        if (changed)
+            OpenChanged?.Invoke();
         // Toujours à l'ouverture : certains changements (carte améliorée) ne passent par aucun événement suivi
         if (open)
             Refresh();
+        // Pas de focus à l'ouverture (touche Focus run stats pour l'y mettre) ; fermé : le jeu reprend le focus
+        if (changed && !open)
+            _menu.Disengage();
     }
 
     /// <summary>
@@ -200,6 +269,16 @@ public sealed class RunPanel
         var settings = SavedSettings.Load();
         change(settings);
         settings.Save();
+    }
+
+    /// <summary>
+    /// Après un changement d'onglet au clavier : sous-onglets refaits (le focus y était) ou focus perdu avec la liste
+    /// redessinée, le focus revient sur le premier élément du panneau.
+    /// </summary>
+    private void KeepFocusInPanel(bool subTabFocused)
+    {
+        if (subTabFocused || !_menu.HasFocus)
+            _menu.TakeFocus();
     }
 
     private void SelectTab(int index)
@@ -232,7 +311,8 @@ public sealed class RunPanel
         _subTabBar.Visible = subTabs.Length > 0;
         foreach (var name in subTabs)
         {
-            var button = new Button { Text = name, FocusMode = Control.FocusModeEnum.None };
+            var button = new Button { Text = name };
+            KeyboardNav.Focusable(button);
             button.AddThemeFontSizeOverride("font_size", 17);
             button.Pressed += () => SelectSubTab(name);
             _subTabButtons.Add(button);
@@ -269,16 +349,20 @@ public sealed class RunPanel
     {
         if (!GodotObject.IsInstanceValid(_panel))
             return;
-        RemoveChildren(_content);
-        try
+        // Redessin pendant la navigation au clavier : le focus reste au même rang dans la liste
+        KeyboardNav.KeepFocus(_content, () =>
         {
-            _tabs[_tab].Fill(_content, _player, CurrentSubTab);
-        }
-        catch (Exception e)
-        {
-            Log.Error($"[{ModEntry.Id}] cannot fill the run panel tab {_tabs[_tab].Title}: {e}");
-            _content.AddChild(Label("Error, see the game log.", 18, StsColors.red));
-        }
+            RemoveChildren(_content);
+            try
+            {
+                _tabs[_tab].Fill(_content, _player, CurrentSubTab);
+            }
+            catch (Exception e)
+            {
+                Log.Error($"[{ModEntry.Id}] cannot fill the run panel tab {_tabs[_tab].Title}: {e}");
+                _content.AddChild(Label("Error, see the game log.", 18, StsColors.red));
+            }
+        });
         _scroll.ScrollVertical = 0;
         Callable.From(FitHeight).CallDeferred();
     }
@@ -345,7 +429,8 @@ public sealed class RunPanel
             CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = small ? 0 : 6, CornerRadiusBottomRight = small ? 0 : 6,
             ContentMarginTop = small ? 2 : 4, ContentMarginBottom = small ? 2 : 4, ContentMarginLeft = 10, ContentMarginRight = 10,
         };
-        foreach (var state in new[] { "normal", "hover", "pressed", "focus" })
+        // Pas « focus » : c'est le cadre de la navigation au clavier (KeyboardNav), dessiné par-dessus
+        foreach (var state in new[] { "normal", "hover", "pressed" })
             button.AddThemeStyleboxOverride(state, box);
         button.AddThemeColorOverride("font_color", selected ? StsColors.cream : StsColors.halfTransparentCream);
         button.AddThemeColorOverride("font_hover_color", StsColors.gold);
@@ -479,7 +564,7 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
                 // La carte du deck elle-même : améliorations et enchantements de la partie compris ;
                 // à côté, les stats de la partie pour toutes les copies de la ligne
                 var copies = group.ToList();
-                cardHover.Attach(row, card, () => StatsRows(CardRunStats.Sum(copies), copies.Count));
+                cardHover.Attach(row, card, () => StatsRows(card, CardRunStats.Sum(copies), copies.Count));
                 list.AddChild(row);
             }
         }
@@ -489,23 +574,28 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
     /// <summary>
     /// Stats de la partie affichées au survol d'une ligne de cartes : pour chaque stat, le total de la partie, la
     /// moyenne par combat, et l'apport moyen par combat d'une seule carte (total ÷ combats ÷ copies de la ligne).
-    /// Les stats à zéro ne sont pas affichées.
+    /// D'abord les stats liées à la carte (<see cref="StatRelevance"/>), puis, sous « Other », les
+    /// autres stats non nulles (enchantement, effet inhabituel).
     /// </summary>
-    private static IEnumerable<string[]> StatsRows(CardRunStats s, int copies)
+    private static IEnumerable<string[]> StatsRows(CardModel card, CardRunStats s, int copies)
     {
         string Format(decimal value) => value.ToString("0.##");
         string PerCombat(decimal total) => s.Combats > 0 ? Format(total / s.Combats) : "-";
         string PerCard(decimal total) => s.Combats > 0 && copies > 0 ? Format(total / s.Combats / copies) : "-";
+        string[] Row(string name) => [name, Format(s[name]), PerCombat(s[name]), PerCard(s[name])];
 
-        // Seulement les stats non nulles ; aucune : pas de tableau, la carte s'affiche seule
-        var rows = s.DisplayNames()
-            .Select(name => new[] { name, Format(s[name]), PerCombat(s[name]), PerCard(s[name]) })
-            .ToList();
-        if (rows.Count == 0)
+        var (related, others) = StatRelevance.For(card).Arrange(s);
+        // Aucune stat : pas de tableau, la carte s'affiche seule
+        if (related.Count == 0 && others.Count == 0)
             yield break;
         yield return ["", "Total", "Per combat", "Per card"];
-        foreach (var row in rows)
-            yield return row;
+        foreach (var name in related)
+            yield return Row(name);
+        if (others.Count == 0)
+            yield break;
+        yield return ["Other"];
+        foreach (var name in others)
+            yield return Row(name);
     }
 
     private static string EnchantmentKey(CardModel card) =>

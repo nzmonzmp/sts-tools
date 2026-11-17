@@ -31,6 +31,9 @@ public sealed class SavedSettings
     /// <summary>Sous-onglet choisi dans chaque onglet du panneau, par titre d'onglet</summary>
     public Dictionary<string, string> RunPanelSubTabs { get; set; } = [];
 
+    /// <summary>Touches du mod (noms des touches Godot : « F7 »), réglables dans les options du jeu (Input)</summary>
+    public Dictionary<string, string> Hotkeys { get; set; } = [];
+
     private static string FilePath => ProjectSettings.GlobalizePath("user://StsTools/settings.json");
 
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };

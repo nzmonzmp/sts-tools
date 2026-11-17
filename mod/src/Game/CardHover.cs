@@ -69,8 +69,10 @@ public sealed class CardHover
     /// Fait afficher <paramref name="card"/> au survol de <paramref name="control"/> ; la carte suit la souris.
     /// </summary>
     /// <param name="info">tableau affiché à droite de la carte (en-têtes puis lignes), calculé à chaque survol</param>
-    public void Attach(Control control, CardModel card, Func<IEnumerable<string[]>>? info = null)
+    /// <param name="focusFallback">voir <see cref="KeyboardNav.Focusable"/> : au clavier, la carte suit aussi le focus</param>
+    public void Attach(Control control, CardModel card, Func<IEnumerable<string[]>>? info = null, Control? focusFallback = null)
     {
+        KeyboardNav.FocusableHover(control, () => Show(card, info?.Invoke()), Hide, focusFallback);
         control.MouseFilter = Control.MouseFilterEnum.Pass;
         control.MouseDefaultCursorShape = Control.CursorShape.Help;
         control.MouseEntered += () =>
@@ -169,7 +171,8 @@ public sealed class CardHover
         const float gap = 12;
         var size = panel.Size;
         var screen = panel.GetViewportRect().Size;
-        var mouse = panel.GetGlobalMousePosition();
+        // Au clavier : contre l'élément qui a le focus
+        var mouse = KeyboardNav.PointerPosition(panel);
         var x = mouse.X + gap;
         if (x + size.X > screen.X)
             x = Math.Max(0, mouse.X - size.X - gap);
