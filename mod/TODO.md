@@ -52,27 +52,8 @@ faire (rouge : avant d'agir ; violet : après, Doom) et sur ceux que la carte tu
   être couvert.
 - Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
   toujours renvoyer un objet utilisable (créatures détachées, résultats vides).
-- **Bug : jeu figé le 2026-11-17 (840995e), combat de boss AEONGLASS_BOSS, The Fool.** Image fixe, plus aucun
-  contrôle, jeu fermé à la main (d'où `terminate called…`) ; rien dans `godot.log`, 24 s après avoir joué ENCORE (`Player 1 playing card ENCORE`), puis
-  arrêt brutal (`BUG: Unreferenced static string`, `terminate called without an active exception`). Pendant ce
-  combat, l'aperçu a modifié l'état réel de la partie (`the preview of X changed the game state`) pour LOST_LUTE,
-  SONG_PATH, WAH_KI (3 fois), ENCORE (2 fois), CHO_READY et KI_WHIP, juste avant chaque carte jouée ; ces
-  avertissements n'apparaissent dans aucun autre combat. Pistes : fuite de la simulation dans la partie (l'empreinte
-  ne dit pas quoi : la journaliser), tâches non terminées dans `Wait` qui reprennent plus tard hors simulation, ou un
-  objet nul renvoyé par une commande interceptée (voir ci-dessus). ENCORE avait été jouée 3 fois plus tôt sans
-  souci.
-  Analyse (sans le log, resté sur l'autre machine) : depuis 840995e, la simulation écrit les PV et le Block simulés
-  dans les vraies créatures (Plow) et les remet à la fin ; mais une étape non terminée reprenait plus tard, encore
-  simulée, et réécrivait des PV simulés que rien ne remettait. Corrigé : une simulation terminée n'a plus aucun
-  effet. Aussi corrigé : `CardCmd.Enchant` (pas une tâche, donc pas interceptée) enchantait la vraie carte ;
-  `TalkCmd.Play` affichait une bulle. L'avertissement dit maintenant ce qui a changé, et le journal signale une
-  fois par carte les étapes qui ne se terminent pas tout de suite. `BUG: Unreferenced static string` apparaît à
-  chaque fermeture du jeu : pas un indice.
-  Cause probable du gel : une boucle du jeu qui attend un changement que la simulation ne fait pas. Recall, Wrest
-  et Uproot (cartes à flèches) font `while (créature transpercée) DislodgeArrow` : la commande interceptée ne
-  retirait pas la flèche, la boucle tournait sans fin sur le fil principal (aperçu sur un ennemi transpercé).
-  Corrigé : une flèche retirée l'est aussi dans la simulation ; et au-delà de 3000 étapes, la simulation fait
-  échouer les commandes suivantes, ce qui sort de toute boucle de ce genre. À vérifier en rejouant ce combat.
+- Jeu figé le 2026-11-17 contre Aeonglass (The Fool) : cause probable corrigée (boucle de Recall, Wrest, Uproot sur
+  une flèche jamais retirée). S'il revient, le rapport de bug automatique (journal, preview.log, freeze.txt) dira où.
 
 ## Rapports de bug
 

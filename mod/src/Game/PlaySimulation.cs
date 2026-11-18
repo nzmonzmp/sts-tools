@@ -837,6 +837,30 @@ public sealed class PlaySimulation
         public static bool Prefix() => !Active;
     }
 
+    /// <summary>
+    /// Effets visuels créés directement par le code des cartes, pouvoirs et reliques (sans commande, donc sans le mode
+    /// test : <c>NPowerUpVfx.CreateNormal</c> d'Inflame) : pas ajoutés à la scène pendant la simulation, et libérés.
+    /// Sinon l'aperçu les affichait pour de vrai (carré blanc derrière le personnage en tenant Inflame).
+    /// </summary>
+    [HarmonyPatch]
+    public static class AddNodePatch
+    {
+        public static IEnumerable<MethodBase> TargetMethods() =>
+        [
+            AccessTools.Method(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddChildSafely)),
+            AccessTools.Method(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddSiblingSafely)),
+        ];
+
+        public static bool Prefix(Godot.Node? child)
+        {
+            if (!Active)
+                return true;
+            if (child != null && Godot.GodotObject.IsInstanceValid(child) && !child.IsInsideTree())
+                child.QueueFree();
+            return false;
+        }
+    }
+
     /// <summary>Musique changée par un effet (Infested : deuxième phase de l'élite) : pas pendant la simulation.</summary>
     [HarmonyPatch]
     public static class MusicPatch
