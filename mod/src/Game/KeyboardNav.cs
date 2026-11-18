@@ -38,8 +38,10 @@ public static class KeyboardNav
         private bool _wantsFocus;
 
         /// <summary>Contrôle à qui donner le focus quand le joueur le demande (à défaut, le premier du menu).</summary>
+        /// <remarks>Pas une zone de défilement : le focus doit revenir sur un élément qu'on voit sélectionné.</remarks>
         public Control? FocusTarget =>
             _last != null && GodotObject.IsInstanceValid(_last) && _last.IsVisibleInTree() && root.IsAncestorOf(_last)
+                && _last is not ScrollContainer
                 ? _last
                 : defaultFocus() ?? Focusables(root).FirstOrDefault();
 
@@ -51,6 +53,16 @@ public static class KeyboardNav
         {
             _wantsFocus = true;
             FocusTarget?.GrabFocus();
+        }
+
+        /// <summary>
+        /// Focus sur l'élément par défaut du menu, sans revenir au dernier qui l'avait eu (changement d'onglet : un
+        /// sous-onglet passe avant la flèche de l'en-tête).
+        /// </summary>
+        public void FocusDefault()
+        {
+            _wantsFocus = true;
+            (defaultFocus() ?? Focusables(root).FirstOrDefault())?.GrabFocus();
         }
 
         /// <summary>Touches d'onglet du jeu (précédent : -1, suivant : +1).</summary>
@@ -71,7 +83,11 @@ public static class KeyboardNav
         /// <summary>Panneau : écran actif seulement à la demande (Engage) ; écran plein : toujours.</summary>
         private bool _engaged;
 
-        public bool IsActive => IsOpen() && (!Overlay || _engaged);
+        /// <remarks>
+        /// Panneau : jamais en clavier et souris, où la souris va directement au jeu (sinon le jeu, croyant un de nos
+        /// écrans devant lui, ne répondait plus après un passage du clavier seul au clavier et souris).
+        /// </remarks>
+        public bool IsActive => IsOpen() && (!Overlay || _engaged && KeyboardNav.Active);
 
         /// <summary>Le focus est dans le menu.</summary>
         public bool HasFocus =>
@@ -182,6 +198,28 @@ public static class KeyboardNav
         }).CallDeferred()).CallDeferred();
     }
 
+
+    /// <summary>
+    /// Passage en clavier et souris : le panneau qui avait le focus (pris au clavier seul) rend la main au jeu ; sinon
+    /// le jeu le croyait toujours devant lui et ne répondait plus à la souris.
+    /// </summary>
+    [HarmonyPatch(typeof(NControllerManager), "SwitchToMouseMode")]
+    public static class MouseModePatch
+    {
+        public static void Postfix()
+        {
+            try
+            {
+                foreach (var menu in Menus.Where(m => m.Overlay).ToList())
+                    menu.Disengage();
+                ScreenChanged();
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot give the game back on mouse mode: {e.Message}");
+            }
+        }
+    }
 
     /// <summary>Le dernier menu ouvert passe devant les écrans du jeu.</summary>
     [HarmonyPatch(typeof(ActiveScreenContext), nameof(ActiveScreenContext.GetCurrentScreen))]
@@ -311,14 +349,19 @@ public static class KeyboardNav
         // Cadre seulement au clavier : un clic de souris donne aussi le focus, sans rien montrer. (Retirer le focus
         // après un clic annulerait le clic : un bouton oublie qu'il est enfoncé quand il perd le focus.)
         control.FocusEntered += () => control.AddThemeStyleboxOverride("focus", Active ? ring ?? FocusRing : NoRing);
-        // Texte, ligne avec une image (cartes, reliques, rencontres, étages) : Godot ne dessine pas de cadre de focus
-        // sur ces éléments, on le dessine nous-mêmes par-dessus
-        if (control is not (BaseButton or LineEdit or ScrollContainer))
+        // Texte, ligne avec une image (cartes, reliques, rencontres, étages), zone de défilement : Godot ne dessine pas
+        // de cadre de focus sur ces éléments, on le dessine nous-mêmes. Une zone de défilement coupe ce qui dépasse de
+        // ses bords : son cadre est dessiné à l'intérieur
+        if (control is not (BaseButton or LineEdit))
         {
             control.Draw += () =>
             {
-                if (Active && control.HasFocus())
-                    control.DrawStyleBox(ring ?? FocusRing, new Rect2(Vector2.Zero, control.Size));
+                if (!Active || !control.HasFocus())
+                    return;
+                var rect = control is ScrollContainer
+                    ? new Rect2(new Vector2(4, 4), control.Size - new Vector2(8, 8))
+                    : new Rect2(Vector2.Zero, control.Size);
+                control.DrawStyleBox(ring ?? FocusRing, rect);
             };
             control.FocusEntered += control.QueueRedraw;
             control.FocusExited += control.QueueRedraw;

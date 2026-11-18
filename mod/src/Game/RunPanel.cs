@@ -291,12 +291,13 @@ public sealed class RunPanel
         _body.AddChild(grip);
 
         // Pour le jeu, écran actif depuis son ouverture tant que le focus n'est pas reparti sur le jeu
-        // Focus par défaut : premier sous-onglet, sinon premier élément de la liste, sinon le bouton de fermeture
+        // Focus par défaut : premier sous-onglet, sinon premier élément de la liste, sinon la flèche de l'en-tête,
+        // toujours là et dont le cadre de focus se voit (celui de la zone de défilement ne se voyait pas)
         _menu = new KeyboardNav.Menu(_panel, () =>
             _subTabButtons.FirstOrDefault(b => b.IsVisibleInTree())
             ?? _content.FindChildren("*", "Control", true, false).OfType<Control>()
                 .FirstOrDefault(c => c.FocusMode == Control.FocusModeEnum.All && c.IsVisibleInTree())
-            ?? (_body.Visible ? _scroll : _collapse))
+            ?? _collapse)
         {
             IsOpen = () => GodotObject.IsInstanceValid(_panel) && _panel.Visible,
             Overlay = true,
@@ -402,8 +403,10 @@ public sealed class RunPanel
     /// </summary>
     private void KeepFocusInPanel(bool subTabFocused)
     {
-        if (subTabFocused || !_menu.HasFocus)
-            _menu.TakeFocus();
+        // Focus sur un sous-onglet (refaits), la flèche ou la liste : sur l'élément par défaut du nouvel onglet, son
+        // premier sous-onglet s'il en a, sinon la flèche
+        if (subTabFocused || _scroll.HasFocus() || _collapse.HasFocus() || !_menu.HasFocus)
+            _menu.FocusDefault();
     }
 
     private void SelectTab(int index)
