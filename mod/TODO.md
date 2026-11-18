@@ -102,13 +102,24 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
 
 ## Carte : aperçu des salles
 
-- Sur la carte, au choix de la salle (survol d'une salle), ce qui peut arriver, jamais ce qui va vraiment arriver
-  (pas de lecture de la graine ni des tirages déjà faits) ; fourchettes quand une valeur varie :
+- Sur la carte, au choix de la salle (survol d'une salle), seulement quand le GUI est ouvert : ce qui peut arriver,
+  jamais ce qui va vraiment arriver (pas de lecture de la graine ni des tirages déjà faits) ; fourchettes quand une
+  valeur varie :
   - combat normal : les ennemis possibles à cet acte et à cet étage ;
   - « ? » : les issues possibles avec leurs probabilités (événement, combat, marchand, trésor…) ;
   - gains possibles de chaque salle : pour un combat (normal, élite, boss), or (fourchette), nombre de reliques et
     leurs raretés possibles, récompense de cartes (nombre de cartes, raretés possibles), chance de potion ; pareil
     pour les autres salles quand elles donnent quelque chose.
+
+## Options du jeu : réglages du mod
+
+- Dans les options du jeu, onglet Mod (aujourd'hui : seulement les touches), des réglages du mod :
+  - GUI : ce qui s'affiche quand on l'ouvre avec sa touche (onglets visibles, onglet ouvert par défaut, panneau
+    replié ou non…) et ce qu'il active (aperçu des cartes et des potions, têtes de mort, aperçu des salles sur la
+    carte…) ;
+  - rapports de plantage : demander, toujours envoyer ou ne jamais envoyer (aujourd'hui seulement modifiable depuis
+    l'encadré du menu principal après un plantage) ;
+  - rapports de bug : nom proposé par défaut, joindre les logs et la partie ou non par défaut.
 
 ## Repères dans le code du jeu (utilisés par le mod)
 
