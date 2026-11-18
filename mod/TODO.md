@@ -27,9 +27,13 @@ Fait : onglet Combat (total du combat, ce tour, par tour) avec les mêmes stats 
 les cartes du joueur, dont les dégâts bonus (Force, debuffs), les dégâts évités grâce à Weak et les soins ;
 dégâts subis et bloqués par le joueur.
 
+Fait : onglet Support (multijoueur seulement) : ce que chaque joueur a donné à ses alliés (énergie, cartes créées,
+cartes piochées par un effet, Block, buffs, PV rendus) par ses cartes, reliques, potions et les pouvoirs qu'il a
+donnés ; combat en cours, partie, moyenne par combat ; sauvegardé avec la partie.
+
+- Onglet Support à vérifier dans une vraie partie à plusieurs.
+
 - Multijoueur : dégâts bonus de la Force et des debuffs donnés aux alliés.
-- Onglet Support : énergie, cartes, block, buffs et pioches donnés aux alliés, PV qui leur ont été
-  rendus.
 
 ## Aperçu des cartes jouées et des potions
 
@@ -63,6 +67,13 @@ n'affiche plus d'image pendant 10 s (`freeze.txt`). Effacé à la fin d'une part
 archivé au lancement suivant dans `reports/crash-…` avec le log complet du jeu et les sauvegardes de la partie, et
 signalé au menu principal. Une fermeture sans plantage (menu du jeu, Alt+F4, arrêt depuis Steam ou kill : SIGTERM) n'en crée pas,
 sauf si le jeu était figé ; un plantage ou un SIGKILL, si.
+
+Fait : envoi du rapport dans un salon Discord (webhook) : au menu principal, Send / Always send / Don't send / Never
+ask ; message de résumé et rapport en zip (moins de 10 Mo : sans les sauvegardes puis fin des logs seulement s'il le
+faut) ; envoi raté retenté au lancement suivant. L'adresse du webhook est dans `StsTools.local.props`
+(`CrashWebhook`, jamais commitée) et mise dans la DLL à la compilation : un mod compilé sans elle n'envoie rien.
+
+- Le mod compilé contient l'adresse du webhook : ne pas le partager tel quel (sinon changer de webhook).
 
 ## GUI
 

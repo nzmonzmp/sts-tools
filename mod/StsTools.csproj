@@ -27,6 +27,11 @@
     <Compile Remove="dist/**" />
   </ItemGroup>
 
+  <!-- Webhook Discord des rapports de plantage (CrashUpload), seulement s'il est réglé dans StsTools.local.props -->
+  <ItemGroup Condition="'$(CrashWebhook)' != ''">
+    <AssemblyMetadata Include="CrashWebhook" Value="$(CrashWebhook)" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="sts2" HintPath="$(StsData)/sts2.dll" Private="false" />
     <Reference Include="GodotSharp" HintPath="$(StsData)/GodotSharp.dll" Private="false" />

@@ -205,7 +205,7 @@ public sealed partial class CardRunStats
         Texture2D? texture = null;
         try
         {
-            if ((Icons.GetValueOrDefault(name) ?? PowerIcons.GetValueOrDefault(name)) is { } path && ResourceLoader.Exists(path))
+            if ((Icons.GetValueOrDefault(name) ?? SupportIcons.GetValueOrDefault(name) ?? PowerIcons.GetValueOrDefault(name)) is { } path && ResourceLoader.Exists(path))
                 texture = ResourceLoader.Load<Texture2D>(path);
         }
         catch (Exception e)
@@ -213,7 +213,7 @@ public sealed partial class CardRunStats
             Log.Warn($"[{ModEntry.Id}] cannot load icon for {name}: {e.Message}");
         }
         // Pas de mise en cache d'un pouvoir dont l'icône n'est pas encore connue : elle peut arriver plus tard
-        if (texture != null || Icons.ContainsKey(name))
+        if (texture != null || Icons.ContainsKey(name) || SupportIcons.ContainsKey(name))
             LoadedIcons[name] = texture;
         return texture;
     }
@@ -475,9 +475,9 @@ public sealed partial class CardRunStats
         // Format de la première version, relu pour ne pas perdre une partie en cours
         int Played = 0, int Damage = 0, int Block = 0, int Drawn = 0);
     private sealed record SavedRelic(int Index, string Id, int Combats, Dictionary<string, decimal> Values, int Turns = 0);
-    /// <summary>Un joueur de la partie : ses totaux, les stats des cartes de son deck et de ses reliques.</summary>
+    /// <summary>Un joueur de la partie : ses totaux, ce qu'il a donné à ses alliés (onglet Support), les stats des cartes de son deck et de ses reliques.</summary>
     private sealed record SavedPlayer(ulong NetId, Dictionary<string, decimal> RunValues, int RunCombats, int RunTurns,
-        List<SavedCard> Cards, List<SavedRelic> Relics);
+        List<SavedCard> Cards, List<SavedRelic> Relics, Dictionary<string, decimal>? SupportValues = null);
     /// <summary>
     /// Partie sauvegardée : tous les joueurs (Players). Les autres champs viennent des versions qui ne gardaient
     /// que le joueur local, relus pour ne pas perdre une partie en cours.
@@ -497,6 +497,7 @@ public sealed partial class CardRunStats
         _runKey = RunKey(runState);
         // Nouvelle partie par défaut ; les totaux sont remis plus bas si le fichier vient de cette partie
         Totals.Clear();
+        SupportTotals.Clear();
         try
         {
             if (!File.Exists(FilePath))
@@ -512,6 +513,7 @@ public sealed partial class CardRunStats
                     if (saved.Players.FirstOrDefault(s => s.NetId == p.NetId) is { } sp)
                     {
                         TotalsOf(p).RestoreRun(sp.RunValues, sp.RunCombats, sp.RunTurns);
+                        SupportOf(p).RestoreRun(sp.SupportValues, sp.RunCombats, sp.RunTurns);
                         Restore(PileType.Deck.GetPile(p).Cards, sp.Cards);
                         RestoreRelics(p.Relics, sp.Relics);
                     }
@@ -636,7 +638,8 @@ public sealed partial class CardRunStats
                     if (Of(player.Relics[i]) is { } s)
                         relics.Add(new SavedRelic(i, player.Relics[i].Id.ToString(), s.Combats, new(s.Values), s.Turns));
                 var totals = TotalsOf(player);
-                players.Add(new SavedPlayer(player.NetId, new(totals.Run.Values), totals.RunCombats, totals.RunTurns, cards, relics));
+                players.Add(new SavedPlayer(player.NetId, new(totals.Run.Values), totals.RunCombats, totals.RunTurns, cards, relics,
+                    new(SupportOf(player).Run.Values)));
             }
             Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
             File.WriteAllText(FilePath, JsonSerializer.Serialize(new SavedRun(_runKey, [], new(PowerIcons), Players: players), Json));

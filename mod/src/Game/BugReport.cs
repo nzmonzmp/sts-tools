@@ -320,28 +320,131 @@ public static class BugReport
             Directory.Delete(old, true);
     }
 
-    /// <summary>Au menu principal, après une session qui ne s'est pas terminée normalement : où est le rapport.</summary>
+    private static bool _retried;
+
+    /// <summary>
+    /// Au menu principal, après une session qui ne s'est pas terminée normalement : un encadré dit où est le rapport
+    /// et, si le mod sait envoyer ses rapports (<see cref="CrashUpload"/>), propose de l'envoyer, selon le réglage :
+    /// demander (Send, Always send, Don't send), envoyer sans demander, ou seulement le proposer.
+    /// Une fois par lancement, les rapports dont l'envoi avait raté sont renvoyés.
+    /// </summary>
     public static void ShowNotice(Control menu)
     {
-        if (Archived is not { } report || menu.GetNodeOrNull("StsToolsBugReport") != null)
+        var report = Archived;
+        if (!_retried)
+        {
+            _retried = true;
+            CrashUpload.RetryPending(except: report);
+        }
+        if (report == null || menu.GetNodeOrNull("StsToolsBugReport") != null)
             return;
+        Archived = null;
+
+        var box = new PanelContainer { Name = "StsToolsBugReport", Position = new Vector2(24, 24), MouseFilter = Control.MouseFilterEnum.Stop };
+        box.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.04f, 0.05f, 0.08f, 0.92f),
+            BorderColor = new Color(StsColors.gold, 0.5f),
+            BorderWidthLeft = 2, BorderWidthTop = 2, BorderWidthRight = 2, BorderWidthBottom = 2,
+            CornerRadiusTopLeft = 8, CornerRadiusTopRight = 8, CornerRadiusBottomLeft = 8, CornerRadiusBottomRight = 8,
+            ContentMarginLeft = 16, ContentMarginRight = 16, ContentMarginTop = 10, ContentMarginBottom = 12,
+        });
+        var column = new VBoxContainer();
+        column.AddThemeConstantOverride("separation", 8);
+        box.AddChild(column);
         var label = new Label
         {
-            Name = "StsToolsBugReport",
             Text = $"STS Tools: the last session ended abnormally. Bug report saved in:\n{report}",
             MouseFilter = Control.MouseFilterEnum.Ignore,
-            Position = new Vector2(24, 24),
         };
         label.AddThemeColorOverride("font_color", StsColors.gold);
         label.AddThemeFontSizeOverride("font_size", 18);
-        menu.AddChild(label);
-        var timer = menu.GetTree().CreateTimer(20);
-        timer.Timeout += () =>
+        column.AddChild(label);
+        var status = new Label { MouseFilter = Control.MouseFilterEnum.Ignore, Visible = false };
+        status.AddThemeColorOverride("font_color", StsColors.cream);
+        status.AddThemeFontSizeOverride("font_size", 18);
+        column.AddChild(status);
+        var buttons = new HBoxContainer();
+        buttons.AddThemeConstantOverride("separation", 8);
+        column.AddChild(buttons);
+        menu.AddChild(box);
+
+        void CloseLater(float seconds)
         {
-            if (GodotObject.IsInstanceValid(label))
-                label.QueueFree();
-        };
-        Archived = null;
+            menu.GetTree().CreateTimer(seconds).Timeout += () =>
+            {
+                if (GodotObject.IsInstanceValid(box))
+                    box.QueueFree();
+            };
+        }
+
+        void Button(string text, Action pressed)
+        {
+            var button = new Button { Text = text };
+            button.AddThemeFontSizeOverride("font_size", 18);
+            button.Pressed += pressed;
+            buttons.AddChild(button);
+        }
+
+        void SetPolicy(string policy)
+        {
+            var settings = SavedSettings.Load();
+            settings.CrashReports = policy;
+            settings.Save();
+        }
+
+        void Send()
+        {
+            foreach (var child in buttons.GetChildren())
+                child.QueueFree();
+            status.Visible = true;
+            status.Text = "Sending the bug report…";
+            CrashUpload.Send(report, ok =>
+            {
+                if (!GodotObject.IsInstanceValid(status))
+                    return;
+                status.Text = ok ? "Bug report sent, thank you." : "Could not send the bug report: it will be sent at the next launch.";
+                if (SavedSettings.Load().CrashReports == "always")
+                    Button("Ask me next time", () =>
+                    {
+                        SetPolicy("ask");
+                        box.QueueFree();
+                    });
+                CloseLater(15);
+            });
+        }
+
+        if (!CrashUpload.Available)
+        {
+            CloseLater(20);
+            return;
+        }
+        switch (SavedSettings.Load().CrashReports)
+        {
+            case "always":
+                Send();
+                break;
+            case "never":
+                Button("Send it", Send);
+                CloseLater(30);
+                break;
+            default:
+                status.Visible = true;
+                status.Text = "Send it to the mod's Discord? (game log, mod journal, run saves)";
+                Button("Send", Send);
+                Button("Always send", () =>
+                {
+                    SetPolicy("always");
+                    Send();
+                });
+                Button("Don't send", () => box.QueueFree());
+                Button("Never ask", () =>
+                {
+                    SetPolicy("never");
+                    box.QueueFree();
+                });
+                break;
+        }
     }
 
     // ---- Gel : le jeu n'affiche plus d'images ----

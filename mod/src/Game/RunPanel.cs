@@ -158,7 +158,10 @@ public sealed class RunPanel
         _panel = new PanelContainer { Name = NodeName, MouseFilter = Control.MouseFilterEnum.Stop };
         // Carte affichée au survol d'un nom de carte, comme dans l'écran Stats ; masquée avec le panneau
         var cardHover = new CardHover(_panel, centerCursor: true);
-        _tabs = [new DeckTab(cardHover), new GameTab(), new CombatTab()];
+        // Support : ce qu'on donne à ses alliés, seulement à plusieurs
+        _tabs = player.RunState.Players.Count > 1
+            ? [new DeckTab(cardHover), new GameTab(), new CombatTab(), new SupportTab()]
+            : [new DeckTab(cardHover), new GameTab(), new CombatTab()];
         var saved = SavedSettings.Load();
         _right = saved.RunPanelRight ?? DefaultRight;
         _top = saved.RunPanelTop ?? DefaultTop;
@@ -1045,5 +1048,43 @@ internal sealed class GameTab : IRunPanelTab
         }
         content.AddChild(RunPanel.Label($"{combats} combats, {turns} turns", 18, StsColors.halfTransparentCream));
         content.AddChild(StatsTable.Create([["", "Total", "Per combat", "Per turn"], .. rows]));
+    }
+}
+
+/// <summary>
+/// Multijoueur : ce que le joueur a donné à ses alliés (énergie, cartes, pioche, Block, buffs, PV rendus), pour le
+/// combat en cours, la partie entière et en moyenne par combat.
+/// </summary>
+internal sealed class SupportTab : IRunPanelTab
+{
+    public string Title => "Support";
+
+    public void Subscribe(Player player, Action changed) => CardRunStats.Changed += changed;
+
+    public void Unsubscribe(Player player, Action changed) => CardRunStats.Changed -= changed;
+
+    public bool HasTeam => true;
+
+    public void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab)
+    {
+        // Un joueur, ou l'équipe : la somme de tous (combats : ceux du joueur le plus avancé)
+        var totals = players.Select(CardRunStats.SupportOf).ToList();
+        var combat = CardRunStats.Merge(totals.Select(t => t.Combat));
+        var run = CardRunStats.Merge(totals.Select(t => t.Run));
+        int combats = players.Max(p => CardRunStats.TotalsOf(p).RunCombats);
+        string Format(decimal value) => value.ToString("0.##");
+        var rows = run.SupportNames()
+            .Select(name => new[]
+            {
+                name, Format(combat[name]), Format(run[name]), combats > 0 ? Format(run[name] / combats) : "-",
+            })
+            .ToList();
+        if (rows.Count == 0)
+        {
+            content.AddChild(RunPanel.Label("Nothing given to allies yet.", 18, StsColors.halfTransparentCream));
+            return;
+        }
+        content.AddChild(RunPanel.Label("Given to allies", 18, StsColors.halfTransparentCream));
+        content.AddChild(StatsTable.Create([["", "Combat", "Game", "Per combat"], .. rows]));
     }
 }
