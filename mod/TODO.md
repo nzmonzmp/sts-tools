@@ -111,6 +111,16 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
     leurs raretés possibles, récompense de cartes (nombre de cartes, raretés possibles), chance de potion ; pareil
     pour les autres salles quand elles donnent quelque chose.
 
+## Rapports de bug et de plantage : spam et doublons
+
+- Éviter le spam : limiter le nombre d'envois (par exemple quelques rapports par heure et par joueur, délai minimal
+  entre deux « Report a bug »), et ne pas renvoyer un rapport déjà envoyé.
+- Éviter les doublons : reconnaître un plantage déjà signalé (même dernière erreur, même aperçu non terminé, même
+  carte ou même combat) et, plutôt qu'un nouveau message avec son zip, le compter sur le rapport existant ou envoyer
+  un message court qui renvoie au premier.
+- Limiter côté serveur si possible : un webhook dans le mod peut être utilisé par n'importe qui qui le récupère ; un
+  petit relais (Cloudflare Worker) pourrait filtrer et limiter les envois.
+
 ## Options du jeu : réglages du mod
 
 - Dans les options du jeu, onglet Mod (aujourd'hui : seulement les touches), des réglages du mod :
