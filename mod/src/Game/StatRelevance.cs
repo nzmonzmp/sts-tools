@@ -201,6 +201,9 @@ public sealed class StatRelevance
     {
         if (_everything || _stats.Contains(name))
             return true;
+        // Orbes par sorte (placées, évoquées, leurs effets) : liées aux cartes qui en placent ou en évoquent
+        if (CardRunStats.IsOrbStat(name))
+            return _stats.Contains(CardRunStats.Orbs) || _stats.Contains(CardRunStats.OrbsEvoked);
         foreach (var suffix in new[] { " applied", " gained" })
             if (name.EndsWith(suffix))
                 return _allPowers || _powers.Contains(name[..^suffix.Length]);

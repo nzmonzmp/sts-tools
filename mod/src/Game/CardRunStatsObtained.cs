@@ -176,7 +176,7 @@ public sealed partial class CardRunStats
     [HarmonyPatch(typeof(OrbCmd), "Evoke")]
     public static class EvokePatch
     {
-        public static void Prefix() => Current?.Add(OrbsEvoked, 1);
+        public static void Prefix(OrbModel evokedOrb) => Current?.Add(OrbStat(evokedOrb, Evoked), 1);
     }
 
     [HarmonyPatch(typeof(OrbCmd), nameof(OrbCmd.AddSlots))]

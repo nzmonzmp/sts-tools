@@ -477,7 +477,7 @@ public sealed class PlaySimulation
         // PV perdus par chaque allié depuis le début (fin de tour…), plus les attaques qui passeront son Block
         Dictionary<Creature, int> AlliesTaken(bool attacked) => allies.ToDictionary(c => c, c =>
             Math.Max(0, alliesBefore[c] - Body(c)[0])
-            + (attacked && !IsDead(c) ? Math.Max(0, IncomingAgainst(c) - Body(c)[1]) : 0));
+            + (attacked && !IsDead(c) ? TakenFromAttacks(c, Body(c)[1]) : 0));
         try
         {
             var context = new BlockingPlayerChoiceContext();
@@ -540,7 +540,7 @@ public sealed class PlaySimulation
             kept.Incomplete |= _outcome.Incomplete;
             _outcome = kept2;
         }
-        return (lost + Math.Max(0, incoming.Values.Sum() - block), incoming, end, alliesTaken);
+        return (lost + (IsDead(me) ? 0 : TakenFromAttacks(me, block)), incoming, end, alliesTaken);
     }
 
     private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
@@ -1935,18 +1935,18 @@ public sealed class PlaySimulation
     }
 
     /// <summary>
-    /// Attaques annoncées par les ennemis vivants contre <paramref name="target"/> (un allié du joueur local : le jeu
-    /// ne calcule les intentions que contre le joueur local), comme le jeu les calcule : chaque coup modifié par les
-    /// pouvoirs (Vulnerable de la cible, Weak de l'ennemi…), fois le nombre de coups. Les monstres frappent tous les
-    /// joueurs à chaque attaque.
+    /// Coups annoncés par les ennemis vivants contre <paramref name="target"/>, dans l'ordre (ennemi, intention, coup),
+    /// comme le jeu les calcule : chaque coup modifié par les pouvoirs (Vulnerable de la cible, Weak de l'ennemi…).
+    /// Les monstres frappent tous les joueurs à chaque attaque ; le jeu ne calcule les intentions que contre le joueur
+    /// local, d'où le calcul refait ici pour chaque cible.
     /// </summary>
-    private int IncomingAgainst(Creature target)
+    private List<(Creature Enemy, int Damage)> HitsAgainst(Creature target)
     {
-        int total = 0;
+        var hits = new List<(Creature, int)>();
         try
         {
             if ((target.Player ?? target.PetOwner)?.RunState is not { } runState)
-                return 0;
+                return hits;
             foreach (var enemy in _combat.Enemies)
             {
                 if (enemy.IsDead || IsDead(enemy) || _stunned.Contains(enemy) || enemy.Monster?.NextMove is not { } move)
@@ -1956,15 +1956,90 @@ public sealed class PlaySimulation
                     {
                         decimal single = Hook.ModifyDamage(runState, _combat, target, enemy, calc(), ValueProp.Move, null, null,
                             ModifyDamageHookType.All, CardPreviewMode.None, out _);
-                        total += Math.Max(0, (int)single) * Math.Max(1, attack.Repeats);
+                        for (int i = 0; i < Math.Max(1, attack.Repeats); i++)
+                            hits.Add((enemy, Math.Max(0, (int)single)));
                     }
             }
         }
         catch (Exception e)
         {
-            Fail("ally intents", e);
+            Fail("enemy hits", e);
         }
-        return total;
+        return hits;
+    }
+
+    /// <summary>
+    /// PV que <paramref name="target"/> perdra aux attaques des ennemis, coup par coup : le Block arrête d'abord ce
+    /// qu'il peut, puis chaque perte de PV passe par ce qui la réduit, comme dans le jeu (Buffer l'annule, Tungsten Rod
+    /// en retire 1, Intangible la ramène à 1…). Un pouvoir qui s'use à chaque perte évitée (Buffer) ne sert qu'autant de
+    /// fois qu'il a de charges.
+    /// </summary>
+    private int TakenFromAttacks(Creature target, int block)
+    {
+        int lost = 0;
+        var used = new Dictionary<PowerModel, int>(ReferenceEqualityComparer.Instance);
+        foreach (var (enemy, damage) in HitsAgainst(target))
+        {
+            int unblocked = Math.Max(0, damage - block);
+            block = Math.Max(0, block - damage);
+            if (unblocked > 0)
+                lost += HpLost(target, enemy, unblocked, used);
+        }
+        return lost;
+    }
+
+    private static readonly Func<AbstractModel, Creature, decimal, Creature?, decimal>[] HpLossSteps =
+    [
+        (m, t, a, d) => m.ModifyHpLostBeforeOsty(t, a, ValueProp.Move, d, null),
+        (m, t, a, d) => m.ModifyHpLostBeforeOstyLate(t, a, ValueProp.Move, d, null),
+        (m, t, a, d) => m.ModifyHpLostAfterOsty(t, a, ValueProp.Move, d, null),
+        (m, t, a, d) => m.ModifyHpLostAfterOstyLate(t, a, ValueProp.Move, d, null),
+    ];
+
+    /// <summary>Perte de PV après les écouteurs qui la modifient, dans l'ordre du jeu, sans ceux déjà usés.</summary>
+    private int HpLost(Creature target, Creature dealer, int amount, Dictionary<PowerModel, int> used)
+    {
+        try
+        {
+            if ((target.Player ?? target.PetOwner)?.RunState is not { } runState)
+                return amount;
+            decimal value = amount;
+            var listeners = runState.IterateHookListeners(_combat).ToList();
+            foreach (var step in HpLossSteps)
+                foreach (var model in listeners)
+                {
+                    var consumable = model is PowerModel power && UsedPerLoss(power) ? power : null;
+                    if (consumable != null && used.GetValueOrDefault(consumable) >= consumable.Amount)
+                        continue;
+                    decimal after = step(model, target, value, dealer);
+                    if (after < value && consumable != null)
+                        used[consumable] = used.GetValueOrDefault(consumable) + 1;
+                    value = after;
+                }
+            return Math.Max(0, (int)value);
+        }
+        catch (Exception e)
+        {
+            Fail("hp loss", e);
+            return amount;
+        }
+    }
+
+    private static readonly Dictionary<Type, bool> UsedPerLossCache = new();
+
+    /// <summary>
+    /// Le pouvoir perd une charge à chaque perte de PV qu'il modifie : Buffer redéfinit ce que le jeu appelle après une
+    /// perte modifiée, et y attend une commande (retrait d'une charge) ; Intangible ou Hardened Shell n'y font que
+    /// clignoter, sans attente.
+    /// </summary>
+    private static bool UsedPerLoss(PowerModel power)
+    {
+        var type = power.GetType();
+        if (!UsedPerLossCache.TryGetValue(type, out var used))
+            UsedPerLossCache[type] = used = new[] { "AfterModifyingHpLostBeforeOsty", "AfterModifyingHpLostAfterOsty" }
+                .Any(name => AccessTools.Method(type, name) is { } m && m.DeclaringType != typeof(AbstractModel) && m.DeclaringType != typeof(PowerModel)
+                    && m.IsDefined(typeof(System.Runtime.CompilerServices.AsyncStateMachineAttribute), false));
+        return used;
     }
 
     // ---- Interception de toutes les commandes ----

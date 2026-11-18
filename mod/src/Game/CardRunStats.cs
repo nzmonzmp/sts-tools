@@ -254,6 +254,9 @@ public sealed partial class CardRunStats
         // Aperçu d'une carte (PlaySimulation) : rien ne s'est vraiment passé
         if (amount == 0 || PlaySimulation.Active)
             return;
+        // Effet d'une orbe : sa propre ligne (« Lightning damage », « Frost block »), à part des dégâts, du Block… des cartes
+        if (_givingOrb is { } orb && OrbEffects.TryGetValue(name, out var effect))
+            name = OrbStat(orb, effect);
         Values[name] = Values.GetValueOrDefault(name) + amount;
         AnyChanged?.Invoke();
         // Une carte d'un joueur : compte aussi pour son combat et son tour en cours (onglet Combat) et sa partie
@@ -385,10 +388,17 @@ public sealed partial class CardRunStats
     /// </summary>
     public IEnumerable<string> DisplayNames()
     {
-        var powers = Values.Keys.Except(Order)
+        var extra = Values.Keys.Except(Order).ToList();
+        // Lignes des orbes, regroupées par sorte d'orbe : placées, évoquées, puis leurs effets (dégâts, Block…)
+        var orbs = extra.Where(IsOrbStat)
+            .OrderBy(name => PowerIcons[name])
+            .ThenBy(name => Array.FindIndex(OrbLineOrder, verb => name.EndsWith(" " + verb)) is var i and >= 0 ? i : OrbLineOrder.Length)
+            .ThenBy(name => name);
+        // Puis debuffs infligés, puis buffs gagnés
+        var powers = extra.Where(name => !IsOrbStat(name))
             .OrderBy(name => name.EndsWith(" applied") ? 0 : 1)
             .ThenBy(name => name);
-        return Order.Concat(powers).Where(name => this[name] != 0);
+        return Order.Concat(orbs).Concat(powers).Where(name => this[name] != 0);
     }
 
     // ---- Combat en cours (onglet Combat) ----
@@ -741,13 +751,63 @@ public sealed partial class CardRunStats
         }
     }
 
+    public const string Channeled = "channeled";
+    public const string Evoked = "evoked";
+
+    /// <summary>Effets d'une orbe comptés sur une ligne à son nom, et ordre des lignes d'une même orbe.</summary>
+    private static readonly Dictionary<string, string> OrbEffects = new()
+    {
+        [Damage] = "damage",
+        [Kills] = "kills",
+        [Block] = "block",
+        [EnergyGained] = "energy",
+        [StarsGained] = "stars",
+        [CardsDrawn] = "draw",
+    };
+
+    private static readonly string[] OrbLineOrder = [Channeled, Evoked, "damage", "kills", "block", "energy", "stars", "draw"];
+
+    private const string OrbIconFolder = "res://images/orbs/";
+
+    /// <summary>Ligne d'une sorte d'orbe (placée, évoquée, ses effets) : reconnue à son icône, celle de l'orbe.</summary>
+    public static bool IsOrbStat(string name) =>
+        PowerIcons.TryGetValue(name, out var path) && path.StartsWith(OrbIconFolder);
+
+    /// <summary>
+    /// Stat d'une sorte d'orbe : « Lightning channeled », « Frost evoked »… avec l'icône de l'orbe (gardée avec les
+    /// icônes des pouvoirs, sauvegardées avec la partie).
+    /// </summary>
+    internal static string OrbStat(OrbModel orb, string verb)
+    {
+        string title;
+        try
+        {
+            title = orb.Title.GetFormattedText();
+        }
+        catch (Exception)
+        {
+            title = orb.Id.Entry;
+        }
+        var name = $"{title} {verb}";
+        PowerIcons[name] = $"{OrbIconFolder}{orb.Id.Entry.ToLowerInvariant()}.png";
+        return name;
+    }
+
+    /// <summary>Carte ou relique qui a placé chaque orbe : ses effets lui reviennent.</summary>
+    private static readonly ConditionalWeakTable<OrbModel, Credit> OrbSources = new();
+
     private static Credit? CreditFor(CardModel? card) => For(card) is { } stats ? Credit.One(stats) : null;
 
     /// <summary>Énergie et étoiles dépensées juste avant le début du jeu d'une carte : c'est son coût.</summary>
     private static decimal _pendingEnergy, _pendingStars;
 
     /// <summary>Carte à qui revient ce qui se passe maintenant ; calculée seulement quand un événement arrive.</summary>
-    private static Credit? Current => _frames.Count == 0 ? null
+    private static Credit? Current =>
+        // Effet d'une orbe hors d'une carte jouée (passif en fin ou début de tour, évocation par un effet) : la carte
+        // ou la relique qui l'a placée ; pendant une carte jouée (Dualcast), cette carte
+        _givingOrb is { } orb && OrbSources.TryGetValue(orb, out var orbSource) && (_frames.Count == 0 || _frames[^1].PlayedCard == null)
+            ? orbSource
+        : _frames.Count == 0 ? null
         : _frames[^1].PlayedCard is { } played ? CreditFor(played)
         : _frames[^1].Listener is { } listener ? CreditOf(listener)
         : null;
@@ -917,8 +977,13 @@ public sealed partial class CardRunStats
             case StarsModifiedEntry { Amount: > 0 } stars:
                 Current?.Add(StarsGained, stars.Amount);
                 return;
-            case OrbChanneledEntry:
-                Current?.Add(Orbs, 1);
+            case OrbChanneledEntry channeled:
+                if (Current is { } channeler)
+                {
+                    channeler.Add(OrbStat(channeled.Orb, Channeled), 1);
+                    // Les effets de l'orbe (dégâts, Block, énergie) reviendront à ce qui l'a placée
+                    OrbSources.AddOrUpdate(channeled.Orb, channeler);
+                }
                 return;
             case SummonedEntry summoned:
                 Current?.Add(Summoned, summoned.Amount);

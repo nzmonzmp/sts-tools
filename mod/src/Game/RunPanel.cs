@@ -981,10 +981,10 @@ internal sealed class CombatTab : IRunPanelTab
     }
 
     /// <summary>
-    /// Dégâts que le joueur va perdre si rien ne change : ceux annoncés par les intentions d'attaque des ennemis en
-    /// vie pour leur prochain tour, comme les chiffres affichés au-dessus d'eux (coups multiples compris, avec la
-    /// Force des ennemis, Weak, Vulnerable… calculés par le jeu contre le joueur local), moins son Block actuel.
-    /// Null s'il n'y a pas de combat.
+    /// PV que le joueur va perdre s'il termine son tour maintenant : pendant son tour, la fin de tour simulée
+    /// (<see cref="PlaySimulation.PredictTurnEnd"/> : Block des orbes, Plating, Burn…, puis chaque coup annoncé contre
+    /// son Block et ce qui réduit les pertes de PV) ; sinon, les attaques annoncées par les ennemis en vie (coups
+    /// multiples compris, calculées par le jeu contre le joueur local) moins son Block actuel. Null sans combat.
     /// </summary>
     private static int? IncomingDamage(Player player)
     {
@@ -992,6 +992,11 @@ internal sealed class CombatTab : IRunPanelTab
         {
             if (player.Creature.CombatState is not CombatState state)
                 return null;
+            // Pendant son tour : la fin de tour simulée comme dans l'aperçu (Block des orbes Frost, Plating, Burn…),
+            // puis les coups un par un (Buffer, Intangible…)
+            if (state.CurrentSide == MegaCrit.Sts2.Core.Combat.CombatSide.Player && !CombatManager.Instance.IsOverOrEnding
+                && PlaySimulation.PredictTurnEnd(player) is { } predicted)
+                return predicted.Taken;
             var targets = state.Allies;
             int total = 0;
             foreach (var enemy in state.Enemies)
