@@ -176,6 +176,7 @@ public static class BugReportDialog
         var stamp = DateTime.Now;
         var journalLines = CrashUpload.JournalLines(BugReport.JournalPath);
         var files = attach ? BugReport.CurrentFiles().ToList() : [];
+        var player = CrashUpload.PlayerTag();
         BugReport.Note($"bug report written by the player ({description.Length} characters, files: {attach})");
         Task.Run(async () =>
         {
@@ -183,7 +184,8 @@ public static class BugReportDialog
             try
             {
                 var descriptionFile = Path.Combine(Path.GetTempPath(), $"StsTools-bug-{stamp:yyyyMMdd-HHmmss}.txt");
-                await File.WriteAllTextAsync(descriptionFile, $"From: {(name.Length > 0 ? name : "anonymous")}\n\n{description}\n");
+                await File.WriteAllTextAsync(descriptionFile,
+                    $"From: {(name.Length > 0 ? name : "anonymous")}\nPlayer: {player ?? "unknown"}\n\n{description}\n");
                 files.Insert(0, ("description.txt", descriptionFile));
                 var zip = CrashUpload.ZipFiles(files);
                 ok = await CrashUpload.Post(url, Message(description, name, journalLines), zip, $"bug-{stamp:yyyyMMdd-HHmmss}.zip");
@@ -204,7 +206,7 @@ public static class BugReportDialog
         var text = new StringBuilder();
         // Le nom tel quel, sans mise en forme Discord
         var who = name.Length > 0 ? name.Replace("`", "'") : "anonymous";
-        text.AppendLine($"**Bug report** from `{CrashUpload.Clip(who, 60)}`");
+        text.AppendLine($"**Bug report** from `{CrashUpload.Clip(who, 60)}`" + (CrashUpload.PlayerTag() is { } player ? $", {player}" : ""));
         text.Append(CrashUpload.Context(journalLines));
         int room = 1990 - text.Length - 6;
         var quoted = description.Length > room ? description[..Math.Max(0, room - 40)] + "… (full text in description.txt)" : description;

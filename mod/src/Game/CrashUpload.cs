@@ -60,12 +60,14 @@ public static class CrashUpload
         {
             // Sans marqueur, pas de nouvel essai au prochain lancement : l'envoi a lieu quand même
         }
+        // Lu sur le fil du jeu : la plateforme (Steam) n'est pas appelée depuis l'envoi en arrière-plan
+        var player = PlayerTag();
         Task.Run(async () =>
         {
             bool ok = false;
             try
             {
-                ok = await Upload(url, report);
+                ok = await Upload(url, report, player);
                 if (ok)
                     File.WriteAllText(Path.Combine(report, SentMarker), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
@@ -94,8 +96,8 @@ public static class CrashUpload
                 Send(report);
     }
 
-    private static Task<bool> Upload(string url, string report) =>
-        Post(url, Summary(report), Zip(report), $"{Path.GetFileName(report)}.zip");
+    private static Task<bool> Upload(string url, string report, string? player) =>
+        Post(url, Summary(report, player), Zip(report), $"{Path.GetFileName(report)}.zip");
 
     /// <summary>Un message dans le salon du webhook, avec un zip joint s'il y en a un.</summary>
     internal static async Task<bool> Post(string url, string content, byte[]? zip, string zipName)
@@ -175,12 +177,12 @@ public static class CrashUpload
     /// Message Discord : le rapport, ce qu'on sait du plantage (gel, aperçu non terminé), la partie et le combat
     /// en cours, et les dernières lignes du journal ; au plus 2000 caractères, la limite de Discord.
     /// </summary>
-    private static string Summary(string report)
+    private static string Summary(string report, string? player)
     {
         var journal = Path.Combine(report, "journal.log");
         var lines = JournalLines(journal);
         var text = new StringBuilder();
-        text.AppendLine($"**Crash report** `{Path.GetFileName(report)}`");
+        text.AppendLine($"**Crash report** `{Path.GetFileName(report)}`" + (player != null ? $" from {player}" : ""));
         text.Append(Context(lines));
         if (File.Exists(Path.Combine(report, "freeze.txt")))
             text.AppendLine("Freeze detected (freeze.txt)");
@@ -216,6 +218,27 @@ public static class CrashUpload
         if (lines.LastOrDefault(l => l.Contains(" combat: ")) is { } combat)
             text.AppendLine(Clip(combat, 300));
         return text.ToString();
+    }
+
+    /// <summary>
+    /// Joueur local sur sa plateforme (Steam) : pseudo et identifiant, pour regrouper les rapports d'une même personne ;
+    /// null si la plateforme ne répond pas.
+    /// </summary>
+    internal static string? PlayerTag()
+    {
+        try
+        {
+            var platform = MegaCrit.Sts2.Core.Platform.PlatformUtil.PrimaryPlatform;
+            ulong id = MegaCrit.Sts2.Core.Platform.PlatformUtil.GetLocalPlayerId(platform);
+            if (id == 0)
+                return null;
+            string name = MegaCrit.Sts2.Core.Platform.PlatformUtil.GetPlayerNameRaw(platform, id).Replace("`", "'");
+            return $"{platform} `{Clip(name, 40)}` id `{id}`";
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     internal static string Clip(string line, int max) => line.Length > max ? line[..max] + "…" : line;

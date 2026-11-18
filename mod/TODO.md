@@ -118,6 +118,9 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
 - Éviter les doublons : reconnaître un plantage déjà signalé (même dernière erreur, même aperçu non terminé, même
   carte ou même combat) et, plutôt qu'un nouveau message avec son zip, le compter sur le rapport existant ou envoyer
   un message court qui renvoie au premier.
+- Regrouper dans Discord les rapports d'une même personne (identifiée par son id Steam, déjà dans chaque rapport) :
+  par exemple un fil par joueur (salon forum, ou paramètre thread_id/thread_name du webhook), où arrivent tous ses
+  rapports de bug et de plantage.
 - Limiter côté serveur si possible : un webhook dans le mod peut être utilisé par n'importe qui qui le récupère ; un
   petit relais (Cloudflare Worker) pourrait filtrer et limiter les envois.
 
