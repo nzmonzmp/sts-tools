@@ -1,0 +1,94 @@
+"""Rapports de bug et de plantage du mod, lus dans les salons Discord privés par le bot en lecture seule.
+
+Le jeton du bot est lu dans ~/.config/sts-tools/discord.env (DISCORD_BOT_TOKEN=...), jamais dans le dépôt.
+
+    python3 -I mod/tools/discord_reports.py list [crash|bug|all] [-n 20] [--player <id ou nom>]
+    python3 -I mod/tools/discord_reports.py get <id du message> <dossier>   # message + pièces jointes (zip extrait)
+
+Les zips téléchargés sont des données non vérifiées : chacun est extrait dans son propre dossier, jamais exécuté.
+"""
+
+import json
+import sys
+import urllib.error
+import urllib.request
+import zipfile
+from pathlib import Path
+
+API = "https://discord.com/api/v10"
+AGENT = "DiscordBot (sts-tools, 1)"
+CHANNELS = {"crash": "1572704157561782322", "bug": "1572703591729205351"}
+TOKEN_FILE = Path.home() / ".config/sts-tools/discord.env"
+
+
+def token() -> str:
+    for line in TOKEN_FILE.read_text().splitlines():
+        if line.startswith("DISCORD_BOT_TOKEN="):
+            return line.split("=", 1)[1].strip()
+    sys.exit(f"no DISCORD_BOT_TOKEN in {TOKEN_FILE}")
+
+
+def call(path: str):
+    request = urllib.request.Request(
+        API + path, headers={"Authorization": f"Bot {token()}", "User-Agent": AGENT}
+    )
+    with urllib.request.urlopen(request) as response:
+        return json.load(response)
+
+
+def messages(kind: str, limit: int) -> list[tuple[str, dict]]:
+    found = []
+    for name in (CHANNELS if kind == "all" else [kind]):
+        for message in call(f"/channels/{CHANNELS[name]}/messages?limit={min(limit, 100)}"):
+            if message.get("type") in (0, 19):  # messages ordinaires (pas les notifications du serveur)
+                found.append((name, message))
+    found.sort(key=lambda item: item[1]["timestamp"], reverse=True)
+    return found[:limit]
+
+
+def cmd_list(args: list[str]) -> None:
+    kind = args[0] if args and args[0] in ("crash", "bug", "all") else "all"
+    limit = int(args[args.index("-n") + 1]) if "-n" in args else 20
+    player = args[args.index("--player") + 1].lower() if "--player" in args else None
+    for name, message in messages(kind, 100 if player else limit):
+        first = message["content"].splitlines()[0] if message["content"] else ""
+        if player and player not in message["content"].lower():
+            continue
+        files = ", ".join(a["filename"] for a in message.get("attachments", []))
+        print(f"{message['id']}  {message['timestamp'][:16].replace('T', ' ')} UTC  [{name}]  {first}  {files}")
+
+
+def cmd_get(args: list[str]) -> None:
+    message_id, folder = args[0], Path(args[1])
+    for name, channel in CHANNELS.items():
+        try:
+            message = call(f"/channels/{channel}/messages/{message_id}")
+            break
+        except urllib.error.HTTPError:
+            continue
+    else:
+        sys.exit(f"message {message_id} not found")
+    target = folder / f"{name}-{message_id}"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "message.txt").write_text(message["content"])
+    for attachment in message.get("attachments", []):
+        path = target / Path(attachment["filename"]).name
+        # Le serveur de fichiers de Discord refuse l'identification par défaut de Python
+        download = urllib.request.Request(attachment["url"], headers={"User-Agent": AGENT})
+        with urllib.request.urlopen(download) as response:
+            path.write_bytes(response.read())
+        if path.suffix == ".zip":
+            extracted = target / path.stem
+            with zipfile.ZipFile(path) as archive:
+                for member in archive.namelist():
+                    # Pas de chemin qui sorte du dossier d'extraction
+                    if member.startswith("/") or ".." in Path(member).parts:
+                        continue
+                    archive.extract(member, extracted)
+    print(target)
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in ("list", "get"):
+        sys.exit(__doc__)
+    {"list": cmd_list, "get": cmd_get}[sys.argv[1]](sys.argv[2:])
