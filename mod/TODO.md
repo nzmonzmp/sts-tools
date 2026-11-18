@@ -29,9 +29,8 @@ dégâts subis et bloqués par le joueur.
 
 Fait : onglet Support (multijoueur seulement) : ce que chaque joueur a donné à ses alliés (énergie, cartes créées,
 cartes piochées par un effet, Block, buffs, PV rendus) par ses cartes, reliques, potions et les pouvoirs qu'il a
-donnés ; combat en cours, partie, moyenne par combat ; sauvegardé avec la partie.
-
-- Onglet Support à vérifier dans une vraie partie à plusieurs.
+donnés ; combat en cours, partie, moyenne par combat ; sauvegardé avec la partie. Vérifié dans une vraie partie à
+plusieurs.
 
 - Multijoueur : dégâts bonus de la Force et des debuffs donnés aux alliés.
 
@@ -56,8 +55,6 @@ faire (rouge : avant d'agir ; violet : après, Doom) et sur ceux que la carte tu
   être couvert.
 - Un objet nul déréférencé par le code du jeu ferme le jeu sans message : les commandes interceptées doivent
   toujours renvoyer un objet utilisable (créatures détachées, résultats vides).
-- Jeu figé le 2026-11-17 contre Aeonglass (The Fool) : cause probable corrigée (boucle de Recall, Wrest, Uproot sur
-  une flèche jamais retirée). S'il revient, le rapport de bug automatique (journal, preview.log, freeze.txt) dira où.
 
 ## Rapports de bug
 
@@ -85,10 +82,10 @@ sous la barre du haut, repliable (flèche, touche Collapse GUI).
 Fait : totaux par joueur (cartes, dégâts subis et bloqués, Osty, soins), sauvegardés pour chaque joueur ; dans
 le panneau, rangée des joueurs (toi, chaque coéquipier, l'équipe) pour les onglets Deck, Combat et Game ;
 infobulles des reliques des coéquipiers. Le mod ne change rien à l'état de la partie (outils de test bloqués en
-multijoueur) et déclare ne pas toucher au gameplay : les autres joueurs n'ont pas besoin de l'avoir.
+multijoueur) et déclare ne pas toucher au gameplay : les autres joueurs n'ont pas besoin de l'avoir. Vérifié dans
+une vraie partie à plusieurs avec un joueur sans aucun mod : pas de désynchronisation, noms des joueurs, sauvegarde
+et reprise.
 
-- À vérifier dans une vraie partie à plusieurs : rejoindre sans que l'autre ait le mod, pas de désynchronisation,
-  noms des joueurs, sauvegarde et reprise.
 - Dégâts annoncés par les ennemis pour chaque joueur (aujourd'hui : le joueur local seulement).
 
 ## Repères dans le code du jeu (utilisés par le mod)
