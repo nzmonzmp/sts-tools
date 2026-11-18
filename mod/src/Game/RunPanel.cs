@@ -4,8 +4,10 @@ using MegaCrit.Sts2.Core.MonsterMoves.Intents;
 using MegaCrit.Sts2.Core.Entities.Cards;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
+using MegaCrit.Sts2.Core.Hooks;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Models;
+using MegaCrit.Sts2.Core.ValueProps;
 
 namespace StsTools.Game;
 
@@ -427,9 +429,12 @@ public sealed class RunPanel
     }
 
     /// <summary>Nom d'un joueur comme le jeu l'affiche ; « You » pour le joueur local.</summary>
-    private string NameOf(Player player)
+    private string NameOf(Player player) => player == _player ? "You" : PlayerName(player);
+
+    /// <summary>Nom d'un joueur comme le jeu l'affiche ; « You » pour le joueur local de la partie suivie.</summary>
+    internal static string PlayerName(Player player)
     {
-        if (player == _player)
+        if (player == CardRunStats.LocalPlayer)
             return "You";
         try
         {
@@ -957,9 +962,11 @@ internal sealed class CombatTab : IRunPanelTab
             return;
         }
         content.AddChild(RunPanel.Label(turns > 0 ? $"Turn {turns}" : inCombat ? "Combat" : "Last combat", 18, StsColors.halfTransparentCream));
-        // Dégâts annoncés : calculés par le jeu contre le joueur local seulement
-        if (inCombat && player != null && player == CardRunStats.LocalPlayer && IncomingDamage(player) is { } incoming)
+        // Dégâts annoncés contre chaque joueur affiché : une ligne, ou une par joueur pour l'équipe
+        foreach (var shown in inCombat ? players : [])
         {
+            if (IncomingDamage(shown) is not { } incoming)
+                continue;
             // Icône d'attaque des intentions, libellé atténué, nombre en clair : comme une ligne du tableau
             var line = new HBoxContainer();
             line.AddThemeConstantOverride("separation", 6);
@@ -972,7 +979,8 @@ internal sealed class CombatTab : IRunPanelTab
                 SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
                 MouseFilter = Control.MouseFilterEnum.Ignore,
             });
-            line.AddChild(RunPanel.Label("Unblocked incoming damage", 18, StsColors.halfTransparentCream));
+            line.AddChild(RunPanel.Label(players.Count > 1 ? $"Unblocked incoming damage, {RunPanel.PlayerName(shown)}" : "Unblocked incoming damage",
+                18, StsColors.halfTransparentCream));
             line.AddChild(RunPanel.Label(incoming.ToString(), 18, StsColors.cream));
             content.AddChild(line);
         }
@@ -984,28 +992,33 @@ internal sealed class CombatTab : IRunPanelTab
     /// PV que le joueur va perdre s'il termine son tour maintenant : pendant son tour, la fin de tour simulée
     /// (<see cref="PlaySimulation.PredictTurnEnd"/> : Block des orbes, Plating, Burn…, puis chaque coup annoncé contre
     /// son Block et ce qui réduit les pertes de PV) ; sinon, les attaques annoncées par les ennemis en vie (coups
-    /// multiples compris, calculées par le jeu contre le joueur local) moins son Block actuel. Null sans combat.
+    /// multiples compris, calculées contre ce joueur) moins son Block actuel. Null sans combat ou s'il est mort.
     /// </summary>
     private static int? IncomingDamage(Player player)
     {
         try
         {
-            if (player.Creature.CombatState is not CombatState state)
+            if (player.Creature.CombatState is not CombatState state || player.Creature.IsDead)
                 return null;
             // Pendant son tour : la fin de tour simulée comme dans l'aperçu (Block des orbes Frost, Plating, Burn…),
             // puis les coups un par un (Buffer, Intangible…)
             if (state.CurrentSide == MegaCrit.Sts2.Core.Combat.CombatSide.Player && !CombatManager.Instance.IsOverOrEnding
                 && PlaySimulation.PredictTurnEnd(player) is { } predicted)
                 return predicted.Taken;
-            var targets = state.Allies;
+            // Chaque attaque recalculée contre ce joueur (le jeu ne calcule les intentions que contre le joueur local) :
+            // les monstres frappent tous les joueurs
             int total = 0;
             foreach (var enemy in state.Enemies)
             {
                 if (enemy.IsDead || enemy.Monster?.NextMove is not { } move)
                     continue;
                 foreach (var intent in move.Intents)
-                    if (intent is AttackIntent attack && attack.DamageCalc != null)
-                        total += attack.GetTotalDamage(targets, enemy);
+                    if (intent is AttackIntent { DamageCalc: { } calc } attack)
+                    {
+                        decimal single = Hook.ModifyDamage(player.RunState, state, player.Creature, enemy, calc(), ValueProp.Move,
+                            null, null, ModifyDamageHookType.All, CardPreviewMode.None, out _);
+                        total += Math.Max(0, (int)single) * Math.Max(1, attack.Repeats);
+                    }
             }
             return Math.Max(0, total - player.Creature.Block);
         }

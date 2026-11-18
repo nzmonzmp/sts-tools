@@ -854,24 +854,59 @@ public sealed class PlaySimulation
 
     /// <summary>
     /// Effets visuels créés directement par le code des cartes, pouvoirs et reliques (sans commande, donc sans le mode
-    /// test : <c>NPowerUpVfx.CreateNormal</c> d'Inflame) : pas ajoutés à la scène pendant la simulation, et libérés.
-    /// Sinon l'aperçu les affichait pour de vrai (carré blanc derrière le personnage en tenant Inflame).
+    /// test : <c>NPowerUpVfx.CreateNormal</c> d'Inflame) : pas ajoutés à l'écran pendant la simulation. Sinon l'aperçu
+    /// les affichait pour de vrai (carré blanc derrière le personnage en tenant Inflame).
+    /// Seulement ce qui irait dans l'écran du combat ou l'interface de la partie, où vont les effets visuels : ailleurs
+    /// (lecteurs audio du jeu…), le jeu garde souvent le nœud ajouté, qui doit exister (Save and Quit planté sur un
+    /// lecteur audio détruit, écran noir). Et seuls les nœuds d'effets visuels bloqués sont libérés.
     /// </summary>
-    [HarmonyPatch]
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddChildSafely))]
     public static class AddNodePatch
     {
-        public static IEnumerable<MethodBase> TargetMethods() =>
-        [
-            AccessTools.Method(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddChildSafely)),
-            AccessTools.Method(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddSiblingSafely)),
-        ];
+        public static bool Prefix(Godot.Node parent, Godot.Node? child) => !(Active && BlockAdd(parent, child));
+    }
 
-        public static bool Prefix(Godot.Node? child)
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions), nameof(MegaCrit.Sts2.Core.Helpers.GodotTreeExtensions.AddSiblingSafely))]
+    public static class AddSiblingPatch
+    {
+        public static bool Prefix(Godot.Node sibling, Godot.Node? child) => !(Active && BlockAdd(sibling.GetParent(), child));
+    }
+
+    /// <returns>vrai : l'ajout est bloqué</returns>
+    private static bool BlockAdd(Godot.Node? parent, Godot.Node? child)
+    {
+        try
+        {
+            if (parent == null || !Godot.GodotObject.IsInstanceValid(parent) || !IsDisplay(parent))
+                return false;
+            if (child != null && Godot.GodotObject.IsInstanceValid(child) && !child.IsInsideTree()
+                && child.GetType().Namespace?.StartsWith("MegaCrit.Sts2.Core.Nodes.Vfx") == true)
+                child.QueueFree();
+            return true;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Nœud de l'écran du combat ou de l'interface de la partie (barre du haut, cartes affichées…).</summary>
+    private static bool IsDisplay(Godot.Node node) =>
+        MegaCrit.Sts2.Core.Nodes.Rooms.NCombatRoom.Instance is { } room && (node == room || room.IsAncestorOf(node))
+        || MegaCrit.Sts2.Core.Nodes.NRun.Instance?.GlobalUi is { } ui && (node == ui || ui.IsAncestorOf(node));
+
+    /// <summary>
+    /// Sons joués directement (gestionnaire audio de secours du jeu) : pas pendant la simulation. Il garde chaque son
+    /// en cours dans une liste ; un son de simulation l'y laissait (rien d'autre ne l'arrêtait).
+    /// </summary>
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Audio.Debug.NDebugAudioManager), nameof(MegaCrit.Sts2.Core.Audio.Debug.NDebugAudioManager.Play))]
+    public static class DebugAudioPatch
+    {
+        public static bool Prefix(ref int __result)
         {
             if (!Active)
                 return true;
-            if (child != null && Godot.GodotObject.IsInstanceValid(child) && !child.IsInsideTree())
-                child.QueueFree();
+            __result = -1;
             return false;
         }
     }

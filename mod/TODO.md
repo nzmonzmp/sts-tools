@@ -34,9 +34,8 @@ plusieurs.
 
 Fait : dégâts bonus donnés aux alliés (Vulnerable posé sur un ennemi, Force donnée à un allié) et dégâts évités aux
 alliés (Weak posé sur un ennemi), dans l'onglet Support, partagés au prorata entre les joueurs qui ont donné le
-pouvoir.
-
-- Dégâts bonus donnés aux alliés et encadrés des alliés dans l'aperçu : à vérifier dans une vraie partie à plusieurs.
+pouvoir. Orbes placées chez un allié (Ignition) et leurs effets. Vérifié dans une vraie partie à plusieurs, avec les
+encadrés des alliés dans l'aperçu.
 
 ## Aperçu des cartes jouées et des potions
 
@@ -97,7 +96,9 @@ multijoueur) et déclare ne pas toucher au gameplay : les autres joueurs n'ont p
 une vraie partie à plusieurs avec un joueur sans aucun mod : pas de désynchronisation, noms des joueurs, sauvegarde
 et reprise.
 
-- Dégâts annoncés par les ennemis pour chaque joueur (aujourd'hui : le joueur local seulement).
+Fait : dégâts annoncés par les ennemis pour chaque joueur dans l'onglet Combat (une ligne par joueur pour l'équipe),
+calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour simulée. Vérifié dans une vraie partie
+à plusieurs.
 
 ## Carte : aperçu des salles
 
