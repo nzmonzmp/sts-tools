@@ -31,6 +31,10 @@
   <ItemGroup Condition="'$(CrashWebhook)' != ''">
     <AssemblyMetadata Include="CrashWebhook" Value="$(CrashWebhook)" />
   </ItemGroup>
+  <!-- Webhook Discord des rapports de bug écrits par les joueurs (BugReportDialog) -->
+  <ItemGroup Condition="'$(BugWebhook)' != ''">
+    <AssemblyMetadata Include="BugWebhook" Value="$(BugWebhook)" />
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="sts2" HintPath="$(StsData)/sts2.dll" Private="false" />

@@ -121,6 +121,26 @@ public static class BugReport
         }
     }
 
+    /// <summary>Journal de la session en cours.</summary>
+    internal static string JournalPath => Journal;
+
+    /// <summary>
+    /// Fichiers de la session en cours, pour un rapport de bug écrit par le joueur (nom dans le zip, chemin) : journal,
+    /// trace d'aperçu et rapport de gel s'il y en a, log du jeu, sauvegardes de la partie en cours.
+    /// </summary>
+    internal static IEnumerable<(string Name, string Path)> CurrentFiles()
+    {
+        if (Directory.Exists(Session))
+            foreach (var file in Directory.GetFiles(Session).Where(f => f != Lock))
+                yield return (Path.GetFileName(file), file);
+        yield return ("game.log", ProjectSettings.GlobalizePath("user://logs/godot.log"));
+        foreach (var save in Directory.GetFiles(ProjectSettings.GlobalizePath("user://"), "current_run*.save", SearchOption.AllDirectories))
+        {
+            var profile = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(save)) ?? "");
+            yield return ($"saves/{profile}-{Path.GetFileName(save)}", save);
+        }
+    }
+
     private static void OnGameLog(LogLevel level, string text, int _) => Note($"[game {level}] {text}");
 
     // ---- Trace pas à pas d'un aperçu de carte (preview.log) ----

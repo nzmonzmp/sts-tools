@@ -42,6 +42,9 @@ public sealed class SavedSettings
     /// <summary>Rapports de plantage : « ask » (demander au menu principal), « always » (envoyer sans demander) ou « never »</summary>
     public string CrashReports { get; set; } = "ask";
 
+    /// <summary>Nom donné dans le dernier rapport de bug (Report a bug), proposé la fois suivante</summary>
+    public string? BugReportName { get; set; }
+
     /// <summary>Touches du mod (noms des touches Godot : « F7 »), réglables dans les options du jeu (Input)</summary>
     public Dictionary<string, string> Hotkeys { get; set; } = [];
 

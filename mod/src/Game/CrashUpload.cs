@@ -28,9 +28,12 @@ public static class CrashUpload
     /// <summary>Rapports en cours d'envoi : pas deux envois du même.</summary>
     private static readonly HashSet<string> Sending = [];
 
-    private static string? Webhook =>
+    private static string? Webhook => WebhookNamed("CrashWebhook");
+
+    /// <summary>Adresse d'un webhook mise dans la DLL à la compilation (StsTools.local.props), sinon null.</summary>
+    internal static string? WebhookNamed(string key) =>
         typeof(CrashUpload).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == "CrashWebhook")?.Value is { Length: > 0 } url ? url : null;
+            .FirstOrDefault(a => a.Key == key)?.Value is { Length: > 0 } url ? url : null;
 
     /// <summary>Le mod a été compilé avec un webhook : il peut envoyer ses rapports.</summary>
     public static bool Available => Webhook != null;
@@ -91,56 +94,67 @@ public static class CrashUpload
                 Send(report);
     }
 
-    private static async Task<bool> Upload(string url, string report)
+    private static Task<bool> Upload(string url, string report) =>
+        Post(url, Summary(report), Zip(report), $"{Path.GetFileName(report)}.zip");
+
+    /// <summary>Un message dans le salon du webhook, avec un zip joint s'il y en a un.</summary>
+    internal static async Task<bool> Post(string url, string content, byte[]? zip, string zipName)
     {
-        var name = Path.GetFileName(report);
-        var zip = Zip(report);
         var payload = JsonSerializer.Serialize(new
         {
-            content = Summary(report),
+            content,
             // Aucune mention (@everyone…) même si le journal en contient
             allowed_mentions = new { parse = Array.Empty<string>() },
         });
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent(payload, Encoding.UTF8, "application/json"), "payload_json");
-        var file = new ByteArrayContent(zip);
-        file.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-        form.Add(file, "files[0]", $"{name}.zip");
+        if (zip != null)
+        {
+            var file = new ByteArrayContent(zip);
+            file.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
+            form.Add(file, "files[0]", zipName);
+        }
         using var response = await Http.PostAsync(url + (url.Contains('?') ? "&" : "?") + "wait=true", form);
         if (response.IsSuccessStatusCode)
             return true;
-        Log.Warn($"[{ModEntry.Id}] bug report upload refused: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
+        Log.Warn($"[{ModEntry.Id}] webhook upload refused: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
         return false;
     }
 
+    /// <summary>Le dossier du rapport en zip, sous la taille permise (<see cref="ZipFiles"/>).</summary>
+    private static byte[] Zip(string report) =>
+        ZipFiles(Directory.GetFiles(report, "*", SearchOption.AllDirectories)
+            .Select(path => (Path.GetRelativePath(report, path).Replace('\\', '/'), path))
+            .Where(f => !f.Item1.StartsWith("upload.")));
+
     /// <summary>
-    /// Le dossier du rapport en zip, sous la taille permise : tout ; sinon sans les sauvegardes ; sinon avec seulement
-    /// la fin des gros fichiers (la fin d'un log est ce qui compte pour un plantage).
+    /// Fichiers en zip (nom dans le zip, chemin), sous la taille permise : tout ; sinon sans les sauvegardes (saves/) ;
+    /// sinon avec seulement la fin des gros fichiers (la fin d'un log est ce qui compte).
     /// </summary>
-    private static byte[] Zip(string report)
+    internal static byte[] ZipFiles(IEnumerable<(string Name, string Path)> files)
     {
-        byte[] zip = BuildZip(report, saves: true, maxFile: null);
+        var list = files.Where(f => File.Exists(f.Path)).ToList();
+        byte[] zip = BuildZip(list, saves: true, maxFile: null);
         if (zip.Length <= MaxZip)
             return zip;
-        zip = BuildZip(report, saves: false, maxFile: null);
+        zip = BuildZip(list, saves: false, maxFile: null);
         foreach (long max in new long[] { 6_000_000, 3_000_000, 1_000_000, 300_000 })
         {
             if (zip.Length <= MaxZip)
                 break;
-            zip = BuildZip(report, saves: false, maxFile: max);
+            zip = BuildZip(list, saves: false, maxFile: max);
         }
         return zip;
     }
 
-    private static byte[] BuildZip(string report, bool saves, long? maxFile)
+    private static byte[] BuildZip(List<(string Name, string Path)> files, bool saves, long? maxFile)
     {
         using var memory = new MemoryStream();
         using (var archive = new ZipArchive(memory, ZipArchiveMode.Create, true))
         {
-            foreach (var path in Directory.GetFiles(report, "*", SearchOption.AllDirectories))
+            foreach (var (relative, path) in files)
             {
-                var relative = Path.GetRelativePath(report, path).Replace('\\', '/');
-                if (relative.StartsWith("upload.") || !saves && relative.StartsWith("saves/"))
+                if (!saves && relative.StartsWith("saves/"))
                     continue;
                 var entry = archive.CreateEntry(relative, CompressionLevel.SmallestSize);
                 using var output = entry.Open();
@@ -164,16 +178,10 @@ public static class CrashUpload
     private static string Summary(string report)
     {
         var journal = Path.Combine(report, "journal.log");
-        var lines = File.Exists(journal) ? ReadTail(journal, 200_000).Split('\n', StringSplitOptions.RemoveEmptyEntries) : [];
-        string? Last(string marker) => lines.LastOrDefault(l => l.Contains(marker));
+        var lines = JournalLines(journal);
         var text = new StringBuilder();
         text.AppendLine($"**Crash report** `{Path.GetFileName(report)}`");
-        if (lines.FirstOrDefault(l => l.Contains("session start:")) is { } start)
-            text.AppendLine(Clip(start, 300));
-        if (Last(" run: ") is { } run)
-            text.AppendLine(Clip(run, 300));
-        if (Last(" combat: ") is { } combat)
-            text.AppendLine(Clip(combat, 300));
+        text.Append(Context(lines));
         if (File.Exists(Path.Combine(report, "freeze.txt")))
             text.AppendLine("Freeze detected (freeze.txt)");
         if (File.Exists(Path.Combine(report, "preview.log")))
@@ -193,7 +201,24 @@ public static class CrashUpload
         return message.Length > 2000 ? message[..2000] : message;
     }
 
-    private static string Clip(string line, int max) => line.Length > max ? line[..max] + "…" : line;
+    /// <summary>Dernières lignes d'un journal de session (<see cref="BugReport"/>).</summary>
+    internal static string[] JournalLines(string journal) =>
+        File.Exists(journal) ? ReadTail(journal, 200_000).Split('\n', StringSplitOptions.RemoveEmptyEntries) : [];
+
+    /// <summary>Contexte d'un journal : début de session (versions), dernière partie et dernier combat.</summary>
+    internal static string Context(string[] lines)
+    {
+        var text = new StringBuilder();
+        if (lines.FirstOrDefault(l => l.Contains("session start:")) is { } start)
+            text.AppendLine(Clip(start, 300));
+        if (lines.LastOrDefault(l => l.Contains(" run: ")) is { } run)
+            text.AppendLine(Clip(run, 300));
+        if (lines.LastOrDefault(l => l.Contains(" combat: ")) is { } combat)
+            text.AppendLine(Clip(combat, 300));
+        return text.ToString();
+    }
+
+    internal static string Clip(string line, int max) => line.Length > max ? line[..max] + "…" : line;
 
     private static string ReadTail(string path, long max)
     {

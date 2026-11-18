@@ -457,6 +457,8 @@ public static class KeyboardNav
     {
         public static void Postfix(NGame __instance, InputEvent inputEvent)
         {
+            if (BugReportDialog.IsOpen)
+                return;
             var viewport = __instance.GetViewport();
             if (inputEvent is InputEventKey { Pressed: false } released && SwallowedKeys.Remove(released.Keycode))
             {

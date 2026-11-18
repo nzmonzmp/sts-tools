@@ -32,7 +32,11 @@ cartes piochées par un effet, Block, buffs, PV rendus) par ses cartes, reliques
 donnés ; combat en cours, partie, moyenne par combat ; sauvegardé avec la partie. Vérifié dans une vraie partie à
 plusieurs.
 
-- Multijoueur : dégâts bonus de la Force et des debuffs donnés aux alliés.
+Fait : dégâts bonus donnés aux alliés (Vulnerable posé sur un ennemi, Force donnée à un allié) et dégâts évités aux
+alliés (Weak posé sur un ennemi), dans l'onglet Support, partagés au prorata entre les joueurs qui ont donné le
+pouvoir.
+
+- Dégâts bonus donnés aux alliés et encadrés des alliés dans l'aperçu : à vérifier dans une vraie partie à plusieurs.
 
 ## Aperçu des cartes jouées et des potions
 
@@ -40,7 +44,9 @@ Fait : potions en combat aussi (au survol de la cible pour celles qui visent, au
 autres). GUI ouvert, en visant une créature (ou en entrant dans la zone de jeu pour une carte sans cible), un encadré
 à côté de chaque créature concernée : dégâts, part qui passe le Block, coup fatal, étourdi, pouvoirs, Block, PV
 perdus (épines…), énergie, pioche, orbes ; dégâts annoncés évités par monstre ; pour le joueur, dégâts évités
-jusqu'à l'attaque des ennemis (fin de tour comprise : Plating, Burn, poison…) et bilan si la carte coûte des PV.
+jusqu'à l'attaque des ennemis (fin de tour comprise : Plating, Burn, poison…) et bilan si la carte coûte des PV ;
+en multijoueur, la même chose pour chaque allié dans un encadré à côté de lui (ennemi tué avant son attaque, Weak,
+Block donné…), les attaques calculées contre lui.
 Calculé en jouant la carte à blanc avec le code du jeu (PlaySimulation) : écouteurs copiés, commandes
 interceptées, hasard remis en place ; moyenne si le hasard intervient, fourchette si un choix du joueur
 intervient, effet combiné des cartes choisies pendant un écran de choix (Sly, épuisement…).
@@ -70,7 +76,12 @@ ask ; message de résumé et rapport en zip (moins de 10 Mo : sans les sauvegard
 faut) ; envoi raté retenté au lancement suivant. L'adresse du webhook est dans `StsTools.local.props`
 (`CrashWebhook`, jamais commitée) et mise dans la DLL à la compilation : un mod compilé sans elle n'envoie rien.
 
-- Le mod compilé contient l'adresse du webhook : ne pas le partager tel quel (sinon changer de webhook).
+Fait : bouton « Report a bug » (menu principal, menu pause) : le joueur décrit le bug, donne son nom s'il veut, et
+peut joindre le journal, le log du jeu et sa partie en cours ; envoyé dans le salon Discord privé bug-report par un
+second webhook (`BugWebhook` dans `StsTools.local.props`). Sans ce webhook, le bouton n'apparaît pas.
+
+- Le mod compilé contient les adresses des webhooks (crash-reports, bug-report) : ne le donner qu'aux joueurs de
+  confiance ; si une adresse fuit, supprimer le webhook et en créer un autre.
 
 ## GUI
 
@@ -87,6 +98,16 @@ une vraie partie à plusieurs avec un joueur sans aucun mod : pas de désynchron
 et reprise.
 
 - Dégâts annoncés par les ennemis pour chaque joueur (aujourd'hui : le joueur local seulement).
+
+## Carte : aperçu des salles
+
+- Sur la carte, au choix de la salle (survol d'une salle), ce qui peut arriver, jamais ce qui va vraiment arriver
+  (pas de lecture de la graine ni des tirages déjà faits) ; fourchettes quand une valeur varie :
+  - combat normal : les ennemis possibles à cet acte et à cet étage ;
+  - « ? » : les issues possibles avec leurs probabilités (événement, combat, marchand, trésor…) ;
+  - gains possibles de chaque salle : pour un combat (normal, élite, boss), or (fourchette), nombre de reliques et
+    leurs raretés possibles, récompense de cartes (nombre de cartes, raretés possibles), chance de potion ; pareil
+    pour les autres salles quand elles donnent quelque chose.
 
 ## Repères dans le code du jeu (utilisés par le mod)
 

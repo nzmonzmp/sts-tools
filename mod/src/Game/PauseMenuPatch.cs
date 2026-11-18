@@ -13,6 +13,7 @@ public static class PauseMenuPatch
 {
     internal const string ButtonName = "StsToolsButton";
     private const string ButtonText = "Stats";
+    internal const string BugButtonName = "StsToolsBugButton";
 
     // Avant _Ready, comme pour le menu principal : le bouton existe quand le menu se met en place
     public static void Prefix(NPauseMenu __instance)
@@ -32,6 +33,17 @@ public static class PauseMenuPatch
                 image.Material = (Material)image.Material.Duplicate();
             buttons.AddChild(button);
             buttons.MoveChild(button, model.GetIndex() + 1);
+            // « Report a bug » sous « Stats », seulement si le mod sait envoyer les rapports
+            if (BugReportDialog.Available)
+            {
+                var bug = (NPauseMenuButton)model.Duplicate();
+                bug.Name = BugButtonName;
+                var bugImage = bug.GetNode<TextureRect>("ButtonImage");
+                if (bugImage.Material != null)
+                    bugImage.Material = (Material)bugImage.Material.Duplicate();
+                buttons.AddChild(bug);
+                buttons.MoveChild(bug, button.GetIndex() + 1);
+            }
         }
         catch (Exception e)
         {
@@ -52,6 +64,11 @@ public static class PauseMenuPatch
             var font = label.GetThemeFont("font");
             button.Connect(NClickableControl.SignalName.Released,
                 Callable.From<NButton>(_ => StatsScreen.Open(__instance, font)));
+            if (buttons.GetNodeOrNull<NPauseMenuButton>(BugButtonName) is { } bug)
+            {
+                bug.GetNode<MegaLabel>("Label").SetTextAutoSize(BugReportDialog.ButtonText);
+                bug.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => BugReportDialog.Open()));
+            }
             LinkFocus(buttons);
         }
         catch (Exception e)
@@ -86,7 +103,9 @@ public static class PauseMenuSaveAndQuitPatch
     {
         try
         {
-            __instance.GetNode<Control>("%ButtonContainer").GetNodeOrNull<NPauseMenuButton>(PauseMenuPatch.ButtonName)?.Disable();
+            var buttons = __instance.GetNode<Control>("%ButtonContainer");
+            buttons.GetNodeOrNull<NPauseMenuButton>(PauseMenuPatch.ButtonName)?.Disable();
+            buttons.GetNodeOrNull<NPauseMenuButton>(PauseMenuPatch.BugButtonName)?.Disable();
         }
         catch (Exception e)
         {

@@ -13,6 +13,7 @@ public static class MainMenuPatch
 {
     private const string ButtonName = "StsToolsButton";
     private const string ButtonText = "Stats";
+    private const string BugButtonName = "StsToolsBugButton";
 
     // Avant _Ready : le bouton profite ainsi de l'animation de survol branchée par le menu sur tous ses boutons
     public static void Prefix(NMainMenu __instance)
@@ -28,6 +29,14 @@ public static class MainMenuPatch
             button.Name = ButtonName;
             buttons.AddChild(button);
             buttons.MoveChild(button, model.GetIndex() + 1);
+            // « Report a bug » sous « Stats », seulement si le mod sait envoyer les rapports
+            if (BugReportDialog.Available)
+            {
+                var bug = (NMainMenuTextButton)model.Duplicate();
+                bug.Name = BugButtonName;
+                buttons.AddChild(bug);
+                buttons.MoveChild(bug, button.GetIndex() + 1);
+            }
         }
         catch (Exception e)
         {
@@ -50,6 +59,13 @@ public static class MainMenuPatch
             button.GetChild<Label>(0).Text = ButtonText;
             button.Connect(NClickableControl.SignalName.Released,
                 Callable.From<NButton>(_ => StatsScreen.Open(__instance)));
+            if (__instance.GetNodeOrNull<NMainMenuTextButton>("MainMenuTextButtons/" + BugButtonName) is { } bug)
+            {
+                bug.Visible = true;
+                bug.Enable();
+                bug.GetChild<Label>(0).Text = BugReportDialog.ButtonText;
+                bug.Connect(NClickableControl.SignalName.Released, Callable.From<NButton>(_ => BugReportDialog.Open()));
+            }
         }
         catch (Exception e)
         {

@@ -373,8 +373,9 @@ public sealed class PlaySimulation
     }
 
     /// <summary>Ce qui attend le joueur sans jouer la carte : dégâts qu'il prendra, attaques de chaque ennemi.</summary>
+    /// <param name="Allies">dégâts que chaque allié du joueur (multijoueur) prendra d'ici l'attaque des ennemis</param>
     private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End, bool Dies = false,
-        AbstractModel? ExtraTurn = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null);
+        AbstractModel? ExtraTurn = null, Dictionary<Creature, int>? Allies = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null);
 
     /// <summary>Ce qui accorde un tour supplémentaire au joueur en fin de tour (Pael's Eye…), dans la simulation.</summary>
     private AbstractModel? _extraTurn;
@@ -413,9 +414,9 @@ public sealed class PlaySimulation
         Enter(sim);
         try
         {
-            var (taken, incoming, end) = sim.UntilEnemyAttacks(me);
+            var (taken, incoming, end, allies) = sim.UntilEnemyAttacks(me);
             bool dies = sim._dead.Contains(me);
-            return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn,
+            return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn, allies,
                 sim._dead.Where(c => c.IsEnemy && !sim._lateDead.Contains(c)).ToList(), sim._lateDead.Where(c => c.IsEnemy).ToList());
         }
         catch (Exception e)
@@ -464,11 +465,19 @@ public sealed class PlaySimulation
     /// n'est pas affiché : ce n'est pas l'effet de la carte.
     /// </summary>
     /// <param name="played">carte jouée : plus en main à la fin du tour</param>
-    private (int Taken, Dictionary<Creature, int> Incoming, Outcome End) UntilEnemyAttacks(Creature me, CardModel? played = null)
+    /// <returns>Allies : la même chose pour chaque allié du joueur (multijoueur), les attaques calculées contre lui</returns>
+    private (int Taken, Dictionary<Creature, int> Incoming, Outcome End, Dictionary<Creature, int> Allies) UntilEnemyAttacks(
+        Creature me, CardModel? played = null)
     {
         var kept = _outcome;
         var end = _outcome = new Outcome();
         int hpBefore = Body(me)[0];
+        var allies = _combat.Players.Select(p => p.Creature).Where(c => c != me && !IsDead(c)).ToList();
+        var alliesBefore = allies.ToDictionary(c => c, c => Body(c)[0]);
+        // PV perdus par chaque allié depuis le début (fin de tour…), plus les attaques qui passeront son Block
+        Dictionary<Creature, int> AlliesTaken(bool attacked) => allies.ToDictionary(c => c, c =>
+            Math.Max(0, alliesBefore[c] - Body(c)[0])
+            + (attacked && !IsDead(c) ? Math.Max(0, IncomingAgainst(c) - Body(c)[1]) : 0));
         try
         {
             var context = new BlockingPlayerChoiceContext();
@@ -494,7 +503,7 @@ public sealed class PlaySimulation
             if (me.Player is { } extraTurnPlayer && Hook.ShouldTakeExtraTurn(_combat, extraTurnPlayer, out var extraTurnSource))
             {
                 _extraTurn = extraTurnSource is { } copy && _realOf.TryGetValue(copy, out var real) ? real : extraTurnSource;
-                return (Math.Max(0, hpBefore - Body(me)[0]), _combat.Enemies.ToDictionary(e => e, _ => 0), end);
+                return (Math.Max(0, hpBefore - Body(me)[0]), _combat.Enemies.ToDictionary(e => e, _ => 0), end, AlliesTaken(false));
             }
             var enemies = _combat.Enemies.Where(e => !IsDead(e)).ToList();
             EachListener(m => m.BeforeSideTurnStart(context, CombatSide.Enemy, enemies, _combat));
@@ -507,6 +516,7 @@ public sealed class PlaySimulation
             _outcome = kept;
         }
         var incoming = IncomingDamage(_combat, this);
+        var alliesTaken = AlliesTaken(true);
         int lost = Math.Max(0, hpBefore - Body(me)[0]);
         int block = IsDead(me) ? 0 : Body(me)[1];
         // Fin du tour ennemi, après leurs attaques (Doom les tue alors) : ces morts n'empêchent pas leur attaque
@@ -530,7 +540,7 @@ public sealed class PlaySimulation
             kept.Incomplete |= _outcome.Incomplete;
             _outcome = kept2;
         }
-        return (lost + Math.Max(0, incoming.Values.Sum() - block), incoming, end);
+        return (lost + Math.Max(0, incoming.Values.Sum() - block), incoming, end, alliesTaken);
     }
 
     private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
@@ -548,7 +558,7 @@ public sealed class PlaySimulation
             // Jusqu'à l'attaque des ennemis : dégâts que le joueur prendra (fin de tour comprise : Burn, Plating…),
             // et attaque de chaque ennemi, sans et avec la carte (ennemi tué, étourdi, affaibli, empoisonné…)
             var me = player.Creature;
-            var (taken, incoming, end) = sim.UntilEnemyAttacks(me, act.Card);
+            var (taken, incoming, end, allies) = sim.UntilEnemyAttacks(me, act.Card);
             // Ce que la carte change d'ici l'attaque des ennemis (Howl from Beyond épuisé qui se joue, Block du
             // Plating donné…) : écart avec la même fin de tour sans la carte
             sim.MergeDifference(end, baseline.End);
@@ -557,6 +567,11 @@ public sealed class PlaySimulation
                     sim._outcome.Add(enemy, Stat.Avoided, avoided);
             if (baseline.Taken - taken is var prevented and not 0)
                 sim._outcome.Add(me, Stat.Prevented, prevented);
+            // Multijoueur : dégâts évités (ou ajoutés) à chaque allié, encadré à côté de lui (ennemi tué, Weak,
+            // Block donné…)
+            foreach (var (ally, after) in allies)
+                if (baseline.Allies?.TryGetValue(ally, out var before) == true && before - after is var saved and not 0)
+                    sim._outcome.Add(ally, Stat.Prevented, saved);
         }
         catch (Exception e)
         {
@@ -1917,6 +1932,39 @@ public sealed class PlaySimulation
             sim?.Fail("intents", e);
         }
         return incoming;
+    }
+
+    /// <summary>
+    /// Attaques annoncées par les ennemis vivants contre <paramref name="target"/> (un allié du joueur local : le jeu
+    /// ne calcule les intentions que contre le joueur local), comme le jeu les calcule : chaque coup modifié par les
+    /// pouvoirs (Vulnerable de la cible, Weak de l'ennemi…), fois le nombre de coups. Les monstres frappent tous les
+    /// joueurs à chaque attaque.
+    /// </summary>
+    private int IncomingAgainst(Creature target)
+    {
+        int total = 0;
+        try
+        {
+            if ((target.Player ?? target.PetOwner)?.RunState is not { } runState)
+                return 0;
+            foreach (var enemy in _combat.Enemies)
+            {
+                if (enemy.IsDead || IsDead(enemy) || _stunned.Contains(enemy) || enemy.Monster?.NextMove is not { } move)
+                    continue;
+                foreach (var intent in move.Intents)
+                    if (intent is AttackIntent { DamageCalc: { } calc } attack)
+                    {
+                        decimal single = Hook.ModifyDamage(runState, _combat, target, enemy, calc(), ValueProp.Move, null, null,
+                            ModifyDamageHookType.All, CardPreviewMode.None, out _);
+                        total += Math.Max(0, (int)single) * Math.Max(1, attack.Repeats);
+                    }
+            }
+        }
+        catch (Exception e)
+        {
+            Fail("ally intents", e);
+        }
+        return total;
     }
 
     // ---- Interception de toutes les commandes ----

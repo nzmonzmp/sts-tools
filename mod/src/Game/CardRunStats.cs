@@ -1020,12 +1020,19 @@ public sealed partial class CardRunStats
         decimal ratio = amount > 0 ? Math.Min(1, dealt / amount) : 0;
         foreach (var (model, delta) in changes)
         {
-            if (CreditOf(model) is not { } credit)
-                continue;
+            var credit = CreditOf(model);
             if (delta > 0 && !enemyHit && damage.Receiver.IsEnemy)
-                credit.Add(BonusDamage, Math.Round(delta * ratio, 2));
+            {
+                decimal bonus = Math.Round(delta * ratio, 2);
+                credit?.Add(BonusDamage, bonus);
+                // Multijoueur : le pouvoir d'un autre joueur qui augmente le coup d'un allié (onglet Support)
+                GiveDamageChange(model, calc.Dealer, BonusDamageGiven, bonus);
+            }
             else if (delta < 0 && enemyHit && !damage.Receiver.IsEnemy)
-                credit.Add(Prevented, -delta);
+            {
+                credit?.Add(Prevented, -delta);
+                GiveDamageChange(model, damage.Receiver, PreventedForAllies, -delta);
+            }
         }
     }
 

@@ -175,6 +175,9 @@ public sealed class ModHotkeys
     {
         public static void Postfix(NGame __instance, InputEvent inputEvent)
         {
+            // Fenêtre de rapport de bug : on y écrit, pas de raccourcis
+            if (BugReportDialog.IsOpen)
+                return;
             if (_listening is { } listening)
             {
                 Listen(__instance, listening.Hotkey, listening.Mode, inputEvent);
