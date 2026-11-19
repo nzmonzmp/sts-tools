@@ -294,6 +294,10 @@ public sealed partial class CardRunStats
         /// <summary>Nouveau tour : on repart de zéro pour « ce tour ».</summary>
         private void RollTurn()
         {
+            // Hors combat, le numéro de tour est celui du dernier combat : surtout après la reprise d'une partie (le
+            // compteur repart de 0), il passerait pour un nouveau tour
+            if (!CombatManager.Instance.IsInProgress)
+                return;
             int turn = Player.PlayerCombatState?.TurnNumber ?? 0;
             if (turn != 0 && turn != _turnNumber)
             {
@@ -360,6 +364,8 @@ public sealed partial class CardRunStats
             foreach (var (name, value) in values ?? [])
                 Run.Values[name] = value;
             (RunCombats, _runTurns) = (combats, turns);
+            // Partie reprise : le tour en cours (s'il y en a un) est déjà compté
+            _turnNumber = _combatTurns = Player.PlayerCombatState?.TurnNumber ?? 0;
         }
     }
 
@@ -702,6 +708,9 @@ public sealed partial class CardRunStats
                     {
                         var stats = RelicStats.GetOrCreateValue(relic);
                         stats.Combats++;
+                        // Premier tour du combat : le jeu commence au tour 1 sans IncrementTurnNumber (TurnPatch ne
+                        // compte qu'à partir du tour 2)
+                        stats.Turns++;
                         stats.CombatStart = new(stats.Values);
                     }
             }
@@ -879,6 +888,34 @@ public sealed partial class CardRunStats
             catch (Exception e)
             {
                 Log.Warn($"[{ModEntry.Id}] cannot record card stats: {e.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Le coup qui tue le dernier ennemi n'entre pas dans l'historique : le jeu n'y note plus les dégâts une fois le
+    /// combat en train de finir (CombatManager.IsEnding, vrai dès que tous les ennemis sont à 0 PV), donc sans ce patch
+    /// ses dégâts et l'ennemi tué manquaient. Le jeu appelle AfterDamageGiven même alors : on y note le coup comme
+    /// l'historique l'aurait fait.
+    /// </summary>
+    [HarmonyPatch(typeof(Hook), nameof(Hook.AfterDamageGiven))]
+    public static class FinalBlowPatch
+    {
+        public static void Prefix(ICombatState combatState, Creature? dealer, DamageResult results, Creature target,
+            CardModel? cardSource)
+        {
+            try
+            {
+                var combat = CombatManager.Instance;
+                if (!combat.IsInProgress || !combat.IsEnding || !combatState.IsLiveCombat())
+                    return;
+                Record(new DamageReceivedEntry(results, results.Receiver ?? target, dealer, cardSource, combatState.RoundNumber,
+                    combatState.CurrentSide, combat.History, combatState.Players));
+                Changed?.Invoke();
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot record the final blow: {e.Message}");
             }
         }
     }
@@ -1110,7 +1147,8 @@ public sealed partial class CardRunStats
         {
             if (creature is not { IsEnemy: false })
                 return;
-            decimal healed = Math.Max(0, Math.Min(amount, creature.MaxHp - creature.CurrentHp));
+            // PV vraiment rendus : le jeu tronque à l'entier (Creature.SetCurrentHpInternal), un soin de 26,1 rend 26
+            decimal healed = Math.Max(0, (int)Math.Min(creature.CurrentHp + amount, creature.MaxHp) - creature.CurrentHp);
             Current?.Add(Healed, healed);
             // PV rendus à chaque joueur, de toute source (cartes, reliques, potions, feu de camp…) : onglets Combat
             // (pendant un combat) et Game

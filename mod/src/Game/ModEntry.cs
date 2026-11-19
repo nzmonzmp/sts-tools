@@ -21,6 +21,9 @@ public static class ModEntry
         foreach (var type in AccessTools.GetTypesFromAssembly(typeof(ModEntry).Assembly))
             if (type.IsDefined(typeof(EarlyPatchAttribute), false))
                 Harmony.CreateClassProcessor(type).Patch();
+#if TESTBRIDGE
+        TestBridge.Start();
+#endif
         Log.Info($"[{Id}] initialized");
     }
 
@@ -35,6 +38,10 @@ public static class ModEntry
         if (_latePatched || Harmony == null)
             return;
         _latePatched = true;
+#if TESTBRIDGE
+        // Si l'arbre de scène n'existait pas encore à l'initialisation du mod
+        TestBridge.Start();
+#endif
         foreach (var type in AccessTools.GetTypesFromAssembly(typeof(ModEntry).Assembly))
             if (type.IsDefined(typeof(HarmonyPatch), false) && !type.IsDefined(typeof(EarlyPatchAttribute), false))
                 try

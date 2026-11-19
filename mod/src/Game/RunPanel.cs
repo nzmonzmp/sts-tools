@@ -28,6 +28,12 @@ public interface IRunPanelTab
 
     void Unsubscribe(Player player, Action changed);
 
+    /// <summary>
+    /// L'onglet est proposé en ce moment (Path finder : seulement carte ouverte) ; sinon son bouton est caché, et
+    /// s'il était affiché, le panneau revient au premier onglet. Prévenir avec <see cref="RunPanel.TabsChanged"/>.
+    /// </summary>
+    bool Available => true;
+
     /// <summary>L'onglet sait montrer l'équipe entière (totaux de tous les joueurs).</summary>
     bool HasTeam => false;
 
@@ -162,13 +168,13 @@ public sealed class RunPanel
         var cardHover = new CardHover(_panel, centerCursor: true);
         // Support : ce qu'on donne à ses alliés, seulement à plusieurs
         _tabs = player.RunState.Players.Count > 1
-            ? [new DeckTab(cardHover), new GameTab(), new CombatTab(), new SupportTab()]
-            : [new DeckTab(cardHover), new GameTab(), new CombatTab()];
+            ? [new DeckTab(cardHover), new GameTab(), new CombatTab(), new SupportTab(), new PathFinderTab()]
+            : [new DeckTab(cardHover), new GameTab(), new CombatTab(), new PathFinderTab()];
         var saved = SavedSettings.Load();
         _right = saved.RunPanelRight ?? DefaultRight;
         _top = saved.RunPanelTop ?? DefaultTop;
         _height = saved.RunPanelHeight;
-        _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab));
+        _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab && t.Available));
         _subTabs = new Dictionary<string, string>(saved.RunPanelSubTabs);
         _changed = _tabs.Select((_, i) => (Action)(() =>
         {
@@ -307,7 +313,14 @@ public sealed class RunPanel
             // clavier ; onglet précédent ou suivant, sans boucler. Le focus reste dans le panneau
             SwitchTab = delta =>
             {
-                int index = Math.Clamp(_tab + delta, 0, _tabs.Length - 1);
+                // Onglets cachés sautés
+                int index = _tab;
+                for (int i = _tab + delta; i >= 0 && i < _tabs.Length; i += delta)
+                    if (_tabs[i].Available)
+                    {
+                        index = i;
+                        break;
+                    }
                 if (index == _tab)
                     return;
                 bool subTabFocused = _subTabButtons.Any(b => b.HasFocus());
@@ -331,6 +344,8 @@ public sealed class RunPanel
                 _current = null;
         };
 
+        for (int i = 0; i < _tabs.Length; i++)
+            _tabButtons[i].Visible = _tabs[i].Available;
         BuildSubTabs();
         BuildPlayers();
         StyleTabs();
@@ -407,6 +422,42 @@ public sealed class RunPanel
         // premier sous-onglet s'il en a, sinon la flèche
         if (subTabFocused || _scroll.HasFocus() || _collapse.HasFocus() || !_menu.HasFocus)
             _menu.FocusDefault();
+    }
+
+    /// <summary>
+    /// Un onglet est apparu ou a disparu (<see cref="IRunPanelTab.Available"/>) : boutons mis à jour ; l'onglet
+    /// affiché disparu, retour au premier ; l'onglet choisi en dernier (réglages) revenu, il est de nouveau affiché.
+    /// </summary>
+    public static void TabsChanged()
+    {
+        if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
+            return;
+        for (int i = 0; i < panel._tabs.Length; i++)
+            panel._tabButtons[i].Visible = panel._tabs[i].Available;
+        int saved = Array.FindIndex(panel._tabs, t => t.Title == SavedSettings.Load().RunPanelTab && t.Available);
+        int tab = saved >= 0 ? saved : panel._tabs[panel._tab].Available ? panel._tab : 0;
+        if (tab == panel._tab)
+            return;
+        bool focused = panel._menu.HasFocus;
+        panel._tab = tab;
+        panel.BuildSubTabs();
+        panel.BuildPlayers();
+        panel.StyleTabs();
+        panel.Refresh();
+        if (focused)
+            panel._menu.FocusDefault();
+    }
+
+    /// <summary>Choisit l'onglet de ce titre s'il est proposé (pont de test) ; faux sinon.</summary>
+    internal static bool SelectTabByTitle(string title)
+    {
+        if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
+            return false;
+        int index = Array.FindIndex(panel._tabs, t => t.Available && t.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            return false;
+        panel.SelectTab(index);
+        return true;
     }
 
     private void SelectTab(int index)

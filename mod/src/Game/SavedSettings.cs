@@ -39,6 +39,18 @@ public sealed class SavedSettings
     /// <summary>Sous-onglet choisi dans chaque onglet du panneau, par titre d'onglet</summary>
     public Dictionary<string, string> RunPanelSubTabs { get; set; } = [];
 
+    /// <summary>
+    /// Chercheur de chemins sur la carte (MapPaths) : types de salles à maximiser (Shop, Elite, RestSite, Unknown,
+    /// Monster), le plus important d'abord ; null : jamais choisi (par défaut)
+    /// </summary>
+    public List<string>? MapPathRanked { get; set; }
+
+    /// <summary>Chercheur de chemins : nombre exact voulu par type de salle (Shop, Elite, RestSite, Monster, Unknown) ; absent : n'importe lequel</summary>
+    public Dictionary<string, int> MapPathCounts { get; set; } = [];
+
+    /// <summary>Chercheur de chemins : un seul des chemins à égalité tracé à la fois (par défaut : tous)</summary>
+    public bool MapPathShowOne { get; set; }
+
     /// <summary>Rapports de plantage : « ask » (demander au menu principal), « always » (envoyer sans demander) ou « never »</summary>
     public string CrashReports { get; set; } = "ask";
 

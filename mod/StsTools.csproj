@@ -22,6 +22,17 @@
     <ModOutDir>$(MSBuildThisFileDirectory)dist/StsTools</ModOutDir>
   </PropertyGroup>
 
+  <!--
+    Build de test : dotnet build -p:TestBridge=true. Ajoute le pont de test (TestBridge : Claude pilote le jeu) et va
+    dans dist/StsTools-test, pour que dist/StsTools, le mod donné aux joueurs, ne l'ait jamais.
+  -->
+  <PropertyGroup Condition="'$(TestBridge)' == 'true'">
+    <DefineConstants>$(DefineConstants);TESTBRIDGE</DefineConstants>
+    <ModOutDir>$(MSBuildThisFileDirectory)dist/StsTools-test</ModOutDir>
+    <IntermediateOutputPath>obj/test/</IntermediateOutputPath>
+    <OutputPath>bin/test/</OutputPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <Compile Remove="check/**" />
     <Compile Remove="dist/**" />

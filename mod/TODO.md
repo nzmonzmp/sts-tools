@@ -111,6 +111,27 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
     leurs raretés possibles, récompense de cartes (nombre de cartes, raretés possibles), chance de potion ; pareil
     pour les autres salles quand elles donnent quelque chose.
 
+## Carte : chercheur de chemins
+
+Fait (à vérifier en jeu) : onglet « Path finder » du GUI, seulement quand la carte est ouverte (l'onglet revient tout
+seul à la réouverture de la carte s'il était le dernier choisi). Pour chaque type de salle (marchands, élites, feux,
+« ? », combats) : Max (le plus possible), Any ou un nombre exact, respecté strictement (aucun chemin s'il n'est pas
+possible ; le nombre reste affiché, en rouge). Nombres proposés pour un type : ceux des meilleurs chemins qui respectent
+les autres nombres choisis, classés par les types Max sauf celui-ci. Les types Max sont classés dans « Importance » (▲ ▼) : le plus de salles
+du premier, puis du deuxième à égalité, etc. ; les types Any ou à nombre exact sont rangés dans « Filters » et ne
+départagent pas les chemins. GUI ouvert, les meilleurs chemins de la salle actuelle au boss sont tracés sur la carte
+(couleur du premier type Max) : tous ceux à égalité (case « Show all », cochée par défaut, cachée s'il n'y a qu'un
+chemin) avec la même opacité, ou un par un avec ◀ ▶.
+Composition du chemin affiché (fourchette s'ils sont tous affichés). Choix gardés dans les réglages.
+
+Fait (à vérifier dans une vraie partie à plusieurs) : bouton « Draw » (multijoueur seulement) qui dessine le ou les
+chemins affichés avec l'outil de dessin de la carte du jeu (couleur du personnage) : les autres joueurs les voient,
+même sans le mod ; effaçables avec les outils du jeu. Simple dessin, rien d'autre ne change dans la partie.
+
+- Activer ou non le tracé des chemins : option à mettre avec les réglages du mod (voir plus bas).
+- Déplacement libre (Winged Boots…) : seulement pour le premier pas ; ensuite, les chemins normaux.
+- Option possible : nombre minimal de feux avant le boss, ou critère « le moins de » (combats…).
+
 ## Rapports de bug et de plantage : spam et doublons
 
 - Éviter le spam : limiter le nombre d'envois (par exemple quelques rapports par heure et par joueur, délai minimal
@@ -124,15 +145,54 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
 - Limiter côté serveur si possible : un webhook dans le mod peut être utilisé par n'importe qui qui le récupère ; un
   petit relais (Cloudflare Worker) pourrait filtrer et limiter les envois.
 
+## Serveur Discord : finaliser
+
+- Finaliser le serveur Discord « StsTools » : aujourd'hui seulement les salons privés crash-reports et bug-report
+  (webhooks du mod) et le bot de lecture « StsTool reader ».
+  - à préciser : salons publics (annonces, versions du mod, aide), rôles et permissions, invitation des joueurs ;
+  - garder crash-reports et bug-report privés (journaux, parties et ids Steam des joueurs).
+
 ## Options du jeu : réglages du mod
 
 - Dans les options du jeu, onglet Mod (aujourd'hui : seulement les touches), des réglages du mod :
   - GUI : ce qui s'affiche quand on l'ouvre avec sa touche (onglets visibles, onglet ouvert par défaut, panneau
     replié ou non…) et ce qu'il active (aperçu des cartes et des potions, têtes de mort, aperçu des salles sur la
-    carte…) ;
+    carte, tracé des chemins du Path finder…) ;
   - rapports de plantage : demander, toujours envoyer ou ne jamais envoyer (aujourd'hui seulement modifiable depuis
     l'encadré du menu principal après un plantage) ;
   - rapports de bug : nom proposé par défaut, joindre les logs et la partie ou non par défaut.
+
+## Vu en jouant l'acte 1 avec le pont (2026-11-19)
+
+Corrigé :
+- Coup qui tue le dernier ennemi pas compté (dégâts, ennemi tué) : le jeu ne l'inscrit pas dans l'historique une fois
+  le combat en train de finir (`CombatManager.IsEnding`) ; noté depuis `Hook.AfterDamageGiven` (FinalBlowPatch).
+- « HP healed » en décimales (repos : 26,1 au lieu de 26) : PV vraiment rendus, tronqués comme le jeu.
+- Reprendre une partie comptait un tour de plus (onglet Game) : tours comptés seulement en combat, et la reprise
+  repart du tour en cours.
+- Infobulle des reliques, « Per turn » : le premier tour de chaque combat n'était pas compté (le jeu commence au tour 1
+  sans IncrementTurnNumber), d'où « - » au premier tour et des moyennes par tour trop hautes.
+- Path finder : nombres comptés sur tout l'acte (salles déjà faites comprises) ; un nombre choisi reste dans le
+  classement d'importance, appliqué à sa place (Max ou nombre, dans l'ordre), les nombres proposés tenant compte des
+  types au-dessus ; seuls les types Any restent à part. Anciens réglages : les nombres passent en tête du classement.
+  À vérifier sur la carte de l'acte 2.
+
+Pas un bug :
+- « HP healed » : les 64 PV rendus par l'Ancien (Neow) au début de l'acte ; le jeu les compte aussi (`hp_healed` de
+  l'étage 1 dans l'historique de la partie).
+
+## Pont de test
+
+Fait : build de test (`dotnet build -t:Install -p:TestBridge=true`, dans `dist/StsTools-test`) avec un pont qui laisse
+Claude piloter le jeu : commandes déposées dans `user://StsTools/test/` par `tools/sts_test.py` (clics par texte,
+touches, souris, console, carte, GUI, état du Path finder, captures d'écran). Jamais dans le mod donné aux joueurs
+(`dist/StsTools`, build normale).
+
+- Commandes du pont : `combat`, `play`, `endturn`, `cards`, `pickcard` (récompenses, choix) ; les cartes de la
+  boutique ne sont pas listées par `cards` (clic par position) ; souris simulée pour le jeu (GetMousePosition) tant
+  que la vraie souris ne bouge pas.
+- Multijoueur : tester avec deux instances du jeu (Steam n'en lance qu'une ; voir si le jeu a un mode local ou un
+  « fake multiplayer », cf. `RunManager.IsSingleplayerOrFakeMultiplayer`).
 
 ## Repères dans le code du jeu (utilisés par le mod)
 
@@ -144,4 +204,6 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
   Même méthode possible pour les stats des reliques (écouteur `RelicModel`).
 - `SaveManager.SaveRun` : moment où le jeu sauvegarde la partie.
 - Démarrage : poser trop de patchs pendant l'initialisation bloque parfois le jeu avant le menu (écran noir) ; seuls
-  les patchs `[EarlyPatch]` sont posés au démarrage, les autres à l'affichage du menu principal.
+  les patchs `[EarlyPatch]` sont posés au démarrage, les autres à l'affichage du menu principal. Encore vu le
+  2026-11-19 (1 démarrage sur 5) : figé juste avant « Preloading 'MainMenuEssentials' », sans erreur dans le log,
+  insensible à SIGTERM (arrêt forcé nécessaire) ; le détecteur de gel du mod ne tourne pas encore à ce moment-là.

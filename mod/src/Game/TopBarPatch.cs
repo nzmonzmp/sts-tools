@@ -29,6 +29,7 @@ public static class TopBarPatch
             BugReport.RunStarted(runState);
             AddButton(__instance);
             RunPanel.Attach(__instance, player);
+            MapPaths.Install();
         }
         catch (Exception e)
         {
