@@ -560,6 +560,9 @@ internal sealed class PathFinderTab : IRunPanelTab
 
     public bool Available => MapPaths.MapOpen;
 
+    /// <summary>Carte commune à toute l'équipe : pas de rangée des joueurs.</summary>
+    public bool PerPlayer => false;
+
     public void Subscribe(Player player, Action changed) => MapPaths.Changed += changed;
 
     public void Unsubscribe(Player player, Action changed) => MapPaths.Changed -= changed;

@@ -123,7 +123,7 @@ actuelle au boss sont tracés sur la carte (couleur du premier type) : tous ceux
 par défaut, cachée s'il n'y a qu'un chemin) avec la même opacité, ou un par un avec ◀ ▶. Composition de l'acte en
 suivant le chemin affiché (fourchette s'ils sont tous affichés). Choix gardés dans les réglages.
 
-Fait (à vérifier dans une vraie partie à plusieurs) : bouton « Draw » (multijoueur seulement) qui dessine le ou les
+Fait (vérifié en multijoueur factice, avec le pont : 1 chemin puis 6 à la fois) : bouton « Draw » (multijoueur seulement) qui dessine le ou les
 chemins affichés avec l'outil de dessin de la carte du jeu (couleur du personnage) : les autres joueurs les voient,
 même sans le mod ; effaçables avec les outils du jeu. Simple dessin, rien d'autre ne change dans la partie.
 
@@ -184,6 +184,22 @@ Pas un bug :
 - « HP healed » : les 64 PV rendus par l'Ancien (Neow) au début de l'acte ; le jeu les compte aussi (`hp_healed` de
   l'étage 1 dans l'historique de la partie).
 
+## Retours de parties (2026-11-19)
+
+Corrigé et vérifié avec le pont :
+- Kaiser Crab : les pinces jouaient leur animation de dégâts (et de mort) en visant une carte. Les réactions du
+  monstre (AfterCurrentHpChanged, BeforeDeath) appellent directement le décor animé du boss : bloqué pendant les
+  aperçus, avec les autres animations directes (Spine, flou, taille, retrait du nœud d'une créature).
+- Hex (élite de l'acte 3) : la surcouche des cartes disparaissait dès l'ouverture du GUI. Les copies de cartes de
+  l'aperçu (MutableClone → DeepCloneFields → AfflictInternal) prévenaient la vraie carte, qui rechargeait sa surcouche
+  pendant l'aperçu, où l'ajout est bloqué : événements des copies vidés avant.
+- Void Form (carte qui termine le tour) : « Ends your turn », et la tête de mort sur le joueur si la fin du tour qui
+  suit le tue (avant : seulement l'écart avec un tour terminé sans la carte, nul s'il mourait dans les deux cas).
+- Forge (Regent) : ligne « Forge +n » dans l'aperçu.
+- Cartes qui défaussent (Survivor, Acrobatics…) : lignes « Discard » et « Sly played ».
+- Rapport de bug : les flèches déplaçaient le focus vers le menu pause derrière (passage en clavier seul du jeu) au
+  lieu du curseur du texte.
+
 ## Pont de test
 
 Fait : build de test (`dotnet build -t:Install -p:TestBridge=true`, dans `dist/StsTools-test`) avec un pont qui laisse
@@ -194,8 +210,10 @@ touches, souris, console, carte, GUI, état du Path finder, captures d'écran). 
 - Commandes du pont : `combat`, `play`, `endturn`, `cards`, `pickcard` (récompenses, choix) ; les cartes de la
   boutique ne sont pas listées par `cards` (clic par position) ; souris simulée pour le jeu (GetMousePosition) tant
   que la vraie souris ne bouge pas.
-- Multijoueur : tester avec deux instances du jeu (Steam n'en lance qu'une ; voir si le jeu a un mode local ou un
-  « fake multiplayer », cf. `RunManager.IsSingleplayerOrFakeMultiplayer`).
+- Fait : `fakemp <perso> [<perso>…]` lance une partie de test, seul ou à plusieurs (le premier joueur est le nôtre,
+  les autres n'agissent pas), comme le « fake multiplayer » du jeu ; toutes les sauvegardes du jeu et du mod sont
+  bloquées jusqu'au retour au menu principal. Aussi `aim` (viser sans jouer), `focus`, `overlays`, `graph`. Limite : les coéquipiers ne jouent pas (pas de test de la synchronisation réseau).
+- `click` amène d'abord le contrôle dans la partie visible d'une zone de défilement ; `tree` marque les autres.
 
 ## Repères dans le code du jeu (utilisés par le mod)
 

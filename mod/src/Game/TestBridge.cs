@@ -43,7 +43,10 @@ public static class TestBridge
           hoverpoint <col> <row>    hover a map point;  clickpoint <col> <row>: click it
           combat                    player, hand (index, cost, target, playable, text), enemies (index, HP, intents)
           play <card> [enemy]       play the hand card at this index (on this enemy index if it needs a target)
+          aim <card> [enemy]        like play, without the last click: the card stays aimed (mod preview); rclick cancels
           endturn                   click the end turn button
+          fakemp <char> [<char>...] NEW test run, saves blocked (one player per character, you are the first; the
+                                    others never act). Saves come back at the main menu (the test run is gone)
           graph                     JSON: every map point (coord, type, children), visited coords, free moves
           cards                     visible cards outside the hand (rewards, choices, shop): index, title, text
           pickcard <i>              click the visible card with this index (see cards)
@@ -138,10 +141,12 @@ public static class TestBridge
             case "tree":
                 return string.Join("\n", Clickables()
                     .Where(c => rest.Length == 0 || c.Text.Contains(rest, StringComparison.OrdinalIgnoreCase))
-                    .Select(c => $"{c.Control.GetType().Name} \"{c.Text}\" at {Fmt(Center(c.Control))} ({c.Control.GetPath()})"));
+                    .Select(c => $"{c.Control.GetType().Name} \"{c.Text}\" at {Fmt(Center(c.Control))}{(InsideScrolls(c.Control) ? "" : " [scrolled out]")} ({c.Control.GetPath()})"));
             case "click":
             {
                 var target = Find(rest) ?? throw new InvalidOperationException($"no visible clickable control with text \"{rest}\"");
+                // Dans une zone de défilement, d'abord amené dans la partie visible
+                await ScrollIntoView(target.Control);
                 // Tout lu avant le clic : le contrôle peut être libéré par le clic (GUI redessiné)
                 var at = Center(target.Control);
                 string what = $"{target.Control.GetType().Name} \"{target.Text}\"";
@@ -264,6 +269,8 @@ public static class TestBridge
                 await Frames(60);
                 return $"played {index} {name}\n{CombatText()}";
             }
+            case "fakemp":
+                return await FakeMultiplayer(args);
             case "graph":
             {
                 var state = CardRunStats.LocalPlayer?.RunState ?? throw new InvalidOperationException("not in a run");
@@ -285,6 +292,30 @@ public static class TestBridge
                     }).ToList(),
                 });
             }
+            case "focus":
+            {
+                // Contrôle qui a le focus : type, texte et position du curseur (zones de texte)
+                var owner = Tree.Root.GuiGetFocusOwner();
+                return owner switch
+                {
+                    null => "no focus",
+                    TextEdit edit => $"TextEdit \"{edit.Text}\" caret line {edit.GetCaretLine()} column {edit.GetCaretColumn()}",
+                    LineEdit lineEdit => $"LineEdit \"{lineEdit.Text}\" caret {lineEdit.CaretColumn}",
+                    _ => $"{owner.GetType().Name} {owner.Name}",
+                };
+            }
+            case "overlays":
+            {
+                // Surcouche de chaque carte de la main (affliction Hexed…) : pour vérifier qu'elle est affichée
+                var lines = HandHolders().Select((h, i) =>
+                {
+                    var card = h.CardNode!;
+                    var container = card.OverlayContainer;
+                    string children = container == null ? "no container" : string.Join(",", container.GetChildren().Select(c => $"{c.Name}{(c is CanvasItem ci && !ci.Visible ? "(hidden)" : "")}"));
+                    return $"{i}: {card.Model!.Title} affliction={card.Model.Affliction?.Id.Entry ?? "-"} hasOverlay={card.Model.Affliction?.HasOverlay} overlay=[{children}]";
+                });
+                return string.Join("\n", lines);
+            }
             case "cards":
             {
                 var cards = ScreenCards();
@@ -301,6 +332,22 @@ public static class TestBridge
                 string title = cards[i].CardNode!.Model!.Title;
                 await Click(at, MouseButton.Left);
                 return $"picked {i} {title} at {Fmt(at)}";
+            }
+            case "aim":
+            {
+                // Comme play, sans le dernier clic : la carte reste visée (aperçu du mod) ; rclick pour l'annuler
+                var hand = HandHolders();
+                int index = int.Parse(args[0]);
+                if (index < 0 || index >= hand.Count)
+                    throw new ArgumentException($"no card {index} in hand ({hand.Count} cards)");
+                string name = hand[index].CardNode!.Model!.Title;
+                var box = hand[index].Hitbox.GetGlobalRect();
+                var from = new Vector2(box.GetCenter().X, Math.Min(box.GetCenter().Y, Tree.Root.GetVisibleRect().Size.Y - 90));
+                var to = args.Length > 1 ? Center(Enemies()[int.Parse(args[1])].Hitbox) : new Vector2(960, 420);
+                await Click(from, MouseButton.Left);
+                await Move(to);
+                await Frames(20);
+                return $"aiming {index} {name} at {Fmt(to)}";
             }
             case "endturn":
             {
@@ -424,9 +471,12 @@ public static class TestBridge
         if (keycode == Godot.Key.None)
             throw new ArgumentException($"unknown key \"{parts[^1]}\"");
         bool Has(string m) => parts[..^1].Any(p => p.Equals(m, StringComparison.OrdinalIgnoreCase));
+        // Lettre ou chiffre sans Ctrl/Alt : le caractère tapé, pour les zones de texte
+        long unicode = parts[^1].Length == 1 && !Has("ctrl") && !Has("alt")
+            ? (Has("shift") ? char.ToUpperInvariant(parts[^1][0]) : char.ToLowerInvariant(parts[^1][0])) : 0;
         InputEventKey Make(bool pressed) => new()
         {
-            Keycode = keycode, PhysicalKeycode = keycode, Pressed = pressed,
+            Keycode = keycode, PhysicalKeycode = keycode, Pressed = pressed, Unicode = pressed ? unicode : 0,
             CtrlPressed = Has("ctrl"), ShiftPressed = Has("shift"), AltPressed = Has("alt"),
         };
         Send(Make(true));
@@ -468,6 +518,26 @@ public static class TestBridge
             .ToList();
     }
 
+    private static async Task ScrollIntoView(Control control)
+    {
+        for (var parent = control.GetParent(); parent != null; parent = parent.GetParent())
+            if (parent is ScrollContainer scroll)
+            {
+                scroll.EnsureControlVisible(control);
+                await Frames(3);
+            }
+    }
+
+    /// <summary>Le centre du contrôle est dans la partie visible de chaque zone de défilement qui le contient.</summary>
+    private static bool InsideScrolls(Control control)
+    {
+        var center = control.GetGlobalRect().GetCenter();
+        for (var parent = control.GetParent(); parent != null; parent = parent.GetParent())
+            if (parent is ScrollContainer scroll && !scroll.GetGlobalRect().HasPoint(center))
+                return false;
+        return true;
+    }
+
     private static string TextOf(Control control)
     {
         if (control is Button { Text.Length: > 0 } button)
@@ -495,6 +565,84 @@ public static class TestBridge
         NMapScreen.Instance?.GetNodeOrNull<Control>("TheMap/Points")?.GetChildren().OfType<NMapPoint>()
             .Where(p => GodotObject.IsInstanceValid(p)).OrderBy(p => p.Point.coord.row).ThenBy(p => p.Point.coord.col).ToList()
         ?? [];
+
+    // ---- Multijoueur factice ----
+
+    /// <summary>
+    /// Partie de test à plusieurs joueurs en solo (comme le « fake multiplayer » du jeu) : toutes les sauvegardes du
+    /// jeu sont bloquées jusqu'à la fermeture, pour ne pas écraser la vraie partie du joueur ni ses stats.
+    /// </summary>
+    private static bool _fakeRun;
+
+    private static async Task<string> FakeMultiplayer(string[] args)
+    {
+        if (args.Length < 1)
+            throw new ArgumentException("fakemp <character> [<character>...] (one: a solo test run; e.g. IRONCLAD SILENT)");
+        var characters = args.Select(a => MegaCrit.Sts2.Core.Models.ModelDb.AllCharacters
+                .FirstOrDefault(c => c.Id.Entry.Equals(a, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException($"unknown character {a}: " +
+                string.Join(", ", MegaCrit.Sts2.Core.Models.ModelDb.AllCharacters.Select(c => c.Id.Entry)))).ToList();
+        _fakeRun = true;
+        CardRunStats.SavesBlocked = true;
+        Log.Warn($"[{ModEntry.Id}] test bridge: fake multiplayer run, game saves blocked until the game closes");
+        var unlocks = MegaCrit.Sts2.Core.Saves.SaveManager.Instance.GenerateUnlockStateFromProgress();
+        var players = characters.Select((c, i) =>
+            MegaCrit.Sts2.Core.Entities.Players.Player.CreateForNewRun(c, unlocks, (ulong)(i + 1))).ToList();
+        var acts = MegaCrit.Sts2.Core.Models.ActModel.GetDefaultList().Select(a => a.ToMutable()).ToList();
+        var state = MegaCrit.Sts2.Core.Runs.RunState.CreateForNewRun(players, acts, [], MegaCrit.Sts2.Core.Runs.GameMode.Standard,
+            isCustom: false, ascensionLevel: 0, MegaCrit.Sts2.Core.Helpers.SeedHelper.GetRandomSeed());
+        var run = MegaCrit.Sts2.Core.Runs.RunManager.Instance;
+        run.SetUpNewSingleplayer(state, shouldSave: false);
+        await MegaCrit.Sts2.Core.Assets.PreloadManager.LoadRunAssets(state.Players.Select(p => p.Character));
+        await run.FinalizeStartingRelics();
+        run.Launch();
+        MegaCrit.Sts2.Core.Nodes.NGame.Instance.RootSceneContainer.SetCurrentScene(MegaCrit.Sts2.Core.Nodes.NRun.Create(state));
+        await run.SetActInternal(0);
+        run.RunLocationTargetedBuffer.OnLocationChanged(state.RunLocation);
+        run.MapSelectionSynchronizer.OnLocationChanged(state.MapLocation);
+        await run.EnterAct(0);
+        await Frames(30);
+        return $"fake multiplayer run: {string.Join(", ", characters.Select(c => c.Id.Entry))}; saves blocked";
+    }
+
+    /// <summary>
+    /// Retour au menu principal : la partie de test est finie, les sauvegardes reviennent (sinon une vraie partie
+    /// lancée ensuite dans la même session n'était pas sauvegardée).
+    /// </summary>
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu), nameof(MegaCrit.Sts2.Core.Nodes.Screens.MainMenu.NMainMenu._Ready))]
+    private static class EndFakeRunPatch
+    {
+        public static void Postfix()
+        {
+            if (!_fakeRun)
+                return;
+            _fakeRun = false;
+            CardRunStats.SavesBlocked = false;
+            Log.Warn($"[{ModEntry.Id}] test bridge: back to the main menu, game saves restored");
+        }
+    }
+
+    [HarmonyPatch]
+    private static class BlockSavesPatch
+    {
+        private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
+        {
+            var type = typeof(MegaCrit.Sts2.Core.Saves.SaveManager);
+            foreach (var name in new[] { "SaveRun", "SaveProgressFile", "SaveRunHistory", "SaveProfile", "DeleteCurrentRun",
+                         "DeleteCurrentMultiplayerRun", "SavePrefsFile", "SaveSettings" })
+                if (AccessTools.Method(type, name) is { } method)
+                    yield return method;
+        }
+
+        public static bool Prefix(System.Reflection.MethodBase __originalMethod, ref object? __result)
+        {
+            if (!_fakeRun)
+                return true;
+            if (__originalMethod is System.Reflection.MethodInfo { ReturnType: var ret } && ret == typeof(Task))
+                __result = Task.CompletedTask;
+            return false;
+        }
+    }
 
     // ---- Combat ----
 
@@ -616,6 +764,7 @@ public static class TestBridge
                 gold = player?.Gold,
             },
             gui = RunPanel.IsOpen,
+            blockedAnimations = PlaySimulation.BlockedAnimations,
             map = NMapScreen.Instance is { IsOpen: true },
             pathFinder = new
             {

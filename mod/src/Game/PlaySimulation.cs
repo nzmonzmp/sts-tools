@@ -105,6 +105,13 @@ public sealed class PlaySimulation
 
         /// <summary>Devant le nom d'un pouvoir changé en fin de tour à cause de la carte.</summary>
         public const string EndOfTurn = "End of turn: ";
+        /// <summary>La carte termine le tour du joueur (Void Form…) : la fin du tour arrive tout de suite.</summary>
+        public const string EndsTurn = "Ends your turn";
+        public const string Forge = "Forge";
+        /// <summary>Cartes de la main défaussées par l'effet (Survivor, Acrobatics…), choisies ou non.</summary>
+        public const string Discarded = "Discard";
+        /// <summary>Cartes Sly jouées en étant défaussées.</summary>
+        public const string SlyPlayed = "Sly played";
         public const string ArrowsShot = "Arrows shot";
         public const string ArrowsRetrieved = "Arrows retrieved";
         public const string ArrowSlots = "Arrow slots";
@@ -380,6 +387,9 @@ public sealed class PlaySimulation
     /// <summary>Ce qui accorde un tour supplémentaire au joueur en fin de tour (Pael's Eye…), dans la simulation.</summary>
     private AbstractModel? _extraTurn;
 
+    /// <summary>La carte a terminé le tour du joueur (PlayerCmd.EndTurn, Void Form…).</summary>
+    private bool _endedTurn;
+
     /// <summary>Choix du joueur en cours : cartes choisies, rang du choix.</summary>
     /// <summary>Ce qui est simulé : une carte jouée ou une potion utilisée.</summary>
     private sealed record Act(string Name, Action<PlaySimulation> Run, CardModel? Card);
@@ -549,6 +559,8 @@ public sealed class PlaySimulation
         var sim = new PlaySimulation(combat, target) { _choice = choice, _muted = choice is { Resume: true }, _name = act.Name };
         Trace($"run {draw}{(choice != null ? $" choice {string.Join("+", choice.Cards.Select(c => c.Id.Entry))}" : "")}");
         var fingerprint = Fingerprint(combat);
+        // PV réels avant la simulation (pendant, la créature porte les PV simulés)
+        int hpBefore = player.Creature.CurrentHp;
         if (draw > 0)
             rngs.Perturb(draw);
         Enter(sim);
@@ -567,6 +579,15 @@ public sealed class PlaySimulation
                     sim._outcome.Add(enemy, Stat.Avoided, avoided);
             if (baseline.Taken - taken is var prevented and not 0)
                 sim._outcome.Add(me, Stat.Prevented, prevented);
+            // Carte qui termine le tour : sa fin de tour n'est plus un « si », elle arrive ; mort comprise, même si
+            // terminer le tour sans la carte tuait aussi
+            if (sim._endedTurn)
+            {
+                sim._outcome.Of(me)[Stat.EndsTurn] = 1;
+                // Mort pendant la fin du tour, ou attaques des ennemis (après le Block) qui prennent tous ses PV
+                if (sim._dead.Contains(me) || taken >= hpBefore)
+                    sim._outcome.Of(me)[Stat.Lethal] = 1;
+            }
             // Multijoueur : dégâts évités (ou ajoutés) à chaque allié, encadré à côté de lui (ennemi tué, Weak,
             // Block donné…)
             foreach (var (ally, after) in allies)
@@ -845,6 +866,85 @@ public sealed class PlaySimulation
         public static bool Prefix() => !Active;
     }
 
+    /// <summary>
+    /// Animations lancées directement par le code des monstres et des pouvoirs, sans commande (donc pas interceptées) :
+    /// décor animé d'un boss (pinces du Kaiser Crab qui encaissent un coup ou meurent, AfterCurrentHpChanged et
+    /// BeforeDeath du Crusher), animations Spine, flou, taille, retrait du nœud d'une créature (Doom). Pendant la
+    /// simulation, ces réactions tournent sur le vrai monstre : sans ce patch, elles se jouaient pour de vrai en
+    /// visant une carte.
+    /// </summary>
+    /// <summary>Animations directes bloquées pendant les aperçus, par méthode (pont de test, journal).</summary>
+    internal static readonly Dictionary<string, int> BlockedAnimations = [];
+
+    private static IEnumerable<MethodBase> DirectAnimations()
+    {
+        var assembly = typeof(CreatureCmd).Assembly;
+        foreach (var type in assembly.GetTypes().Where(t => t.Namespace == "MegaCrit.Sts2.Core.Nodes.Vfx.Backgrounds" && t.IsClass))
+            foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                if (!method.IsSpecialName && !method.IsGenericMethodDefinition && !method.Name.StartsWith('_'))
+                    yield return method;
+        var room = typeof(MegaCrit.Sts2.Core.Nodes.Rooms.NCombatRoom);
+        foreach (var name in new[] { "RadialBlur", "ShakeOstyIfDead", "RemoveCreatureNode" })
+            foreach (var method in room.GetMethods(BindingFlags.Public | BindingFlags.Instance).Where(m => m.Name == name))
+                yield return method;
+        foreach (var method in typeof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature).GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                     .Where(m => m.Name == "SetDefaultScaleTo"))
+            yield return method;
+        if (AccessTools.Method(typeof(MegaCrit.Sts2.Core.Bindings.MegaSpine.SpineAnimationAccess), "SetAnimation") is { } spine)
+            yield return spine;
+    }
+
+    [HarmonyPatch]
+    public static class DirectAnimationPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            DirectAnimations().Where(m => m is MethodInfo { ReturnType: var r } && r == typeof(void));
+
+        public static bool Prefix(MethodBase __originalMethod)
+        {
+            if (!Active)
+                return true;
+            Trace($"blocked {__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}");
+            BlockedAnimations[$"{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}"] =
+                BlockedAnimations.GetValueOrDefault($"{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}") + 1;
+            return false;
+        }
+    }
+
+    [HarmonyPatch]
+    public static class DirectAnimationTaskPatch
+    {
+        private static IEnumerable<MethodBase> TargetMethods() =>
+            DirectAnimations().Where(m => m is MethodInfo { ReturnType: var r } && r == typeof(Task));
+
+        public static bool Prefix(MethodBase __originalMethod, ref Task __result)
+        {
+            if (!Active)
+                return true;
+            Trace($"blocked {__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}");
+            BlockedAnimations[$"{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}"] =
+                BlockedAnimations.GetValueOrDefault($"{__originalMethod.DeclaringType?.Name}.{__originalMethod.Name}") + 1;
+            __result = Task.CompletedTask;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Copie d'une carte pour la simulation (MutableClone) : la copie reçoit les événements de la vraie carte (copie
+    /// champ par champ), puis le jeu y remet son affliction (DeepCloneFields → AfflictInternal), ce qui prévenait la
+    /// vraie carte affichée : elle rechargeait sa surcouche (Hexed) dont l'ajout à l'écran est bloqué pendant la
+    /// simulation, et la surcouche disparaissait pour de bon. Les événements de la copie sont vidés avant.
+    /// </summary>
+    [HarmonyPatch(typeof(CardModel), "DeepCloneFields")]
+    public static class CloneEventsPatch
+    {
+        public static void Prefix(CardModel __instance)
+        {
+            if (Active)
+                Copy.ClearEvents(__instance);
+        }
+    }
+
     /// <summary>Bulle de dialogue : pas pendant la simulation.</summary>
     [HarmonyPatch(typeof(TalkCmd), nameof(TalkCmd.Play))]
     public static class TalkPatch
@@ -1012,6 +1112,14 @@ public sealed class PlaySimulation
         var context = new BlockingPlayerChoiceContext();
         var discarded = cards.Select(RealOf).Distinct().ToList();
         var sly = discarded.Where(c => c.Pile?.Type == PileType.Hand && c.IsSlyThisTurn).ToList();
+        if (discarded.FirstOrDefault()?.Owner is { } discarder)
+        {
+            int fromHand = discarded.Count(c => c.Pile?.Type == PileType.Hand);
+            if (fromHand > 0)
+                _outcome.Add(discarder.Creature, Stat.Discarded, fromHand);
+            if (sly.Count > 0)
+                _outcome.Add(discarder.Creature, Stat.SlyPlayed, sly.Count);
+        }
         foreach (var card in discarded)
         {
             MoveTo(card, PileType.Discard);
@@ -1610,6 +1718,16 @@ public sealed class PlaySimulation
                 return null;
             case "PlayerCmd.GainEnergy":
                 _outcome.Add(Arg<Player>("player")!.Creature, Stat.Energy, (int)Hook.ModifyEnergyGain(_combat, Arg<Player>("player")!, Amount(), out _));
+                return null;
+            case "PlayerCmd.EndTurn":
+                // La carte termine le tour (Void Form) : la fin du tour qui suit n'est plus évitable, son résultat
+                // compte en entier (mort comprise), pas seulement l'écart avec un tour terminé sans la carte
+                _endedTurn = true;
+                return null;
+            case "ForgeCmd.Forge" when Arg<Player>("player") is { } forger:
+                // Forge (Regent) : dégâts ajoutés à Sovereign Blade, réactions comprises (copies)
+                _outcome.Add(forger.Creature, Stat.Forge, (int)Amount());
+                Event(() => Hook.AfterForge(_combat, Amount(), forger, Arg<AbstractModel>("source")));
                 return null;
             case "PlayerCmd.GainStars":
                 _outcome.Add(Arg<Player>("player")!.Creature, Stat.Stars, (int)Amount());

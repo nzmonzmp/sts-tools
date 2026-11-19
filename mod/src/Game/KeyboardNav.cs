@@ -200,6 +200,18 @@ public static class KeyboardNav
 
 
     /// <summary>
+    /// En écrivant (zone de texte du rapport de bug, nom…), une flèche déplace le curseur : sans ce patch, le jeu
+    /// (mode clavier seul) y voyait une touche de direction, passait en clavier seul, mettait le focus sur le contrôle
+    /// par défaut de l'écran derrière (Resume du menu pause) et gardait la touche.
+    /// </summary>
+    [HarmonyPatch(typeof(NControllerManager), "CheckForDirectionalKeyInput")]
+    public static class TypingArrowsPatch
+    {
+        public static bool Prefix(NControllerManager __instance) =>
+            __instance.GetViewport()?.GuiGetFocusOwner() is not (TextEdit or LineEdit);
+    }
+
+    /// <summary>
     /// Passage en clavier et souris : le panneau qui avait le focus (pris au clavier seul) rend la main au jeu ; sinon
     /// le jeu le croyait toujours devant lui et ne répondait plus à la souris.
     /// </summary>

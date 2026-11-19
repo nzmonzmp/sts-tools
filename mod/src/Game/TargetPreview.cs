@@ -371,7 +371,7 @@ public static class TargetPreview
     /// <summary>Caractéristiques sans signe (des quantités, pas des gains ou des pertes).</summary>
     private static readonly HashSet<string> Unsigned =
         [Stat.Damage, Stat.ThroughBlock, Stat.HpLost, Stat.Draw, Stat.Created, Stat.Avoided, Stat.Prevented,
-            Stat.ArrowsShot, Stat.ArrowsRetrieved, Stat.Upgraded, Stat.Transformed];
+            Stat.ArrowsShot, Stat.ArrowsRetrieved, Stat.Upgraded, Stat.Transformed, Stat.Discarded, Stat.SlyPlayed];
 
     /// <summary>Lignes d'une créature, dans l'ordre où les effets arrivent ; les dégâts d'abord.</summary>
     /// <summary>
@@ -398,6 +398,7 @@ public static class TargetPreview
             Stat.Stunned => 3,
             Stat.HpLost => 4,
             Stat.Prevented => 5,
+            Stat.EndsTurn => 8,
             _ when k.StartsWith(Stat.EndOfTurn) => 7,
             _ => 6,
         });
@@ -434,6 +435,9 @@ public static class TargetPreview
                         yield return [NetRow, Math.Abs(netMax - net) >= 0.05 ? $"{Signed(net)}–{Signed(netMax)}" : Signed(net)];
                     }
                     break;
+                case Stat.EndsTurn:
+                    yield return [stat, MaxOf(stat) != null ? "depends" : ""];
+                    break;
                 case Stat.Avoided:
                     yield return value >= 0 ? [stat, Value(stat, value, Format)] : [AddedRow, Format(-value)];
                     break;
@@ -468,6 +472,8 @@ public static class TargetPreview
         [Stat.Created] = CardRunStats.CardsCreated,
         [Stat.Avoided] = CardRunStats.Prevented,
         [Stat.Prevented] = CardRunStats.Prevented,
+        [Stat.Forge] = CardRunStats.Forged,
+        [Stat.Discarded] = CardRunStats.CardsDrawn,
         ["Damage added"] = CardRunStats.Damage,
         [AddedRow] = CardRunStats.Damage,
         [NetRow] = CardRunStats.Healed,

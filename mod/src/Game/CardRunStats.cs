@@ -635,8 +635,13 @@ public sealed partial class CardRunStats
             s.Values[name] = value;
     }
 
+    /// <summary>Pont de test : partie factice en cours, rien n'est écrit (la vraie partie et ses stats restent).</summary>
+    internal static bool SavesBlocked { get; set; }
+
     private static void Save()
     {
+        if (SavesBlocked)
+            return;
         if (_player == null || _runKey == null || _runState == null)
             return;
         try

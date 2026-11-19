@@ -34,6 +34,9 @@ public interface IRunPanelTab
     /// </summary>
     bool Available => true;
 
+    /// <summary>Le contenu dépend du joueur choisi : sinon, pas de rangée des joueurs (Path finder : carte commune).</summary>
+    bool PerPlayer => true;
+
     /// <summary>L'onglet sait montrer l'équipe entière (totaux de tous les joueurs).</summary>
     bool HasTeam => false;
 
@@ -510,7 +513,7 @@ public sealed class RunPanel
         RemoveChildren(_playerBar);
         _playerButtons.Clear();
         var players = Players;
-        _playerBar.Visible = players.Count > 1;
+        _playerBar.Visible = players.Count > 1 && _tabs[_tab].PerPlayer;
         if (players.Count <= 1)
         {
             _viewed = _player;
