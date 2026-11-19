@@ -113,24 +113,27 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
 
 ## Carte : chercheur de chemins
 
-Fait (à vérifier en jeu) : onglet « Path finder » du GUI, seulement quand la carte est ouverte (l'onglet revient tout
-seul à la réouverture de la carte s'il était le dernier choisi). Pour chaque type de salle (marchands, élites, feux,
-« ? », combats) : Max (le plus possible), Any ou un nombre exact, respecté strictement (aucun chemin s'il n'est pas
-possible ; le nombre reste affiché, en rouge). Nombres proposés pour un type : ceux des meilleurs chemins qui respectent
-les autres nombres choisis, classés par les types Max sauf celui-ci. Les types Max sont classés dans « Importance » (▲ ▼) : le plus de salles
-du premier, puis du deuxième à égalité, etc. ; les types Any ou à nombre exact sont rangés dans « Filters » et ne
-départagent pas les chemins. GUI ouvert, les meilleurs chemins de la salle actuelle au boss sont tracés sur la carte
-(couleur du premier type Max) : tous ceux à égalité (case « Show all », cochée par défaut, cachée s'il n'y a qu'un
-chemin) avec la même opacité, ou un par un avec ◀ ▶.
-Composition du chemin affiché (fourchette s'ils sont tous affichés). Choix gardés dans les réglages.
+Fait : onglet « Path finder » du GUI, seulement quand la carte est ouverte (l'onglet revient tout seul à la
+réouverture de la carte s'il était le dernier choisi). Classement « Importance » (▲ ▼) des types de salles (marchands,
+élites, feux, « ? », combats), appliqué dans l'ordre sur tout l'acte (salles déjà faites comprises) : pour chacun, Max
+(le plus de salles), Min (le moins), exactement n ou au moins n (bouton ≥), respecté strictement (un nombre impossible
+reste affiché en rouge, aucun chemin). Nombres proposés pour un type : ceux qui restent possibles une fois les types
+au-dessus appliqués. Les types Any ne départagent pas les chemins. GUI ouvert, les meilleurs chemins de la salle
+actuelle au boss sont tracés sur la carte (couleur du premier type) : tous ceux à égalité (case « Show all », cochée
+par défaut, cachée s'il n'y a qu'un chemin) avec la même opacité, ou un par un avec ◀ ▶. Composition de l'acte en
+suivant le chemin affiché (fourchette s'ils sont tous affichés). Choix gardés dans les réglages.
 
 Fait (à vérifier dans une vraie partie à plusieurs) : bouton « Draw » (multijoueur seulement) qui dessine le ou les
 chemins affichés avec l'outil de dessin de la carte du jeu (couleur du personnage) : les autres joueurs les voient,
 même sans le mod ; effaçables avec les outils du jeu. Simple dessin, rien d'autre ne change dans la partie.
 
 - Activer ou non le tracé des chemins : option à mettre avec les réglages du mod (voir plus bas).
-- Déplacement libre (Winged Boots…) : seulement pour le premier pas ; ensuite, les chemins normaux.
-- Option possible : nombre minimal de feux avant le boss, ou critère « le moins de » (combats…).
+
+Fait : déplacement libre pris en compte à chaque étape (Winged Boots : sauts restants ; Flight : sans limite), sauts
+marqués d'un trait doré ; règles Min (le moins de salles) et « au moins n » (bouton ≥) à côté de Max et du nombre
+exact. Recherche sur les compositions possibles des chemins (plus d'énumération) ; au-delà de 300 chemins à égalité,
+« N+ ». Vérifié avec le pont contre une énumération brute (76 chemins sans saut, 266 131 avec 3 sauts) : chemins et
+nombres proposés identiques dans tous les scénarios ; nombres sur tout l'acte vérifiés seulement en début d'acte.
 
 ## Rapports de bug et de plantage : spam et doublons
 
@@ -175,7 +178,7 @@ Corrigé :
 - Path finder : nombres comptés sur tout l'acte (salles déjà faites comprises) ; un nombre choisi reste dans le
   classement d'importance, appliqué à sa place (Max ou nombre, dans l'ordre), les nombres proposés tenant compte des
   types au-dessus ; seuls les types Any restent à part. Anciens réglages : les nombres passent en tête du classement.
-  À vérifier sur la carte de l'acte 2.
+  Vérifié sur la carte de l'acte 2.
 
 Pas un bug :
 - « HP healed » : les 64 PV rendus par l'Ancien (Neow) au début de l'acte ; le jeu les compte aussi (`hp_healed` de

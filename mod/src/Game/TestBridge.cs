@@ -44,6 +44,7 @@ public static class TestBridge
           combat                    player, hand (index, cost, target, playable, text), enemies (index, HP, intents)
           play <card> [enemy]       play the hand card at this index (on this enemy index if it needs a target)
           endturn                   click the end turn button
+          graph                     JSON: every map point (coord, type, children), visited coords, free moves
           cards                     visible cards outside the hand (rewards, choices, shop): index, title, text
           pickcard <i>              click the visible card with this index (see cards)
         """;
@@ -262,6 +263,27 @@ public static class TestBridge
                 await Click(to, MouseButton.Left);
                 await Frames(60);
                 return $"played {index} {name}\n{CombatText()}";
+            }
+            case "graph":
+            {
+                var state = CardRunStats.LocalPlayer?.RunState ?? throw new InvalidOperationException("not in a run");
+                var map = state.Map;
+                var points = map.GetAllMapPoints().Append(map.StartingMapPoint).Append(map.BossMapPoint)
+                    .Concat(map.SecondBossMapPoint is { } second ? [second] : []).Distinct();
+                return JsonSerializer.Serialize(new
+                {
+                    rows = map.GetRowCount(),
+                    start = $"{map.StartingMapPoint.coord.col},{map.StartingMapPoint.coord.row}",
+                    current = state.CurrentMapPoint is { } c ? $"{c.coord.col},{c.coord.row}" : null,
+                    visited = state.VisitedMapCoords.Select(v => $"{v.col},{v.row}").ToList(),
+                    freeMoves = MapPaths.FreeMoves,
+                    points = points.Select(p => new
+                    {
+                        coord = $"{p.coord.col},{p.coord.row}",
+                        type = p.PointType.ToString(),
+                        children = p.Children.Select(ch => $"{ch.coord.col},{ch.coord.row}").ToList(),
+                    }).ToList(),
+                });
             }
             case "cards":
             {
@@ -597,8 +619,10 @@ public static class TestBridge
             map = NMapScreen.Instance is { IsOpen: true },
             pathFinder = new
             {
-                // Classement : « Type » (Max) ou « Type=n » (nombre exact sur l'acte) ; any : types hors du classement
-                importance = MapPaths.Order.Select(t => MapPaths.Wanted(t) is { } n ? $"{t}={n}" : t.ToString()).ToList(),
+                // Classement : « Type:règle » (max, min, =n, >=n, sur tout l'acte) ; any : types hors du classement
+                importance = MapPaths.Order.Select(t => $"{t}:{MapPaths.RuleOf(t)}").ToList(),
+                freeMoves = MapPaths.FreeMoves,
+                truncated = MapPaths.Truncated,
                 any = MapPaths.Types.Where(t => !MapPaths.IsRanked(t.Type)).Select(t => t.Type.ToString()).ToList(),
                 possible = MapPaths.Types.ToDictionary(t => t.Type.ToString(), t => MapPaths.Possible(t.Type)),
                 showAll = MapPaths.ShowAll,

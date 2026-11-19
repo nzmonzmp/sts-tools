@@ -48,6 +48,12 @@ public sealed class SavedSettings
     /// <summary>Chercheur de chemins : nombre exact voulu par type de salle (Shop, Elite, RestSite, Monster, Unknown) ; absent : n'importe lequel</summary>
     public Dictionary<string, int> MapPathCounts { get; set; } = [];
 
+    /// <summary>
+    /// Chercheur de chemins : règle de chaque type du classement (« max », « min », « =3 », « >=3 ») ; null : réglages
+    /// d'avant les règles (MapPathCounts)
+    /// </summary>
+    public Dictionary<string, string>? MapPathRules { get; set; }
+
     /// <summary>Chercheur de chemins : un seul des chemins à égalité tracé à la fois (par défaut : tous)</summary>
     public bool MapPathShowOne { get; set; }
 
