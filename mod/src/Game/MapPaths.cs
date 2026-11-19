@@ -336,7 +336,7 @@ public static class MapPaths
         Array.IndexOf(VectorTypes, type) is >= 0 and var i ? (int)((vector >> (Bits * i)) & ((1 << Bits) - 1)) : 0;
 
     /// <summary>Sauts libres qui restent : null sans déplacement libre, -1 sans limite (Flight).</summary>
-    private static int? FreeMovesNow(IRunState state)
+    internal static int? FreeMovesNow(IRunState state)
     {
         if (!MegaCrit.Sts2.Core.Hooks.Hook.ShouldAllowFreeTravel(state))
             return null;

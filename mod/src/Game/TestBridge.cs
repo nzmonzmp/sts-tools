@@ -2,6 +2,7 @@
 using System.Text.Json;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Runs;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Nodes.Debug;
@@ -41,6 +42,8 @@ public static class TestBridge
           map open|close            the map screen
           points                    map points: coord, type, state, center
           hoverpoint <col> <row>    hover a map point;  clickpoint <col> <row>: click it
+          roompreview <col> <row>   text of the mod's room preview for this map point (without hovering it)
+          encounterimage <ID>       PNG of the room preview's monster image for this encounter (e.g. CUBEX_CONSTRUCT_NORMAL)
           combat                    player, hand (index, cost, target, playable, text), enemies (index, HP, intents)
           play <card> [enemy]       play the hand card at this index (on this enemy index if it needs a target)
           aim <card> [enemy]        like play, without the last click: the card stays aimed (mod preview); rclick cancels
@@ -238,6 +241,35 @@ public static class TestBridge
                 else
                     await Click(at, MouseButton.Left);
                 return $"{cmd} {what} at {Fmt(at)}";
+            }
+            case "encounterimage":
+            {
+                var encounter = MegaCrit.Sts2.Core.Models.ModelDb.GetByIdOrNull<MegaCrit.Sts2.Core.Models.EncounterModel>(
+                                    new MegaCrit.Sts2.Core.Models.ModelId("ENCOUNTER", args[0]))
+                                ?? throw new ArgumentException($"no encounter {args[0]}");
+                var texture = EncounterVisuals.Thumbnail(encounter);
+                for (int i = 0; texture == null && i < 300; i++)
+                {
+                    await Frames(1);
+                    texture = EncounterVisuals.Thumbnail(encounter);
+                }
+                if (texture == null)
+                    return "no image";
+                string path = System.IO.Path.Combine(Dir, $"encounter-{args[0]}.png");
+                texture.GetImage().SavePng(path);
+                return path;
+            }
+            case "roompreview":
+            {
+                var player = CardRunStats.LocalPlayer ?? throw new InvalidOperationException("not in a run");
+                var state = (RunState)player.RunState;
+                int col = int.Parse(args[0]), row = int.Parse(args[1]);
+                var point = state.Map.GetAllMapPoints().Append(state.Map.BossMapPoint)
+                                .FirstOrDefault(p => p.coord.col == col && p.coord.row == row)
+                            ?? throw new InvalidOperationException($"no map point {col},{row}");
+                var rows = MapRoomPreview.Rows(state, player, point);
+                return MapRoomPreview.Debug(state, point) + "\n"
+                       + (rows == null ? "(no preview)" : string.Join("\n", rows.Select(r => string.Join(" | ", r))));
             }
             case "combat":
                 return CombatText();
@@ -622,24 +654,33 @@ public static class TestBridge
         }
     }
 
+    /// <summary>
+    /// Sauvegardes bloquées pendant une partie de test. Deux patchs : Harmony refuse un <c>__result</c> sur une méthode
+    /// void, et l'échec d'une seule cible laissait toutes les suivantes sans patch (progression du profil écrite).
+    /// </summary>
     [HarmonyPatch]
     private static class BlockSavesPatch
     {
         private static IEnumerable<System.Reflection.MethodBase> TargetMethods()
         {
             var type = typeof(MegaCrit.Sts2.Core.Saves.SaveManager);
-            foreach (var name in new[] { "SaveRun", "SaveProgressFile", "SaveRunHistory", "SaveProfile", "DeleteCurrentRun",
+            foreach (var name in new[] { "SaveProgressFile", "SaveRunHistory", "SaveProfile", "DeleteCurrentRun",
                          "DeleteCurrentMultiplayerRun", "SavePrefsFile", "SaveSettings" })
-                if (AccessTools.Method(type, name) is { } method)
+                if (AccessTools.Method(type, name) is { ReturnType: var ret } method && ret == typeof(void))
                     yield return method;
         }
 
-        public static bool Prefix(System.Reflection.MethodBase __originalMethod, ref object? __result)
+        public static bool Prefix() => !_fakeRun;
+    }
+
+    [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Saves.SaveManager), nameof(MegaCrit.Sts2.Core.Saves.SaveManager.SaveRun))]
+    private static class BlockRunSavePatch
+    {
+        public static bool Prefix(ref Task __result)
         {
             if (!_fakeRun)
                 return true;
-            if (__originalMethod is System.Reflection.MethodInfo { ReturnType: var ret } && ret == typeof(Task))
-                __result = Task.CompletedTask;
+            __result = Task.CompletedTask;
             return false;
         }
     }

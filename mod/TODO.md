@@ -102,14 +102,34 @@ calculés contre ce joueur ; pendant le tour des joueurs, avec la fin de tour si
 
 ## Carte : aperçu des salles
 
-- Sur la carte, au choix de la salle (survol d'une salle), seulement quand le GUI est ouvert : ce qui peut arriver,
-  jamais ce qui va vraiment arriver (pas de lecture de la graine ni des tirages déjà faits) ; fourchettes quand une
-  valeur varie :
-  - combat normal : les ennemis possibles à cet acte et à cet étage ;
-  - « ? » : les issues possibles avec leurs probabilités (événement, combat, marchand, trésor…) ;
-  - gains possibles de chaque salle : pour un combat (normal, élite, boss), or (fourchette), nombre de reliques et
-    leurs raretés possibles, récompense de cartes (nombre de cartes, raretés possibles), chance de potion ; pareil
-    pour les autres salles quand elles donnent quelque chose.
+Fait : sur la carte, GUI ouvert, au survol d'une salle pas encore faite, un encadré à côté d'elle dit ce qui peut y
+arriver, jamais ce qui va vraiment arriver (rien n'est lu de la graine ni des listes de rencontres et d'événements
+tirées par le jeu en début d'acte) :
+- combat, élite, boss : ennemis possibles (rencontres faciles ou difficiles de l'acte selon le nombre de combats d'ici
+  là, moins celles que le sac du jeu ne peut plus tirer d'après les combats déjà faits et la famille du combat d'avant),
+  or (fourchette, avec Bowler Hat, Ectoplasm, Amethyst Aubergine, Poverty), chance de potion, récompenses de cartes
+  (Prayer Wheel, White Star, Vintage) et rareté des cartes, reliques (Black Star, Lava Rock) et leur rareté ;
+- « ? » : chance de chaque issue (événement, combat, marchand, trésor, élite), avec les règles du jeu (marchand exclu
+  après un marchand ou avant des marchands seulement, Juzu Bracelet, Golden Compass, Lantern Key, Dowsing, première
+  partie), puis les ennemis et gains d'un combat et d'un trésor ;
+- trésor : or et relique ; feu de camp : soin.
+Les chances de potion, de rareté et des « ? » partent des valeurs courantes du jeu (déduites des tirages passés) et sont
+moyennées sur tous les résultats possibles des salles d'ici là ; fourchette selon les chemins. Les méthodes des
+reliques sont appelées directement, sans les hooks du jeu que le mod compte pour ses stats. Vérifié avec le pont :
+rencontres déjà faites retirées, chances de potion et de rareté après des combats, « ? » après un événement et avant un
+marchand, encadré caché GUI fermé.
+
+Aussi : déplacement libre (Winged Boots : sauts restants ; Flight : sans limite) dans les chemins d'ici là ; cartes
+proposées : Lasting Candy (+1 Pouvoir un combat sur deux), amélioration du jeu à partir de l'acte 2, Molten, Toxic et
+Frozen Egg, Lava Lamp, Silver Crucible (ses premières récompenses), Glitter, Silken Tress, Fresnel Lens, Wing Charm ;
+Big Game Hunter (cartes rares aux élites) ; Wongo's Mystery Ticket (reliques au 5e combat). Vérifié avec le pont.
+
+Aussi : petite image fixe des monstres à droite du nom de chaque rencontre (même rendu que le survol des rencontres de
+l'écran Stats, partagé dans `EncounterVisuals`), plus petite si la liste est longue ; faite une fois par rencontre, les
+rencontres de l'acte préparées une à une dès l'ouverture de la carte GUI ouvert. Monstres dans leur animation de départ,
+comme en combat (Cubex Construct enterré).
+
+- Hors de portée : l'or et les combats propres à un événement (l'événement n'est connu qu'en entrant dans la salle).
 
 ## Carte : chercheur de chemins
 
@@ -219,6 +239,11 @@ touches, souris, console, carte, GUI, état du Path finder, captures d'écran). 
   les autres n'agissent pas), comme le « fake multiplayer » du jeu ; toutes les sauvegardes du jeu et du mod sont
   bloquées jusqu'au retour au menu principal. Aussi `aim` (viser sans jouer), `focus`, `overlays`, `graph`. Les coéquipiers n'y jouent pas : pour le réseau, `sts_mp.sh`.
 - `click` amène d'abord le contrôle dans la partie visible d'une zone de défilement ; `tree` marque les autres.
+- `roompreview <col> <row>` : texte de l'aperçu d'une salle de la carte, sans la survoler ; `encounterimage <ID>` :
+  image de ses monstres en PNG.
+- Corrigé (2026-11-19) : le blocage des sauvegardes des parties de test ne se posait qu'à moitié depuis f599837
+  (Harmony refuse `__result` sur une méthode void) : la partie était protégée, mais pas la progression du profil
+  (`progress.save`), l'historique ni les réglages. Vérifié : fichiers identiques après une partie de test avec combat.
 
 ## Repères dans le code du jeu (utilisés par le mod)
 

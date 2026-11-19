@@ -30,6 +30,7 @@ public static class TopBarPatch
             AddButton(__instance);
             RunPanel.Attach(__instance, player);
             MapPaths.Install();
+            MapRoomPreview.Install();
         }
         catch (Exception e)
         {

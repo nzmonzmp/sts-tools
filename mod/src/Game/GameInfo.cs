@@ -273,32 +273,8 @@ public sealed class GameInfo : IGameInfo
     /// variantes au hasard : on lui donne un générateur aléatoire et on l'appelle par réflexion.
     /// En cas d'échec, tous les monstres possibles, sans emplacement. null si la rencontre n'existe plus.
     /// </summary>
-    public (EncounterModel Encounter, List<(MonsterModel Monster, string? Slot)> Monsters)? EncounterPreview(string id)
-    {
-        var canonical = SafeModel<EncounterModel>("ENCOUNTER", id);
-        if (canonical == null)
-            return null;
-        try
-        {
-            var encounter = canonical.ToMutable();
-            AccessTools.Field(typeof(EncounterModel), "_rng").SetValue(encounter, new Rng((ulong)System.Random.Shared.NextInt64()));
-            var generated = (IReadOnlyList<(MonsterModel, string?)>)AccessTools.Method(typeof(EncounterModel), "GenerateMonsters")
-                .Invoke(encounter, null)!;
-            return (encounter, generated.Select(m => (m.Item1, m.Item2)).ToList());
-        }
-        catch (Exception e)
-        {
-            Log.Warn($"[{ModEntry.Id}] cannot generate {id}, showing all possible monsters: {e.Message}");
-            try
-            {
-                return (canonical, canonical.AllPossibleMonsters.Distinct().Select(m => (m, (string?)null)).ToList());
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-        }
-    }
+    public (EncounterModel Encounter, List<(MonsterModel Monster, string? Slot)> Monsters)? EncounterPreview(string id) =>
+        SafeModel<EncounterModel>("ENCOUNTER", id) is { } canonical ? EncounterVisuals.Generate(canonical) : null;
 
     /// <summary>Couleur d'une carte de personnage : celle du nom du personnage ; null pour les autres pools.</summary>
     public Color? CardColor(string id) =>
