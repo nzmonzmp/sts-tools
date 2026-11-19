@@ -123,7 +123,8 @@ actuelle au boss sont tracés sur la carte (couleur du premier type) : tous ceux
 par défaut, cachée s'il n'y a qu'un chemin) avec la même opacité, ou un par un avec ◀ ▶. Composition de l'acte en
 suivant le chemin affiché (fourchette s'ils sont tous affichés). Choix gardés dans les réglages.
 
-Fait (vérifié en multijoueur factice, avec le pont : 1 chemin puis 6 à la fois) : bouton « Draw » (multijoueur seulement) qui dessine le ou les
+Fait (vérifié avec le pont, en multijoueur factice puis en réseau réel : dessin de l'hôte vu par le client) : bouton
+« Draw » (multijoueur seulement) qui dessine le ou les
 chemins affichés avec l'outil de dessin de la carte du jeu (couleur du personnage) : les autres joueurs les voient,
 même sans le mod ; effaçables avec les outils du jeu. Simple dessin, rien d'autre ne change dans la partie.
 
@@ -210,9 +211,13 @@ touches, souris, console, carte, GUI, état du Path finder, captures d'écran). 
 - Commandes du pont : `combat`, `play`, `endturn`, `cards`, `pickcard` (récompenses, choix) ; les cartes de la
   boutique ne sont pas listées par `cards` (clic par position) ; souris simulée pour le jeu (GetMousePosition) tant
   que la vraie souris ne bouge pas.
+- Fait : test réseau réel avec `tools/sts_mp.sh start <dossier>` : deux instances du jeu lancées sans Steam
+  (`--force-steam off --fastmp host_standard` / `join --clientId 1001`, multijoueur local ENet du jeu), chacune avec
+  ses données isolées (`XDG_DATA_HOME`), pilotées chacune par le pont (`STS_TEST_DIR`). Vérifié : « Draw » de l'hôte
+  visible chez le client. Profils neufs : seul l'Ironclad est débloqué.
 - Fait : `fakemp <perso> [<perso>…]` lance une partie de test, seul ou à plusieurs (le premier joueur est le nôtre,
   les autres n'agissent pas), comme le « fake multiplayer » du jeu ; toutes les sauvegardes du jeu et du mod sont
-  bloquées jusqu'au retour au menu principal. Aussi `aim` (viser sans jouer), `focus`, `overlays`, `graph`. Limite : les coéquipiers ne jouent pas (pas de test de la synchronisation réseau).
+  bloquées jusqu'au retour au menu principal. Aussi `aim` (viser sans jouer), `focus`, `overlays`, `graph`. Les coéquipiers n'y jouent pas : pour le réseau, `sts_mp.sh`.
 - `click` amène d'abord le contrôle dans la partie visible d'une zone de défilement ; `tree` marque les autres.
 
 ## Repères dans le code du jeu (utilisés par le mod)
