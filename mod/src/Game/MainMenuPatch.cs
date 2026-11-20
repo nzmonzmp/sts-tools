@@ -51,6 +51,7 @@ public static class MainMenuPatch
         ModSettingsTab.AddToExisting(__instance.GetTree().Root);
         ModGuide.ShowOnFirstLaunch();
         Recenter(__instance);
+        DiscordButton.Add(__instance);
         BugReport.WatchFrames();
         BugReport.ShowNotice(__instance);
         try
