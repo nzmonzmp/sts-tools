@@ -220,6 +220,17 @@ public sealed class StatsScreen
         // dans la barre, pour que les onglets et les filtres ne bougent pas
         var actions = new HBoxContainer();
         actions.AddThemeConstantOverride("separation", 12);
+        // Guide du mod, si l'option est cochée (options du jeu, onglet Mod)
+        if (ModOptions.HelpInStats)
+        {
+            var help = ModGuide.GameHelpButton(44);
+            KeyboardNav.Focusable(help, _root);
+            // Même décalage que Reload : centré sur les bannières, dessinées dans le bas des boutons
+            var helpOffset = new MarginContainer { SizeFlagsVertical = Control.SizeFlags.ShrinkCenter };
+            helpOffset.AddThemeConstantOverride("margin_top", 2 * ReloadDropY);
+            helpOffset.AddChild(help);
+            actions.AddChild(helpOffset);
+        }
         actions.AddChild(reloadOffset);
         actions.AddChild(close);
         var actionsPlaceholder = new Control();
@@ -521,9 +532,12 @@ public sealed class StatsScreen
 
     private void OnInput(InputEvent ev)
     {
-        if (ev.IsActionPressed("ui_cancel"))
+        // Échap qui vient de fermer le guide du mod : l'écran reste ouvert
+        if (ev.IsActionPressed("ui_cancel") && !ModGuide.BlocksInput)
         {
             _root.AcceptEvent();
+            // Le relâchement d'Échap ouvrirait l'écran des profils du menu principal (bouton Profil, touche Retour)
+            KeyboardNav.SwallowRelease(ev);
             Close();
         }
     }
@@ -1053,7 +1067,7 @@ public sealed class StatsScreen
     /// Bouton Close dans le style du bouton retour du jeu (NBackButton) : sa texture rouge en fond, sa flèche
     /// en icône, plus clair et texte doré au survol. Fond rouge uni si la texture est introuvable.
     /// </summary>
-    private static void StyleCloseButton(Button button)
+    internal static void StyleCloseButton(Button button)
     {
         StyleBox Box(Color modulate)
         {

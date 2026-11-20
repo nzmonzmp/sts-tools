@@ -65,6 +65,7 @@ public sealed class RunPanel
 
     private static RunPanel? _current;
 
+    private readonly Button _help;
     private readonly IRunPanelTab[] _tabs;
     private readonly Player _player;
     private readonly PanelContainer _panel;
@@ -232,6 +233,11 @@ public sealed class RunPanel
         // Espace vide de l'en-tête : laisse passer les clics (poignée de déplacement)
         header.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, MouseFilter = Control.MouseFilterEnum.Ignore });
         header.AddChild(Label($"[{ModHotkeys.RunStats.Display}]", 16, StsColors.halfTransparentCream));
+        // Guide du mod, si l'option est cochée (options du jeu, onglet Mod)
+        _help = ModGuide.GameHelpButton(28);
+        _help.Visible = ModOptions.HelpInGui;
+        KeyboardNav.Focusable(_help);
+        header.AddChild(_help);
         // Replier : il ne reste que l'en-tête (titre, flèche pour déplier, croix)
         _collapse = new Button { Flat = true, TooltipText = "Show or hide the panel content" };
         KeyboardNav.Focusable(_collapse);
@@ -389,7 +395,12 @@ public sealed class RunPanel
     private int FirstShown() => Math.Max(0, Array.FindIndex(_tabs, Shown));
 
     /// <summary>Options du mod changées (options du jeu) : onglets cachés ou montrés.</summary>
-    public static void OptionsChanged() => TabsChanged();
+    public static void OptionsChanged()
+    {
+        if (_current is { } panel && GodotObject.IsInstanceValid(panel._help))
+            panel._help.Visible = ModOptions.HelpInGui;
+        TabsChanged();
+    }
 
     /// <summary>
     /// À l'ouverture, selon les options du mod : l'onglet choisi (sinon le dernier) et le panneau déplié, replié ou
@@ -799,7 +810,7 @@ public sealed class RunPanel
     }
 
     /// <summary>Plaque sombre, contour cyan si sélectionné ; les sous-onglets sont plus petits et sans fond.</summary>
-    private static void StyleTab(Button button, bool selected, bool small)
+    internal static void StyleTab(Button button, bool selected, bool small)
     {
         var box = new StyleBoxFlat
         {

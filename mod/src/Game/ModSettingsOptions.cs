@@ -31,6 +31,9 @@ public static class ModSettingsOptions
 
     private static readonly Dictionary<string, Option> Options = new();
 
+    /// <summary>Contenu du panneau du jeu d'où viennent les lignes copiées : sa largeur est celle des lignes du jeu.</summary>
+    internal static Control? NativeContent { get; private set; }
+
     /// <summary>Sections d'options, dans l'ordre de l'onglet : titre, puis lignes.</summary>
     private static List<(string Section, List<Option> Options)> Sections()
     {
@@ -66,6 +69,11 @@ public static class ModSettingsOptions
                 Feature("feature.skulls", "Lethal warnings (skulls)", () => ModOptions.Skulls, (s, v) => s.Skulls = v),
                 Feature("feature.relics", "Relic stats in tooltips", () => ModOptions.RelicStats, (s, v) => s.RelicStats = v),
                 Feature("feature.rooms", "Map room previews", () => ModOptions.RoomPreview, (s, v) => s.RoomPreview = v),
+            ]),
+            ("Mod guide (? buttons)", [
+                Feature("help.gui", "Show the ? button in the GUI", () => ModOptions.HelpInGui, (s, v) => s.HelpInGui = v),
+                Feature("help.stats", "Show the ? button in the Stats screen", () => ModOptions.HelpInStats, (s, v) => s.HelpInStats = v),
+                Feature("help.settings", "Show the ? button in this tab", () => ModOptions.HelpInSettings, (s, v) => s.HelpInSettings = v),
             ]),
         };
         // Sans webhook (mod compilé sans), rien n'est envoyé : pas d'options
@@ -108,10 +116,13 @@ public static class ModSettingsOptions
         foreach (var row in new[] { tickRow, choiceRow })
             if (row != null && row.GetType().Name.Contains("HoverTip"))
                 PatchHoverTip(row.GetType());
+        var divider = ModelDivider(tickRow);
+        NativeContent = tickRow.GetParent() as Control;
         foreach (var (section, options) in Sections())
         {
             if (sectionTitle(section) is { } title)
                 panel.Content.AddChild(title);
+            bool first = true;
             foreach (var option in options)
             {
                 Options[option.Id] = option;
@@ -122,10 +133,44 @@ public static class ModSettingsOptions
                     Text => TextRow(tickRow, tickbox, (Text)option),
                     _ => null,
                 };
-                if (row != null)
-                    panel.Content.AddChild(row);
+                if (row == null)
+                    continue;
+                // Trait entre deux lignes d'une même section, comme dans les panneaux d'options du jeu
+                if (!first)
+                    panel.Content.AddChild(Divider(divider));
+                panel.Content.AddChild(row);
+                first = false;
             }
         }
+    }
+
+    /// <summary>
+    /// Séparation entre deux lignes d'options du jeu : un voisin de la ligne modèle sans texte ni contrôle (trait), ou
+    /// null s'il n'y en a pas.
+    /// </summary>
+    private static Control? ModelDivider(Control row)
+    {
+        if (row.GetParent() is not { } content)
+            return null;
+        static bool Plain(Node node) => node is not (Label or RichTextLabel or BaseButton or NTickbox or NPaginator)
+                                       && node.GetChildren().All(Plain);
+        return content.GetChildren().OfType<Control>()
+            .FirstOrDefault(c => c != row && Plain(c) && c.GetCombinedMinimumSize().Y is > 0 and <= 16);
+    }
+
+    /// <summary>Copie du trait du jeu, sinon une fine ligne blanche translucide.</summary>
+    private static Control Divider(Control? model)
+    {
+        if (model != null && GodotObject.IsInstanceValid(model))
+            return (Control)model.Duplicate();
+        var margin = new MarginContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        margin.AddThemeConstantOverride("margin_left", 8);
+        margin.AddThemeConstantOverride("margin_right", 8);
+        margin.AddChild(new ColorRect
+        {
+            Color = new Color(1, 1, 1, 0.15f), CustomMinimumSize = new Vector2(0, 2), MouseFilter = Control.MouseFilterEnum.Ignore,
+        });
+        return margin;
     }
 
     /// <summary>Première ligne du jeu contenant un <typeparamref name="T"/> : enfant direct du contenu d'un panneau.</summary>

@@ -15,6 +15,12 @@ public static class ModOptions
     public static readonly string[] Tabs = ["Deck", "Game", "Combat", "Support", "Path finder"];
 
     public static bool OpenOnRunStart => Current.OpenOnRunStart;
+    public static bool HelpInGui => Current.HelpInGui;
+    public static bool HelpInStats => Current.HelpInStats;
+    public static bool HelpInSettings => Current.HelpInSettings;
+
+    /// <summary>Une option a changé (boutons « ? » de l'onglet Mod, par exemple).</summary>
+    public static event Action? Changed;
     public static bool CardPreview => Current.CardPreview;
     public static bool Skulls => Current.Skulls;
     public static bool RelicStats => Current.RelicStats;
@@ -35,5 +41,6 @@ public static class ModOptions
         settings.Save();
         _current = settings;
         RunPanel.OptionsChanged();
+        Changed?.Invoke();
     }
 }

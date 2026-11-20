@@ -178,6 +178,13 @@ public sealed class ModHotkeys
             // Fenêtre de rapport de bug : on y écrit, pas de raccourcis
             if (BugReportDialog.IsOpen)
                 return;
+            // Guide ouvert : Échap le ferme, pas d'autres raccourcis
+            if (ModGuide.BlocksInput)
+            {
+                if (ModGuide.HandleKey(inputEvent))
+                    __instance.GetViewport()?.SetInputAsHandled();
+                return;
+            }
             if (_listening is { } listening)
             {
                 Listen(__instance, listening.Hotkey, listening.Mode, inputEvent);

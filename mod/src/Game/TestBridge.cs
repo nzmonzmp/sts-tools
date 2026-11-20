@@ -42,6 +42,7 @@ public static class TestBridge
           map open|close            the map screen
           points                    map points: coord, type, state, center
           hoverpoint <col> <row>    hover a map point;  clickpoint <col> <row>: click it
+          nodes <path> [depth]      node tree under a node path (type, name, global rect, visible), default depth 2
           roompreview <col> <row>   text of the mod's room preview for this map point (without hovering it)
           encounterimage <ID>       PNG of the room preview's monster image for this encounter (e.g. CUBEX_CONSTRUCT_NORMAL)
           combat                    player, hand (index, cost, target, playable, text), enemies (index, HP, intents)
@@ -258,6 +259,24 @@ public static class TestBridge
                 string path = System.IO.Path.Combine(Dir, $"encounter-{args[0]}.png");
                 texture.GetImage().SavePng(path);
                 return path;
+            }
+            case "nodes":
+            {
+                var root = Tree.Root.GetNodeOrNull(args.ElementAtOrDefault(0) ?? "/root")
+                           ?? throw new ArgumentException($"no node {args.ElementAtOrDefault(0)}");
+                int depth = args.Length > 1 ? int.Parse(args[1]) : 2;
+                var lines = new List<string>();
+                void Walk(Node node, int level)
+                {
+                    string rect = node is Control c ? $" rect {Fmt(c.GlobalPosition)} size {Fmt(c.Size)}{(c.IsVisibleInTree() ? "" : " hidden")}"
+                        : node is Node2D n2 ? $" at {Fmt(n2.GlobalPosition)}{(n2.IsVisibleInTree() ? "" : " hidden")}" : "";
+                    lines.Add($"{new string(' ', level * 2)}{node.GetType().Name} {node.Name}{rect}");
+                    if (level < depth)
+                        foreach (var child in node.GetChildren())
+                            Walk(child, level + 1);
+                }
+                Walk(root, 0);
+                return string.Join("\n", lines);
             }
             case "roompreview":
             {

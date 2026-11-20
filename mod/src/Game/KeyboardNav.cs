@@ -493,7 +493,7 @@ public static class KeyboardNav
     /// </summary>
     private static readonly HashSet<Key> SwallowedKeys = [];
 
-    private static void SwallowRelease(InputEvent ev)
+    internal static void SwallowRelease(InputEvent ev)
     {
         if (ev is InputEventKey key)
             SwallowedKeys.Add(key.Keycode);
@@ -512,7 +512,7 @@ public static class KeyboardNav
     {
         public static void Postfix(NGame __instance, InputEvent inputEvent)
         {
-            if (BugReportDialog.IsOpen)
+            if (BugReportDialog.IsOpen || ModGuide.BlocksInput)
                 return;
             var viewport = __instance.GetViewport();
             if (inputEvent is InputEventKey { Pressed: false } released && SwallowedKeys.Remove(released.Keycode))

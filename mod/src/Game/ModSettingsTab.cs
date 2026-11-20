@@ -5,6 +5,7 @@ using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Localization;
 using MegaCrit.Sts2.Core.Logging;
+using MegaCrit.Sts2.Core.Nodes.CommonUi;
 using MegaCrit.Sts2.Core.Nodes.GodotExtensions;
 using MegaCrit.Sts2.Core.Nodes.Screens.Settings;
 
@@ -77,13 +78,27 @@ public static class ModSettingsTab
             model.AddSibling(panel);
             var header = Header(__instance);
             // Deux sous-onglets : Options (GUI, rapports) et Input (touches du mod, sous l'en-tête de leurs colonnes)
-            var subTabs = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+            // Rangée : « ? » tout à gauche, sous-onglets au bord droit
+            var row = new HBoxContainer();
+            panel.Content.AddChild(row);
+            row.AddThemeConstantOverride("separation", 24);
+            var left = new Control { CustomMinimumSize = new Vector2(64, 64), MouseFilter = Control.MouseFilterEnum.Ignore };
+            row.AddChild(left);
+            row.AddChild(new Control { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill, MouseFilter = Control.MouseFilterEnum.Ignore });
+            var subTabs = new HBoxContainer();
             subTabs.AddThemeConstantOverride("separation", 24);
-            panel.Content.AddChild(subTabs);
+            row.AddChild(subTabs);
             var optionsTab = SubTab(inputTab, subTabs, "Options");
             var keysTab = SubTab(inputTab, subTabs, "Input");
-            // Espace sous les sous-onglets : l'en-tête des colonnes copié de l'onglet Input remonte sur ce qui le précède
-            panel.Content.AddChild(new Control { CustomMinimumSize = new Vector2(0, 48), MouseFilter = Control.MouseFilterEnum.Ignore });
+            // Guide du mod, si l'option est cochée (dans ce même onglet)
+            var help = ModGuide.GameHelpButton(64);
+            help.Visible = ModOptions.HelpInSettings;
+            left.AddChild(help);
+            void HelpOption() => help.Visible = ModOptions.HelpInSettings;
+            ModOptions.Changed += HelpOption;
+            help.TreeExiting += () => ModOptions.Changed -= HelpOption;
+            // Un peu d'espace sous les sous-onglets
+            panel.Content.AddChild(new Control { CustomMinimumSize = new Vector2(0, 12), MouseFilter = Control.MouseFilterEnum.Ignore });
 
             int first = panel.Content.GetChildCount();
             ModSettingsOptions.AddTo(__instance, panel, text => SectionTitle(header, text));
@@ -105,8 +120,44 @@ public static class ModSettingsTab
             }
             var keyRows = panel.Content.GetChildren().Skip(first).OfType<CanvasItem>().ToList();
 
+            // « ? » au bout droit de la rangée, au centre vertical des sous-onglets dessinés (leur image dépasse leur
+            // place dans la rangée)
+            void PlaceHelp()
+            {
+                if (!GodotObject.IsInstanceValid(help) || !help.IsInsideTree())
+                    return;
+                help.Size = help.GetCombinedMinimumSize();
+                // Image de l'onglet Options telle qu'elle est dessinée (décalée par rapport à sa place dans la rangée)
+                var art = optionsTab.GetNodeOrNull<Control>("TabImage")?.GetGlobalRect() ?? optionsTab.GetGlobalRect();
+                float centerY = art.Position.Y + art.Size.Y / 2 - left.GlobalPosition.Y;
+                help.Position = new Vector2(0, centerY - help.Size.Y / 2);
+            }
+            left.Resized += () => Callable.From(PlaceHelp).CallDeferred();
+            panel.VisibilityChanged += () => Callable.From(PlaceHelp).CallDeferred();
+
+            // Même largeur pour les deux vues, celle de la plus large (Input, avec l'en-tête de ses colonnes) : le contenu
+            // ne change plus de taille d'une vue à l'autre, et le jeu ne le recentre plus ailleurs (tout se décalait)
+            void SameWidth()
+            {
+                if (!GodotObject.IsInstanceValid(panel))
+                    return;
+                float width = optionRows.Concat(keyRows).OfType<Control>().Max(r => r.GetCombinedMinimumSize().X);
+                if (width > panel.Content.CustomMinimumSize.X)
+                    panel.Content.CustomMinimumSize = new Vector2(width, 0);
+                // Lignes d'options à la largeur de celles des panneaux du jeu (General…), calées à gauche : leurs cases
+                // et choix tombent au même endroit que dans les autres onglets ; seuls les sous-onglets vont jusqu'au
+                // bord du contenu, élargi par la vue Input
+                if (ModSettingsOptions.NativeContent is { } native && GodotObject.IsInstanceValid(native) && native.Size.X > 0)
+                    foreach (var row in optionRows.OfType<Control>())
+                    {
+                        row.SizeFlagsHorizontal = Control.SizeFlags.ShrinkBegin;
+                        row.CustomMinimumSize = new Vector2(native.Size.X, row.CustomMinimumSize.Y);
+                    }
+            }
+
             void Show(bool keys)
             {
+                SameWidth();
                 foreach (var row in optionRows)
                     row.Visible = !keys;
                 foreach (var row in keyRows)
@@ -123,11 +174,15 @@ public static class ModSettingsTab
                 }
                 AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
                 // Navigation au clavier (mode clavier seul) et à la manette : le jeu chaîne les lignes visibles du
-                // panneau entre elles (sous-onglets compris) et choisit la première comme focus à l'ouverture de l'onglet
+                // panneau entre elles (sous-onglets compris) et choisit la première comme focus à l'ouverture de l'onglet.
+                // Taille du panneau refaite après la mise en page de la vue affichée
                 Callable.From(() =>
                 {
-                    if (GodotObject.IsInstanceValid(panel))
-                        AccessTools.Method(typeof(NSettingsPanel), "UpdateNavigation")?.Invoke(panel, null);
+                    if (!GodotObject.IsInstanceValid(panel))
+                        return;
+                    AccessTools.Method(typeof(NSettingsPanel), "UpdateNavigation")?.Invoke(panel, null);
+                    SameWidth();
+                    AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
                 }).CallDeferred();
             }
             optionsTab.Connect(NClickableControl.SignalName.Released, Callable.From<NSettingsTab>(_ => Show(false)));
@@ -160,6 +215,8 @@ public static class ModSettingsTab
         // l'échelle à 1 après le survol)
         var holder = new Control { CustomMinimumSize = model.Size, MouseFilter = Control.MouseFilterEnum.Ignore };
         parent.AddChild(holder);
+        // Ancres de l'onglet du jeu centrées : dans sa case, il serait décalé de la moitié de sa taille
+        tab.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
         tab.Position = Vector2.Zero;
         holder.AddChild(tab);
         tab.SetLabel(text);

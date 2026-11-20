@@ -65,6 +65,14 @@ public sealed class SavedSettings
 
     // ---- Options du mod (options du jeu, onglet Mod ; voir ModOptions) ----
 
+    /// <summary>Guide du mod déjà montré (il s'ouvre tout seul au premier menu principal avec le mod)</summary>
+    public bool GuideSeen { get; set; }
+
+    /// <summary>Boutons « ? » du guide : dans le GUI, l'écran Stats, l'onglet Mod des options</summary>
+    public bool HelpInGui { get; set; } = true;
+    public bool HelpInStats { get; set; } = true;
+    public bool HelpInSettings { get; set; } = true;
+
     /// <summary>GUI ouvert tout seul au lancement ou à la reprise d'une partie</summary>
     public bool OpenOnRunStart { get; set; }
 

@@ -192,18 +192,29 @@ interceptées pour nos copies (rien ne change dans les réglages du jeu, pas d'i
 - rapports de bug : nom par défaut (champ de texte, Échap ou Entrée pour en sortir), logs et partie joints par défaut.
 Vérifié avec le pont (menu principal et en partie, effet immédiat, prefs du jeu inchangées).
 
-## Menu principal : recentrer
+## Menu principal recentré
 
-- Les boutons ajoutés par le mod (« Stats », « Report a bug ») allongent la liste des boutons du menu principal, qui
-  n'est plus centrée comme celle du jeu : la recentrer (en partant ou non du bas, comme le jeu), sans chevaucher le
-  reste de l'écran.
+Fait : espace libre en hauteur (écran moins logo moins liste des boutons) réparti 3/4 au-dessus du logo « Slay the Spire
+II », 1/8 entre le logo et la liste, 1/8 sous la liste ; logo déplacé, marges des ancres de la liste décalées (le jeu la
+garde centrée sur ce point quand Continue et Abandon Run apparaissent).
 
-## Tuto : ce que fait le mod et où le régler
+## Guide du mod
 
-- Un « tuto » pour les joueurs (au premier lancement avec le mod, puis accessible à nouveau, par exemple depuis l'onglet
-  Mod des options ou l'écran Stats) : ce que le mod sait faire (GUI et ses onglets, aperçus des cartes, des potions et
-  des salles, têtes de mort, Path finder, stats des reliques, écran Stats, rapports de bug et de plantage) et où le
-  modifier (touches et options de l'onglet Mod, onglets du GUI).
+Fait : guide « STS Tools · Mod guide » plein écran dans le style des options du jeu (vrais onglets copiés pour les
+pages GUI, Combat, Map, Stats, Settings ; icône du jeu par page ; lignes séparées par un trait ; mots en doré et en bleu,
+touches en relief ; flèches de choix du jeu ; bouton retour rouge en bas à gauche). Ouvert tout seul au premier menu
+principal avec le mod (`GuideSeen` dans `settings.json`), puis par les boutons « ? » (point d'interrogation de l'écran de
+stats du jeu) du GUI, de l'écran Stats (aligné sur Reload et Close) et de l'onglet Mod des options (tout à gauche de la
+rangée des sous-onglets), chacun affiché si son option est cochée (Options > Mod guide). Gauche et droite changent de
+page, Échap le ferme sans fermer ce qu'il y a derrière : touches prises avant le gestionnaire des modes de contrôle du
+jeu (en mode clavier seul, la première flèche après la souris n'arrivait jamais), focus rendu à l'écran d'origine,
+raccourcis des boutons du jeu bloqués juste après (le relâchement d'Échap ouvrait l'écran des profils).
+
+- Onglets copiés du jeu (onglet Mod, guide) : leurs ancres centrées les décalaient de la moitié de leur taille dans
+  leur case ; remises en haut à gauche.
+- Onglet Mod : les deux vues ont la largeur de la vue Input (sinon le contenu, recentré par le jeu, se décalait en
+  revenant aux options) ; les lignes d'options gardent la largeur de celles des panneaux du jeu, traits entre les lignes
+  copiés du jeu.
 
 ## Vu en jouant l'acte 1 avec le pont (2026-11-19)
 
@@ -258,6 +269,7 @@ touches, souris, console, carte, GUI, état du Path finder, captures d'écran). 
   les autres n'agissent pas), comme le « fake multiplayer » du jeu ; toutes les sauvegardes du jeu et du mod sont
   bloquées jusqu'au retour au menu principal. Aussi `aim` (viser sans jouer), `focus`, `overlays`, `graph`. Les coéquipiers n'y jouent pas : pour le réseau, `sts_mp.sh`.
 - `click` amène d'abord le contrôle dans la partie visible d'une zone de défilement ; `tree` marque les autres.
+- `nodes <chemin> [profondeur]` : arbre des nœuds (type, nom, position, taille).
 - `roompreview <col> <row>` : texte de l'aperçu d'une salle de la carte, sans la survoler ; `encounterimage <ID>` :
   image de ses monstres en PNG.
 - Corrigé (2026-11-19) : le blocage des sauvegardes des parties de test ne se posait qu'à moitié depuis f599837
