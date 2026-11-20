@@ -38,12 +38,19 @@
     <Compile Remove="dist/**" />
   </ItemGroup>
 
-  <!-- Webhook Discord des rapports de plantage (CrashUpload), seulement s'il est réglé dans StsTools.local.props -->
-  <ItemGroup Condition="'$(CrashWebhook)' != ''">
+  <!--
+    Relais des rapports (dossier relay/, Cloudflare Worker), s'il est réglé dans StsTools.local.props (ReportRelay) : le
+    mod envoie ses rapports au relais, qui seul connaît les webhooks Discord ; ils ne sont alors pas mis dans la DLL.
+  -->
+  <ItemGroup Condition="'$(ReportRelay)' != ''">
+    <AssemblyMetadata Include="ReportRelay" Value="$(ReportRelay)" />
+  </ItemGroup>
+  <!-- Sans relais : webhook Discord des rapports de plantage (CrashUpload), s'il est réglé dans StsTools.local.props -->
+  <ItemGroup Condition="'$(CrashWebhook)' != '' And '$(ReportRelay)' == ''">
     <AssemblyMetadata Include="CrashWebhook" Value="$(CrashWebhook)" />
   </ItemGroup>
   <!-- Webhook Discord des rapports de bug écrits par les joueurs (BugReportDialog) -->
-  <ItemGroup Condition="'$(BugWebhook)' != ''">
+  <ItemGroup Condition="'$(BugWebhook)' != '' And '$(ReportRelay)' == ''">
     <AssemblyMetadata Include="BugWebhook" Value="$(BugWebhook)" />
   </ItemGroup>
 

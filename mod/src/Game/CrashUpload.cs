@@ -30,13 +30,16 @@ public static class CrashUpload
 
     private static string? Webhook => WebhookNamed("CrashWebhook");
 
+    /// <summary>Relais des rapports (relay/, Cloudflare Worker), à la place des webhooks : null s'il n'est pas réglé.</summary>
+    internal static string? Relay => WebhookNamed("ReportRelay");
+
     /// <summary>Adresse d'un webhook mise dans la DLL à la compilation (StsTools.local.props), sinon null.</summary>
     internal static string? WebhookNamed(string key) =>
         typeof(CrashUpload).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
             .FirstOrDefault(a => a.Key == key)?.Value is { Length: > 0 } url ? url : null;
 
     /// <summary>Le mod a été compilé avec un webhook : il peut envoyer ses rapports.</summary>
-    public static bool Available => Webhook != null;
+    public static bool Available => Relay != null || Webhook != null;
 
     /// <summary>
     /// Envoie le rapport en arrière-plan ; <paramref name="done"/> est appelé sur le fil du jeu avec le résultat.
@@ -44,7 +47,7 @@ public static class CrashUpload
     /// </summary>
     public static void Send(string report, Action<bool>? done = null)
     {
-        if (Webhook is not { } url)
+        if ((Relay ?? Webhook) is not { } url)
         {
             done?.Invoke(false);
             return;
@@ -62,12 +65,14 @@ public static class CrashUpload
         }
         // Lu sur le fil du jeu : la plateforme (Steam) n'est pas appelée depuis l'envoi en arrière-plan
         var player = PlayerTag();
+        var threadName = ReportLimits.ThreadName();
+        var identity = PlayerIdentity();
         Task.Run(async () =>
         {
             bool ok = false;
             try
             {
-                ok = await Upload(url, report, player);
+                ok = await Upload(url, report, player, threadName, identity);
                 if (ok)
                     File.WriteAllText(Path.Combine(report, SentMarker), DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
             }
@@ -96,31 +101,45 @@ public static class CrashUpload
                 Send(report);
     }
 
-    private static Task<bool> Upload(string url, string report, string? player) =>
-        Post(url, Summary(report, player), Zip(report), $"{Path.GetFileName(report)}.zip");
-
-    /// <summary>Un message dans le salon du webhook, avec un zip joint s'il y en a un.</summary>
-    internal static async Task<bool> Post(string url, string content, byte[]? zip, string zipName)
+    /// <summary>
+    /// Plantage déjà signalé : compteur du premier message mis à jour, sans nouveau message. Sinon, s'il n'y en a pas déjà
+    /// eu trop dans l'heure, un message avec le zip (dans le fil du joueur si le salon est un forum). Trop de plantages :
+    /// faux, le rapport reste à envoyer au lancement suivant.
+    /// </summary>
+    private static async Task<bool> Upload(string url, string report, string? player, string? threadName,
+        (string Platform, string Name, ulong Id)? identity)
     {
-        var payload = JsonSerializer.Serialize(new
+        const string key = "CrashWebhook";
+        var signature = ReportLimits.CrashSignature(report);
+        // Relais : il compte lui-même les plantages déjà signalés, par tous les joueurs
+        if (Relay != null)
         {
-            content,
-            // Aucune mention (@everyone…) même si le journal en contient
-            allowed_mentions = new { parse = Array.Empty<string>() },
-        });
-        using var form = new MultipartFormDataContent();
-        form.Add(new StringContent(payload, Encoding.UTF8, "application/json"), "payload_json");
-        if (zip != null)
-        {
-            var file = new ByteArrayContent(zip);
-            file.Headers.ContentType = new MediaTypeHeaderValue("application/zip");
-            form.Add(file, "files[0]", zipName);
+            if (ReportLimits.CrashLimited())
+            {
+                BugReport.Note($"crash {Path.GetFileName(report)} not sent: {ReportLimits.CrashesPerHour} crash reports already sent this hour");
+                return false;
+            }
+            var sent = await ReportLimits.PostRelay(url, "crash", Summary(report, player), Zip(report),
+                $"{Path.GetFileName(report)}.zip", identity, signature);
+            if (sent)
+                ReportLimits.CrashCounted();
+            return sent;
         }
-        using var response = await Http.PostAsync(url + (url.Contains('?') ? "&" : "?") + "wait=true", form);
-        if (response.IsSuccessStatusCode)
+        if (await ReportLimits.CountAgain(key, url, signature))
+        {
+            BugReport.Note($"crash {Path.GetFileName(report)} already reported (signature {signature}): counted on the first message");
             return true;
-        Log.Warn($"[{ModEntry.Id}] webhook upload refused: {(int)response.StatusCode} {await response.Content.ReadAsStringAsync()}");
-        return false;
+        }
+        if (ReportLimits.CrashLimited())
+        {
+            BugReport.Note($"crash {Path.GetFileName(report)} not sent: {ReportLimits.CrashesPerHour} crash reports already sent this hour");
+            return false;
+        }
+        var summary = Summary(report, player);
+        var result = await ReportLimits.Post(key, url, summary, Zip(report), $"{Path.GetFileName(report)}.zip", threadName);
+        if (result.Ok)
+            ReportLimits.CrashSent(key, signature, result, summary);
+        return result.Ok;
     }
 
     /// <summary>Le dossier du rapport en zip, sous la taille permise (<see cref="ZipFiles"/>).</summary>
@@ -224,7 +243,11 @@ public static class CrashUpload
     /// Joueur local sur sa plateforme (Steam) : pseudo et identifiant, pour regrouper les rapports d'une même personne ;
     /// null si la plateforme ne répond pas.
     /// </summary>
-    internal static string? PlayerTag()
+    internal static string? PlayerTag() =>
+        PlayerIdentity() is { } player ? $"{player.Platform} `{Clip(player.Name.Replace("`", "'"), 40)}` id `{player.Id}`" : null;
+
+    /// <summary>Joueur local sur sa plateforme : plateforme, pseudo, identifiant ; null si elle ne répond pas.</summary>
+    internal static (string Platform, string Name, ulong Id)? PlayerIdentity()
     {
         try
         {
@@ -232,8 +255,7 @@ public static class CrashUpload
             ulong id = MegaCrit.Sts2.Core.Platform.PlatformUtil.GetLocalPlayerId(platform);
             if (id == 0)
                 return null;
-            string name = MegaCrit.Sts2.Core.Platform.PlatformUtil.GetPlayerNameRaw(platform, id).Replace("`", "'");
-            return $"{platform} `{Clip(name, 40)}` id `{id}`";
+            return (platform.ToString(), MegaCrit.Sts2.Core.Platform.PlatformUtil.GetPlayerNameRaw(platform, id), id);
         }
         catch (Exception)
         {

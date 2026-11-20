@@ -158,16 +158,28 @@ nombres proposés identiques dans tous les scénarios ; nombres sur tout l'acte 
 
 ## Rapports de bug et de plantage : spam et doublons
 
-- Éviter le spam : limiter le nombre d'envois (par exemple quelques rapports par heure et par joueur, délai minimal
-  entre deux « Report a bug »), et ne pas renvoyer un rapport déjà envoyé.
-- Éviter les doublons : reconnaître un plantage déjà signalé (même dernière erreur, même aperçu non terminé, même
-  carte ou même combat) et, plutôt qu'un nouveau message avec son zip, le compter sur le rapport existant ou envoyer
-  un message court qui renvoie au premier.
-- Regrouper dans Discord les rapports d'une même personne (identifiée par son id Steam, déjà dans chaque rapport) :
-  par exemple un fil par joueur (salon forum, ou paramètre thread_id/thread_name du webhook), où arrivent tous ses
-  rapports de bug et de plantage.
-- Limiter côté serveur si possible : un webhook dans le mod peut être utilisé par n'importe qui qui le récupère ; un
-  petit relais (Cloudflare Worker) pourrait filtrer et limiter les envois.
+Fait (`ReportLimits`, état dans `user://StsTools/reports/sent.json`) :
+- Spam : au plus 5 rapports de bug par heure, 60 s entre deux, pas deux fois la même description en 24 h (message au
+  joueur dans la fenêtre) ; au plus 3 plantages envoyés par heure (les autres restent à envoyer au lancement suivant) ;
+  un rapport déjà envoyé ne repart pas (`upload.sent`).
+- Doublons : un plantage déjà signalé par le joueur (même signature : version du mod, dernière exception sans les
+  nombres, gel, aperçu non terminé, combat) ne renvoie ni message ni zip : le premier message reçoit « Seen again: N
+  times » (modifié par le webhook). Message supprimé entre-temps : un nouveau rapport complet part.
+- Regroupement : si le salon est un forum, chaque joueur a son fil (créé au premier envoi, pseudo et id Steam), où
+  arrivent tous ses rapports ; salon ordinaire (cas actuel de crash-reports et bug-report) : messages ordinaires, refus
+  du fil retenu. Pour l'activer : passer les salons en forums (nouveaux webhooks dans `StsTools.local.props`).
+- Bug réglé : `tools/discord_reports.py delete <id>…` supprime ses rapports (par le webhook qui les a envoyés) ; le
+  script lit aussi les fils des forums.
+
+Fait : relais (`relay/`, Cloudflare Worker `sts-tools-reports`, compte Cloudflare de l'auteur) entre le mod et
+Discord. Le mod envoie ses rapports à `ReportRelay` (`StsTools.local.props`) ; les webhooks ne sont plus dans la DLL
+(seulement dans les secrets du relais et dans `StsTools.local.props` pour `discord_reports.py delete`). Le relais
+vérifie la forme, limite par joueur et par adresse IP (même si le mod est contourné), compte les plantages déjà
+signalés par n'importe quel joueur sur le premier message, et fait les fils par joueur si le salon est un forum.
+Vérifié de bout en bout (refus, doublon compté, 429 au-delà de la limite). Suivi : `npx wrangler tail` dans `relay/`.
+
+- Recréer les deux webhooks Discord : leurs adresses actuelles sont dans les DLL déjà données ; mettre les nouvelles
+  dans les secrets du relais (`npx wrangler secret put CRASH_WEBHOOK` / `BUG_WEBHOOK`) et dans `StsTools.local.props`.
 
 ## Serveur Discord : finaliser
 

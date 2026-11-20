@@ -22,10 +22,13 @@ public static class BugReportDialog
     private static string? Webhook => CrashUpload.WebhookNamed("BugWebhook");
 
     /// <summary>Le mod sait envoyer un rapport de bug (webhook présent).</summary>
-    public static bool Available => Webhook != null;
+    public static bool Available => CrashUpload.Relay != null || Webhook != null;
 
     private static CanvasLayer? _layer;
     private static Action? _close;
+
+    /// <summary>Un rapport est en train de partir : pas de deuxième envoi.</summary>
+    private static bool _sending;
 
     /// <summary>La fenêtre est ouverte : le clavier lui est réservé.</summary>
     public static bool IsOpen => _layer != null && GodotObject.IsInstanceValid(_layer);
@@ -123,6 +126,16 @@ public static class BugReportDialog
                 status.AddThemeColorOverride("font_color", StsColors.red);
                 return;
             }
+            // Envoi déjà en cours (appuis répétés sur Send) : rien de plus
+            if (_sending)
+                return;
+            // Pas de spam : délai entre deux rapports, nombre par heure, même texte déjà envoyé
+            if (ReportLimits.BugRefusal(text) is { } refusal)
+            {
+                status.Text = refusal;
+                status.AddThemeColorOverride("font_color", StsColors.red);
+                return;
+            }
             var settings = SavedSettings.Load();
             settings.BugReportName = name.Text.Trim();
             settings.Save();
@@ -168,15 +181,20 @@ public static class BugReportDialog
     /// </summary>
     private static void Send(string description, string name, bool attach, Action<bool> done)
     {
-        if (Webhook is not { } url)
+        if ((CrashUpload.Relay ?? Webhook) is not { } url)
         {
             done(false);
             return;
         }
+        bool relay = CrashUpload.Relay != null;
+        var identity = CrashUpload.PlayerIdentity();
         var stamp = DateTime.Now;
+        _sending = true;
+        ReportLimits.BugStarted(description);
         var journalLines = CrashUpload.JournalLines(BugReport.JournalPath);
         var files = attach ? BugReport.CurrentFiles().ToList() : [];
         var player = CrashUpload.PlayerTag();
+        var threadName = ReportLimits.ThreadName();
         BugReport.Note($"bug report written by the player ({description.Length} characters, files: {attach})");
         Task.Run(async () =>
         {
@@ -188,7 +206,11 @@ public static class BugReportDialog
                     $"From: {(name.Length > 0 ? name : "anonymous")}\nPlayer: {player ?? "unknown"}\n\n{description}\n");
                 files.Insert(0, ("description.txt", descriptionFile));
                 var zip = CrashUpload.ZipFiles(files);
-                ok = await CrashUpload.Post(url, Message(description, name, journalLines), zip, $"bug-{stamp:yyyyMMdd-HHmmss}.zip");
+                var message = Message(description, name, journalLines);
+                var zipName = $"bug-{stamp:yyyyMMdd-HHmmss}.zip";
+                ok = relay
+                    ? await ReportLimits.PostRelay(url, "bug", message, zip, zipName, identity, null)
+                    : (await ReportLimits.Post("BugWebhook", url, message, zip, zipName, threadName)).Ok;
                 File.Delete(descriptionFile);
             }
             catch (Exception e)
@@ -196,7 +218,13 @@ public static class BugReportDialog
                 Log.Warn($"[{ModEntry.Id}] cannot send the bug report: {e.Message}");
             }
             BugReport.Note($"bug report {(ok ? "sent" : "not sent")}");
-            Callable.From(() => done(ok)).CallDeferred();
+            if (!ok)
+                ReportLimits.BugFailed(description);
+            Callable.From(() =>
+            {
+                _sending = false;
+                done(ok);
+            }).CallDeferred();
         });
     }
 

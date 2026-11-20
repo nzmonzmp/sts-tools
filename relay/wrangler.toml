@@ -1,0 +1,9 @@
+# Relais des rapports du mod STS Tools (voir README.md). Secrets : wrangler secret put CRASH_WEBHOOK / BUG_WEBHOOK.
+name = "sts-tools-reports"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+# Créé par : npx wrangler kv namespace create REPORTS
+[[kv_namespaces]]
+binding = "REPORTS"
+id = "308eec49061c4f64bab7e0fbcf873e08"
