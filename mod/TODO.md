@@ -178,13 +178,32 @@ nombres proposés identiques dans tous les scénarios ; nombres sur tout l'acte 
 
 ## Options du jeu : réglages du mod
 
-- Dans les options du jeu, onglet Mod (aujourd'hui : seulement les touches), des réglages du mod :
-  - GUI : ce qui s'affiche quand on l'ouvre avec sa touche (onglets visibles, onglet ouvert par défaut, panneau
-    replié ou non…) et ce qu'il active (aperçu des cartes et des potions, têtes de mort, aperçu des salles sur la
-    carte, tracé des chemins du Path finder…) ;
-  - rapports de plantage : demander, toujours envoyer ou ne jamais envoyer (aujourd'hui seulement modifiable depuis
-    l'encadré du menu principal après un plantage) ;
-  - rapports de bug : nom proposé par défaut, joindre les logs et la partie ou non par défaut.
+Fait : onglet Mod des options du jeu (aussi depuis le menu principal, dont l'écran d'options existe avant les patchs),
+avec deux sous-onglets (copies des onglets du jeu, navigables au clavier et à la manette) : Options et Input (touches du
+mod). Lignes copiées de celles du jeu (case de Run Timer, choix ◀ ▶ de Screenshake), méthodes du jeu
+interceptées pour nos copies (rien ne change dans les réglages du jeu, pas d'infobulle du jeu) ; gardées dans
+`settings.json`, appliquées tout de suite :
+- GUI : ouvert tout seul au lancement ou à la reprise d'une partie (non par défaut) ; onglets visibles (Deck, Game ou
+  Combat : au moins un reste), onglet à l'ouverture (dernier choisi ou un onglet),
+  panneau à l'ouverture (comme laissé, déplié, replié ; la touche Collapse GUI l'ouvre toujours déplié) ;
+- GUI ouvert : aperçu des cartes et des potions, têtes de mort, stats des reliques, aperçu des salles ; onglet Path
+  finder caché : ses chemins ne sont plus tracés sur la carte ;
+- rapports de plantage : Ask, Always, Never (si le mod a le webhook) ;
+- rapports de bug : nom par défaut (champ de texte, Échap ou Entrée pour en sortir), logs et partie joints par défaut.
+Vérifié avec le pont (menu principal et en partie, effet immédiat, prefs du jeu inchangées).
+
+## Menu principal : recentrer
+
+- Les boutons ajoutés par le mod (« Stats », « Report a bug ») allongent la liste des boutons du menu principal, qui
+  n'est plus centrée comme celle du jeu : la recentrer (en partant ou non du bas, comme le jeu), sans chevaucher le
+  reste de l'écran.
+
+## Tuto : ce que fait le mod et où le régler
+
+- Un « tuto » pour les joueurs (au premier lancement avec le mod, puis accessible à nouveau, par exemple depuis l'onglet
+  Mod des options ou l'écran Stats) : ce que le mod sait faire (GUI et ses onglets, aperçus des cartes, des potions et
+  des salles, têtes de mort, Path finder, stats des reliques, écran Stats, rapports de bug et de plantage) et où le
+  modifier (touches et options de l'onglet Mod, onglets du GUI).
 
 ## Vu en jouant l'acte 1 avec le pont (2026-11-19)
 

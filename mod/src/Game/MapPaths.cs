@@ -159,7 +159,8 @@ public static class MapPaths
                 _mapOpen = mapOpen;
                 RunPanel.TabsChanged();
             }
-            if (!mapOpen || !RunPanel.IsOpen || _failed)
+            // Onglet Path finder caché dans les options du mod : ni recherche ni chemins tracés
+            if (!mapOpen || !RunPanel.IsOpen || _failed || ModOptions.IsTabHidden("Path finder"))
             {
                 Hide();
                 return;

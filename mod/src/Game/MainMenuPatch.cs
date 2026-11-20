@@ -47,6 +47,8 @@ public static class MainMenuPatch
     public static void Postfix(NMainMenu __instance)
     {
         ModEntry.ApplyLatePatches();
+        // Options du menu principal prêtes avant les patchs : onglet Mod ajouté maintenant
+        ModSettingsTab.AddToExisting(__instance.GetTree().Root);
         BugReport.WatchFrames();
         BugReport.ShowNotice(__instance);
         try

@@ -63,6 +63,35 @@ public sealed class SavedSettings
     /// <summary>Nom donné dans le dernier rapport de bug (Report a bug), proposé la fois suivante</summary>
     public string? BugReportName { get; set; }
 
+    // ---- Options du mod (options du jeu, onglet Mod ; voir ModOptions) ----
+
+    /// <summary>GUI ouvert tout seul au lancement ou à la reprise d'une partie</summary>
+    public bool OpenOnRunStart { get; set; }
+
+    /// <summary>Onglets du GUI cachés (titres : « Deck », « Path finder »…)</summary>
+    public List<string> HiddenTabs { get; set; } = [];
+
+    /// <summary>Onglet affiché à l'ouverture du GUI ; null : le dernier choisi</summary>
+    public string? OpenTab { get; set; }
+
+    /// <summary>Panneau à l'ouverture du GUI : « last » (comme il a été laissé), « expanded » ou « collapsed »</summary>
+    public string OpenPanel { get; set; } = "last";
+
+    /// <summary>GUI ouvert : aperçu des cartes jouées et des potions (TargetPreview)</summary>
+    public bool CardPreview { get; set; } = true;
+
+    /// <summary>GUI ouvert : têtes de mort (LethalWarning)</summary>
+    public bool Skulls { get; set; } = true;
+
+    /// <summary>GUI ouvert : stats sous la description des reliques (RelicHover)</summary>
+    public bool RelicStats { get; set; } = true;
+
+    /// <summary>GUI ouvert : aperçu des salles au survol sur la carte (MapRoomPreview)</summary>
+    public bool RoomPreview { get; set; } = true;
+
+    /// <summary>Report a bug : case « joindre les logs et la partie » cochée par défaut</summary>
+    public bool BugReportAttach { get; set; } = true;
+
     /// <summary>Touches du mod (noms des touches Godot : « F7 »), réglables dans les options du jeu (Input)</summary>
     public Dictionary<string, string> Hotkeys { get; set; } = [];
 

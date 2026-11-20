@@ -95,7 +95,7 @@ public static class LethalWarning
     {
         combat = state;
         me = null;
-        if (!RunPanel.IsOpen || !CombatManager.Instance.IsInProgress || CombatManager.Instance.IsOverOrEnding
+        if (!RunPanel.IsOpen || !ModOptions.Skulls || !CombatManager.Instance.IsInProgress || CombatManager.Instance.IsOverOrEnding
             || combat == null || combat.CurrentSide != CombatSide.Player
             || LocalContext.GetMe(combat) is not { } player || player.Creature.IsDead)
             return null;

@@ -11,7 +11,8 @@ using MegaCrit.Sts2.Core.Nodes.Screens.Settings;
 namespace StsTools.Game;
 
 /// <summary>
-/// Options du jeu : un onglet « Mod » après « Input », avec une ligne par touche du mod (<see cref="ModHotkeys"/>).
+/// Options du jeu : un onglet « Mod » après « Input », avec les options du mod (<see cref="ModSettingsOptions"/>) puis
+/// une ligne par touche du mod (<see cref="ModHotkeys"/>).
 /// L'onglet est une copie de l'onglet Input, le panneau une copie (vidée) d'un panneau simple du jeu, et les lignes
 /// des lignes de touches du jeu (même scène) dont on remplace le titre et la touche affichée. Un clic sur une ligne
 /// attend la nouvelle touche, comme pour les touches du jeu.
@@ -24,6 +25,21 @@ public static class ModSettingsTab
 
     private static readonly AccessTools.FieldRef<NSettingsTabManager, Dictionary<NSettingsTab, NSettingsPanel>> Tabs =
         AccessTools.FieldRefAccess<NSettingsTabManager, Dictionary<NSettingsTab, NSettingsPanel>>("_tabs");
+
+    /// <summary>
+    /// Écrans d'options déjà créés avant les patchs (celui du menu principal, prêt avant le menu lui-même) : l'onglet y
+    /// est ajouté après coup.
+    /// </summary>
+    public static void AddToExisting(Node root)
+    {
+        foreach (var child in root.GetChildren())
+        {
+            if (child is NSettingsTabManager manager)
+                Postfix(manager);
+            else
+                AddToExisting(child);
+        }
+    }
 
     public static void Postfix(NSettingsTabManager __instance)
     {
@@ -60,6 +76,19 @@ public static class ModSettingsTab
             }
             model.AddSibling(panel);
             var header = Header(__instance);
+            // Deux sous-onglets : Options (GUI, rapports) et Input (touches du mod, sous l'en-tête de leurs colonnes)
+            var subTabs = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
+            subTabs.AddThemeConstantOverride("separation", 24);
+            panel.Content.AddChild(subTabs);
+            var optionsTab = SubTab(inputTab, subTabs, "Options");
+            var keysTab = SubTab(inputTab, subTabs, "Input");
+            // Espace sous les sous-onglets : l'en-tête des colonnes copié de l'onglet Input remonte sur ce qui le précède
+            panel.Content.AddChild(new Control { CustomMinimumSize = new Vector2(0, 48), MouseFilter = Control.MouseFilterEnum.Ignore });
+
+            int first = panel.Content.GetChildCount();
+            ModSettingsOptions.AddTo(__instance, panel, text => SectionTitle(header, text));
+            var optionRows = panel.Content.GetChildren().Skip(first).OfType<CanvasItem>().ToList();
+            first = panel.Content.GetChildCount();
             if (header != null)
                 panel.Content.AddChild(header);
             // Une section par groupe (GUI, écran Stats, partie), titre au style de l'en-tête des colonnes
@@ -74,14 +103,36 @@ public static class ModSettingsTab
                 }
                 panel.Content.AddChild(Entry(hotkey));
             }
-            AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
-            // Navigation au clavier (mode clavier seul) et à la manette : le jeu chaîne les lignes du panneau entre elles
-            // et choisit la première comme focus à l'ouverture de l'onglet ; à refaire une fois nos lignes prêtes
-            Callable.From(() =>
+            var keyRows = panel.Content.GetChildren().Skip(first).OfType<CanvasItem>().ToList();
+
+            void Show(bool keys)
             {
-                if (GodotObject.IsInstanceValid(panel))
-                    AccessTools.Method(typeof(NSettingsPanel), "UpdateNavigation")?.Invoke(panel, null);
-            }).CallDeferred();
+                foreach (var row in optionRows)
+                    row.Visible = !keys;
+                foreach (var row in keyRows)
+                    row.Visible = keys;
+                if (keys)
+                {
+                    keysTab.Select();
+                    optionsTab.Deselect();
+                }
+                else
+                {
+                    optionsTab.Select();
+                    keysTab.Deselect();
+                }
+                AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
+                // Navigation au clavier (mode clavier seul) et à la manette : le jeu chaîne les lignes visibles du
+                // panneau entre elles (sous-onglets compris) et choisit la première comme focus à l'ouverture de l'onglet
+                Callable.From(() =>
+                {
+                    if (GodotObject.IsInstanceValid(panel))
+                        AccessTools.Method(typeof(NSettingsPanel), "UpdateNavigation")?.Invoke(panel, null);
+                }).CallDeferred();
+            }
+            optionsTab.Connect(NClickableControl.SignalName.Released, Callable.From<NSettingsTab>(_ => Show(false)));
+            keysTab.Connect(NClickableControl.SignalName.Released, Callable.From<NSettingsTab>(_ => Show(true)));
+            Show(false);
 
             tabs.Add(tab, panel);
             var switchTo = AccessTools.MethodDelegate<Action<NSettingsTab>>(
@@ -92,6 +143,27 @@ public static class ModSettingsTab
         {
             Log.Error($"[{ModEntry.Id}] cannot add the Mod settings tab: {e}");
         }
+    }
+
+    /// <summary>
+    /// Sous-onglet de l'onglet Mod : copie d'un onglet des options du jeu (même aspect, même navigation au clavier et à
+    /// la manette), posé dans une rangée du panneau.
+    /// </summary>
+    private static NSettingsTab SubTab(NSettingsTab model, Container parent, string text)
+    {
+        var tab = (NSettingsTab)model.Duplicate();
+        tab.Name = "StsToolsSubTab" + text;
+        var image = tab.GetNode<TextureRect>("TabImage");
+        if (image.Material != null)
+            image.Material = (Material)image.Material.Duplicate();
+        // Taille de l'onglet du jeu (placé à la main) réservée dans la rangée ; même taille que lui (le jeu remet
+        // l'échelle à 1 après le survol)
+        var holder = new Control { CustomMinimumSize = model.Size, MouseFilter = Control.MouseFilterEnum.Ignore };
+        parent.AddChild(holder);
+        tab.Position = Vector2.Zero;
+        holder.AddChild(tab);
+        tab.SetLabel(text);
+        return tab;
     }
 
     /// <summary>

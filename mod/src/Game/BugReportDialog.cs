@@ -97,7 +97,7 @@ public static class BugReportDialog
         var name = new LineEdit { Text = SavedSettings.Load().BugReportName ?? "", PlaceholderText = "Discord or Steam name" };
         column.AddChild(name);
 
-        var attach = new CheckBox { Text = "Attach the game logs and the current run save", ButtonPressed = true };
+        var attach = new CheckBox { Text = "Attach the game logs and the current run save", ButtonPressed = ModOptions.BugReportAttach };
         column.AddChild(attach);
 
         var status = Label("", 18, StsColors.cream);

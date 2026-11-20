@@ -77,7 +77,7 @@ public static class RelicHover
         try
         {
             // Seulement quand le panneau de stats est ouvert : sinon l'infobulle du jeu reste telle quelle
-            if (!RunPanel.IsOpen)
+            if (!RunPanel.IsOpen || !ModOptions.RelicStats)
                 return;
             // Relique possédée sans stats encore : rien à afficher, l'infobulle du jeu reste telle quelle
             if (relic.Model is not { } model || model.IsCanonical || !OwnedInRun(model))

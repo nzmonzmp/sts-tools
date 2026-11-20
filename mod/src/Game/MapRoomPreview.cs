@@ -81,10 +81,10 @@ public static class MapRoomPreview
             var screen = NMapScreen.Instance;
             var point = _hovered;
             var player = CardRunStats.LocalPlayer;
-            if (RunPanel.IsOpen && screen != null && GodotObject.IsInstanceValid(screen) && screen.IsOpen
+            if (RunPanel.IsOpen && ModOptions.RoomPreview && screen != null && GodotObject.IsInstanceValid(screen) && screen.IsOpen
                 && player?.RunState is RunState { Map: not NullActMap } open)
                 WarmUp(open);
-            if (point == null || !GodotObject.IsInstanceValid(point) || !point.IsVisibleInTree() || !RunPanel.IsOpen
+            if (point == null || !GodotObject.IsInstanceValid(point) || !point.IsVisibleInTree() || !RunPanel.IsOpen || !ModOptions.RoomPreview
                 || screen == null || !GodotObject.IsInstanceValid(screen) || !screen.IsOpen || player?.RunState is not RunState state
                 || state.Map is NullActMap || point.Point == null)
             {

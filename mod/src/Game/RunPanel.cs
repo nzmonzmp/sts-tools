@@ -103,6 +103,9 @@ public sealed class RunPanel
         {
             topBar.GetNodeOrNull(NodeName)?.Free();
             _current = new RunPanel(topBar, player);
+            // Option du mod : GUI ouvert dès le lancement ou la reprise de la partie
+            if (ModOptions.OpenOnRunStart)
+                _current.SetOpen(true);
         }
         catch (Exception e)
         {
@@ -147,8 +150,9 @@ public sealed class RunPanel
             return;
         if (!panel._panel.Visible)
         {
-            panel.SetCollapsed(false);
+            // Ouvert déplié, quelle que soit l'option d'ouverture (touche faite pour ça)
             panel.SetOpen(true);
+            panel.SetCollapsed(false);
             return;
         }
         panel.SetCollapsed(panel._body.Visible);
@@ -177,7 +181,7 @@ public sealed class RunPanel
         _right = saved.RunPanelRight ?? DefaultRight;
         _top = saved.RunPanelTop ?? DefaultTop;
         _height = saved.RunPanelHeight;
-        _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab && t.Available));
+        _tab = Math.Max(0, Array.FindIndex(_tabs, t => t.Title == saved.RunPanelTab && Shown(t)));
         _subTabs = new Dictionary<string, string>(saved.RunPanelSubTabs);
         _changed = _tabs.Select((_, i) => (Action)(() =>
         {
@@ -319,7 +323,7 @@ public sealed class RunPanel
                 // Onglets cachés sautés
                 int index = _tab;
                 for (int i = _tab + delta; i >= 0 && i < _tabs.Length; i += delta)
-                    if (_tabs[i].Available)
+                    if (Shown(_tabs[i]))
                     {
                         index = i;
                         break;
@@ -348,7 +352,7 @@ public sealed class RunPanel
         };
 
         for (int i = 0; i < _tabs.Length; i++)
-            _tabButtons[i].Visible = _tabs[i].Available;
+            _tabButtons[i].Visible = Shown(_tabs[i]);
         BuildSubTabs();
         BuildPlayers();
         StyleTabs();
@@ -379,9 +383,46 @@ public sealed class RunPanel
     /// <summary>Le panneau vient de s'ouvrir ou de se fermer.</summary>
     public static event Action? OpenChanged;
 
+    /// <summary>Onglet proposé (<see cref="IRunPanelTab.Available"/>) et pas caché dans les options du mod.</summary>
+    private static bool Shown(IRunPanelTab tab) => tab.Available && !ModOptions.IsTabHidden(tab.Title);
+
+    private int FirstShown() => Math.Max(0, Array.FindIndex(_tabs, Shown));
+
+    /// <summary>Options du mod changées (options du jeu) : onglets cachés ou montrés.</summary>
+    public static void OptionsChanged() => TabsChanged();
+
+    /// <summary>
+    /// À l'ouverture, selon les options du mod : l'onglet choisi (sinon le dernier) et le panneau déplié, replié ou
+    /// comme il a été laissé.
+    /// </summary>
+    private void ApplyOpenOptions()
+    {
+        if (ModOptions.OpenTab is { } title
+            && Array.FindIndex(_tabs, t => t.Title == title && Shown(t)) is var index and >= 0 && index != _tab)
+        {
+            _tab = index;
+            // Compte comme dernier onglet choisi : sinon l'ouverture de la carte (TabsChanged) ramènerait l'ancien
+            Save(settings => settings.RunPanelTab = title);
+            BuildSubTabs();
+            BuildPlayers();
+            StyleTabs();
+        }
+        switch (ModOptions.OpenPanel)
+        {
+            case "expanded":
+                SetCollapsed(false, save: false);
+                break;
+            case "collapsed":
+                SetCollapsed(true, save: false);
+                break;
+        }
+    }
+
     private void SetOpen(bool open)
     {
         bool changed = _panel.Visible != open;
+        if (changed && open)
+            ApplyOpenOptions();
         if (changed)
             BugReport.Note($"GUI {(open ? "opened" : "closed")}, focus on {_panel.GetViewport()?.GuiGetFocusOwner()?.Name ?? "nothing"}");
         // Fermé avec le focus dedans : on le rend au jeu
@@ -436,9 +477,9 @@ public sealed class RunPanel
         if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
             return;
         for (int i = 0; i < panel._tabs.Length; i++)
-            panel._tabButtons[i].Visible = panel._tabs[i].Available;
-        int saved = Array.FindIndex(panel._tabs, t => t.Title == SavedSettings.Load().RunPanelTab && t.Available);
-        int tab = saved >= 0 ? saved : panel._tabs[panel._tab].Available ? panel._tab : 0;
+            panel._tabButtons[i].Visible = Shown(panel._tabs[i]);
+        int saved = Array.FindIndex(panel._tabs, t => t.Title == SavedSettings.Load().RunPanelTab && Shown(t));
+        int tab = saved >= 0 ? saved : Shown(panel._tabs[panel._tab]) ? panel._tab : panel.FirstShown();
         if (tab == panel._tab)
             return;
         bool focused = panel._menu.HasFocus;
@@ -456,7 +497,7 @@ public sealed class RunPanel
     {
         if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
             return false;
-        int index = Array.FindIndex(panel._tabs, t => t.Available && t.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
+        int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
             return false;
         panel.SelectTab(index);

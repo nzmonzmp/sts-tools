@@ -311,7 +311,7 @@ public static class TargetPreview
         {
             Hide();
             // Seulement avec le GUI ouvert
-            if (!RunPanel.IsOpen || NCombatRoom.Instance is not { } room)
+            if (!RunPanel.IsOpen || !ModOptions.CardPreview || NCombatRoom.Instance is not { } room)
                 return;
             var outcome = WithoutVfx(simulate);
             if (outcome == null)
