@@ -3,6 +3,7 @@
 # Usage : workshop/publish.sh [public|friends|unlisted|private] ["note de version"]
 #         workshop/publish.sh subscribe|unsubscribe|status   (abonnement du compte connecté, pour tester)
 # La première fois l'item est créé et son id gardé dans workshop/item_id.txt ; ensuite il est mis à jour.
+# Les images de workshop/screenshots (ordre des noms) remplacent la galerie de l'item à chaque publication.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export DOTNET_ROOT="${DOTNET_ROOT:-$HOME/.dotnet}" PATH="$HOME/.dotnet:$PATH"
@@ -21,7 +22,7 @@ export SteamAppId=2868840 SteamGameId=2868840
 case "$vis" in
   subscribe|unsubscribe|status) cmd=(workshop/bin/out/Workshop "$vis" workshop/item_id.txt) ;;
   *) cmd=(workshop/bin/out/Workshop dist/StsTools assets/icon.png "STS Tools" workshop/description.txt
-  workshop/item_id.txt "$vis" "$note") ;;
+  workshop/item_id.txt "$vis" "$note" workshop/screenshots) ;;
 esac
 
 # Steam en snap : son client n'accepte que les programmes lancés dans le snap

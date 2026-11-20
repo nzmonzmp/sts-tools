@@ -171,6 +171,8 @@ connecté, sans identifiants ; Steam en snap : l'outil est lancé dans le snap (
 Vérifié : abonné à l'item et sans copie dans `mods/`, le jeu charge le mod depuis le dossier du Workshop, sans erreur.
 Discord : messages welcome (Install) et help (épinglé) modifiés par le bot : Workshop d'abord, installation à la main
 ensuite ; annonce de la 0.1.0 dans announcements (lien du Workshop), publiée aux serveurs qui suivent le salon.
+Galerie (2026-11-21) : 7 captures dans `workshop/screenshots` (aperçu en combat, aperçu de salle, stats de relique,
+Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.sh` (retire les images déjà publiées).
 
 ### Mod donné aux joueurs
 

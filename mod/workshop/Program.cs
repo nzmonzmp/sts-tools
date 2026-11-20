@@ -1,4 +1,4 @@
-// Usage : Workshop <dossier du mod> <image d'aperçu> <titre> <fichier description> <fichier id> <public|friends|private|unlisted> [note de version]
+// Usage : Workshop <dossier du mod> <image d'aperçu> <titre> <fichier description> <fichier id> <public|friends|private|unlisted> [note de version] [dossier des captures]
 // Crée l'item la première fois (son id est gardé dans <fichier id>), puis le met à jour.
 // Ou : Workshop subscribe|unsubscribe|status <fichier id> (abonnement du compte Steam connecté, pour tester).
 using Steamworks;
@@ -9,6 +9,7 @@ if (args[0] is "subscribe" or "unsubscribe" or "status")
 var (contentDir, preview, title, descFile, idFile, visArg) = (Path.GetFullPath(args[0]), Path.GetFullPath(args[1]),
     args[2], args[3], args[4], args[5]);
 var changeNote = args.Length > 6 ? args[6] : "";
+var screenshotsDir = args.Length > 7 && Directory.Exists(args[7]) ? args[7] : null;
 var appId = new AppId_t(2868840);
 
 var init = SteamAPI.InitEx(out var initMsg);
@@ -73,6 +74,20 @@ SteamUGC.SetItemPreview(h, preview);
 SteamUGC.SetItemVisibility(h, vis);
 SteamUGC.SetItemTags(h, new List<string> { "Mod" });
 
+// Galerie : les images de <dossier des captures> (ordre des noms) remplacent celles déjà publiées
+if (screenshotsDir != null)
+{
+    var shots = Directory.GetFiles(screenshotsDir)
+        .Where(f => Path.GetExtension(f).ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" or ".gif")
+        .OrderBy(f => Path.GetFileName(f), StringComparer.Ordinal).ToList();
+    var old = ExistingImagePreviews(id);
+    foreach (var index in old.OrderByDescending(i => i))
+        SteamUGC.RemoveItemPreview(h, index);
+    foreach (var shot in shots)
+        SteamUGC.AddItemPreviewFile(h, Path.GetFullPath(shot), EItemPreviewType.k_EItemPreviewType_Image);
+    Console.WriteLine($"Galerie : {old.Count} image(s) retirée(s), {shots.Count} ajoutée(s)");
+}
+
 var submitted = SubmitAndWait(h);
 Console.WriteLine($"SubmitItemUpdate : {submitted.m_eResult}");
 if (submitted.m_bUserNeedsToAcceptWorkshopLegalAgreement)
@@ -96,6 +111,27 @@ SubmitItemUpdateResult_t SubmitAndWait(UGCUpdateHandle_t handle)
         Thread.Sleep(200);
     }
     return result.Value;
+}
+
+// Index des images de la galerie déjà publiée (pas les vidéos), pour les retirer avant d'ajouter les nouvelles
+List<uint> ExistingImagePreviews(PublishedFileId_t item)
+{
+    var q = SteamUGC.CreateQueryUGCDetailsRequest([item], 1);
+    SteamUGC.SetReturnAdditionalPreviews(q, true);
+    var res = Wait<SteamUGCQueryCompleted_t>(SteamUGC.SendQueryUGCRequest(q));
+    var list = new List<uint>();
+    if (res.m_eResult == EResult.k_EResultOK && res.m_unNumResultsReturned > 0)
+    {
+        var n = SteamUGC.GetQueryUGCNumAdditionalPreviews(q, 0);
+        for (uint i = 0; i < n; i++)
+            if (SteamUGC.GetQueryUGCAdditionalPreview(q, 0, i, out _, 1024, out _, 1024, out var type)
+                && type == EItemPreviewType.k_EItemPreviewType_Image)
+                list.Add(i);
+    }
+    else
+        Console.WriteLine($"Galerie actuelle illisible ({res.m_eResult}) : rien n'est retiré");
+    SteamUGC.ReleaseQueryUGCRequest(q);
+    return list;
 }
 
 static int Subscription(string action, PublishedFileId_t id)

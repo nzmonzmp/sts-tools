@@ -132,7 +132,8 @@ l'overlay, 0 sur 20 sans.
 
 - Publier une nouvelle version : monter `version` dans `StsTools.json`, puis `workshop/publish.sh public "note"`
   (build Release normale dans `dist/StsTools`, puis mise à jour de l'item `workshop/item_id.txt` par SteamUGC ; Steam
-  doit être lancé). Vérifier avant que la DLL n'a ni webhook ni pont de test.
+  doit être lancé). Vérifier avant que la DLL n'a ni webhook ni pont de test. Les images de `workshop/screenshots`
+  (ordre des noms, JPEG 1920×1080) remplacent la galerie de l'item à chaque publication.
 - Tester l'item comme un joueur : `workshop/publish.sh subscribe` (attend le téléchargement), jeu fermé, sortir
   `mods/StsTools` du dossier `mods/` (à version égale le jeu garde la copie locale et désactive celle du Workshop ;
   si celle du Workshop est plus récente, c'est la copie locale qui est désactivée), relancer, chercher « Steam Workshop
