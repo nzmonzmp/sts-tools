@@ -1,3 +1,5 @@
+#if TESTBRIDGE
+// Build de test seulement (dotnet build -p:TestBridge=true) : jamais dans le mod donné aux joueurs
 using System.Text;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Commands;
@@ -77,3 +79,4 @@ public static class ConsoleGainPatch
         }
     }
 }
+#endif

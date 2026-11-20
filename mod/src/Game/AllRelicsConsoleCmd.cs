@@ -1,3 +1,5 @@
+#if TESTBRIDGE
+// Build de test seulement (dotnet build -p:TestBridge=true) : jamais dans le mod donné aux joueurs
 using MegaCrit.Sts2.Core.Commands;
 using MegaCrit.Sts2.Core.DevConsole;
 using MegaCrit.Sts2.Core.DevConsole.ConsoleCommands;
@@ -70,3 +72,4 @@ public sealed class AllRelicsConsoleCmd : AbstractConsoleCmd
         }
     }
 }
+#endif

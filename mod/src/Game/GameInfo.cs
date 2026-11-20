@@ -321,8 +321,10 @@ public sealed class GameInfo : IGameInfo
     /// Dossiers d'historique du profil courant. Le jeu moddé écrit ses parties dans un dossier séparé :
     /// on lit les deux pour avoir tout l'historique.
     /// </summary>
-    /// <summary>Dossier de parties de test, lu par le mod en plus de l'historique du jeu s'il existe.</summary>
+#if TESTBRIDGE
+    /// <summary>Dossier de parties de test, lu en plus de l'historique du jeu par la build de test seulement.</summary>
     public const string TestHistoryPath = "user://StsTools/test_history";
+#endif
 
     public static (List<string> Dirs, ulong LocalPlayerId) HistorySource()
     {
@@ -331,8 +333,10 @@ public sealed class GameInfo : IGameInfo
         var dirs = new[] { false, true }
             .Select(modded => ProjectSettings.GlobalizePath(account.PathJoin(RunHistorySaveManager.GetHistoryPath(profile, modded))))
             .ToList();
+#if TESTBRIDGE
         // Parties de test propres au mod (jamais lues par le jeu) : supprimer ce dossier pour les retirer
         dirs.Add(ProjectSettings.GlobalizePath(TestHistoryPath));
+#endif
         return (dirs, PlatformUtil.GetLocalPlayerId(PlatformUtil.PrimaryPlatform));
     }
 }
