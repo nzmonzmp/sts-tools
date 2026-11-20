@@ -128,6 +128,16 @@ l'overlay, 0 sur 20 sans.
 - Vérifier un envoi de bout en bout : rapport de bug depuis le jeu, puis refus d'un doublon, compteur « Seen again »
   d'un plantage répété, refus 429 au-delà de la limite.
 
+## Steam Workshop
+
+- Publier une nouvelle version : monter `version` dans `StsTools.json`, puis `workshop/publish.sh public "note"`
+  (build Release normale dans `dist/StsTools`, puis mise à jour de l'item `workshop/item_id.txt` par SteamUGC ; Steam
+  doit être lancé). Vérifier avant que la DLL n'a ni webhook ni pont de test.
+- Tester l'item comme un joueur : `workshop/publish.sh subscribe` (attend le téléchargement), jeu fermé, sortir
+  `mods/StsTools` du dossier `mods/` (à version égale le jeu garde la copie locale et désactive celle du Workshop ;
+  si celle du Workshop est plus récente, c'est la copie locale qui est désactivée), relancer, chercher « Steam Workshop
+  mod » et « Loading assembly » dans le log. Ensuite : remettre la copie locale, `workshop/publish.sh unsubscribe`.
+
 ## Repères dans le code du jeu
 
 - `CombatHistory.Add` (privée) : chaque événement d'un combat (carte jouée, piochée, dégâts, Block, pouvoirs…), patchée

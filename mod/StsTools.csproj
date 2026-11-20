@@ -36,6 +36,7 @@
   <ItemGroup>
     <Compile Remove="check/**" />
     <Compile Remove="dist/**" />
+    <Compile Remove="workshop/**" />
   </ItemGroup>
 
   <!--

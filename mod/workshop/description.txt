@@ -1,0 +1,32 @@
+Stats and previews for Slay the Spire 2. The mod only reads the game: it does not change gameplay, and in multiplayer the other players do not need it.
+
+[h2]In combat[/h2]
+[list]
+[*][b]Card and potion preview[/b]: aim a card at a creature to see the damage, the part that goes through Block, lethal hits, powers, Block, energy, draw, orbs, and the damage you avoid until the enemies attack. Computed by playing the card in a dry run with the game's own code (average or range when randomness or a choice is involved).
+[*][b]Skulls[/b] on monsters that will die before acting, and on the end turn button when ending the turn would kill you.
+[*][b]Combat stats[/b]: damage, Block, energy, draw, healing per card, per turn and per combat, including bonus damage from Strength and debuffs.
+[*][b]Relic stats[/b] under each relic's tooltip, updated live.
+[/list]
+
+[h2]On the map[/h2]
+[list]
+[*][b]Room preview[/b]: what can happen in a room (possible enemies, gold, potion chance, card rewards, "?" outcomes with the game's rules). Never reads the seed: only what is possible, not what will happen.
+[*][b]Path finder[/b]: rank room types (shops, elites, rest sites, "?", fights), get the best paths drawn on the map. In multiplayer, "Draw" sketches them with the game's drawing tool so other players see them.
+[/list]
+
+[h2]Multiplayer[/h2]
+[list]
+[*]Totals per player and for the team, enemy damage per player.
+[*][b]Support tab[/b]: what each player gave to the others (energy, cards, Block, buffs, healing, bonus damage).
+[/list]
+
+[h2]Run history[/h2]
+A [b]Stats[/b] button on the main menu: win rate per character, cards, relics, causes of defeat, encounters.
+
+[h2]Settings and help[/h2]
+A Mod tab in the game options (what is shown, key bindings) and an in-game guide ("?" buttons).
+
+[h2]Bug reports[/h2]
+A "Report a bug" button (main menu, pause menu). After a crash, the mod offers to send a crash report (Ask, Always, Never in the options). Reports go to the mod's Discord server.
+
+Discord: https://discord.gg/wEB5NVwZPX

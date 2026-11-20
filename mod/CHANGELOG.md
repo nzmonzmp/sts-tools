@@ -5,8 +5,6 @@ dans [PROTOCOLE.md](PROTOCOLE.md).
 
 ## À faire
 
-- Publier la première version dans le salon `announcements` du serveur Discord : dossier `dist/StsTools` (build
-  normale) zippé, avec le changelog. Le bot n'a plus les droits d'administrateur : c'est l'auteur qui poste.
 - Carte, aperçu des salles : l'or et les combats propres à un événement restent hors de portée (l'événement n'est
   connu qu'en entrant dans la salle).
 - Rapports : les salons crash-reports et bug-report sont des salons ordinaires. Pour regrouper les rapports par
@@ -167,6 +165,16 @@ Serveur public, en communauté Discord, invitation permanente https://discord.gg
 - REPORTS (PRIVATE) : crash-reports, bug-report, mod-updates ; invisibles pour les joueurs, lisibles par le bot.
 - Rôle Moderator (messages, exclusions, bannissements, fils, journal d'audit) sans accès aux rapports.
 - Vérification moyenne, filtre des médias explicites, notifications sur mentions, AutoMod (spam, mentions en masse).
+
+### Steam Workshop (2026-11-20)
+
+Item public https://steamcommunity.com/sharedfiles/filedetails/?id=3843151947 (id dans `workshop/item_id.txt`), avec
+`dist/StsTools`, l'icône `assets/icon.png` et la description `workshop/description.txt`. `workshop/publish.sh
+[public|friends|unlisted|private] ["note"]` reconstruit le mod et met l'item à jour par l'API Steam (SteamUGC) du client
+connecté, sans identifiants ; Steam en snap : l'outil est lancé dans le snap (`snap run --shell steam`).
+Vérifié : abonné à l'item et sans copie dans `mods/`, le jeu charge le mod depuis le dossier du Workshop, sans erreur.
+Discord : messages welcome (Install) et help (épinglé) modifiés par le bot : Workshop d'abord, installation à la main
+ensuite ; annonce de la 0.1.0 dans announcements (lien du Workshop), publiée aux serveurs qui suivent le salon.
 
 ### Mod donné aux joueurs
 
