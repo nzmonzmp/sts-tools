@@ -301,3 +301,7 @@ touches, souris, console, carte, GUI, état du Path finder, captures d'écran). 
   les patchs `[EarlyPatch]` sont posés au démarrage, les autres à l'affichage du menu principal. Encore vu le
   2026-11-19 (1 démarrage sur 5) : figé juste avant « Preloading 'MainMenuEssentials' », sans erreur dans le log,
   insensible à SIGTERM (arrêt forcé nécessaire) ; le détecteur de gel du mod ne tourne pas encore à ce moment-là.
+  Cause trouvée le 2026-11-20 : l'overlay Steam, pas le mod. Thread principal bloqué dans `recvmsg` sur le socket
+  `/tmp/steam_chrome_overlay_uid1000_spid<pid>` de `gameoverlayui`, lui-même en attente. 1 gel sur 7 démarrages avec
+  l'overlay, 0 sur 20 sans (Propriétés du jeu dans Steam → Général → « Activer l'overlay Steam en jeu » décoché).
+  À dire aux joueurs qui voient un écran noir au démarrage.
