@@ -183,10 +183,16 @@ Vérifié de bout en bout (refus, doublon compté, 429 au-delà de la limite). S
 
 ## Serveur Discord : finaliser
 
-- Finaliser le serveur Discord « StsTools » : aujourd'hui seulement les salons privés crash-reports et bug-report
-  (webhooks du mod) et le bot de lecture « StsTool reader ».
-  - à préciser : salons publics (annonces, versions du mod, aide), rôles et permissions, invitation des joueurs ;
-  - garder crash-reports et bug-report privés (journaux, parties et ids Steam des joueurs).
+Fait (2026-11-20) : serveur public, en communauté Discord, invitation permanente https://discord.gg/wEB5NVwZPX.
+- INFO (lecture seule pour les joueurs) : welcome (règles, installation, overlay Steam, invitation ; salon des
+  règles), announcements (salon d'annonces : versions du mod avec la DLL et le changelog).
+- COMMUNITY : help (message épinglé : problèmes connus), suggestions (forum), discussion.
+- REPORTS (PRIVATE) : crash-reports, bug-report, mod-updates (avis de Discord au staff) ; invisibles pour @everyone,
+  lisibles par le bot.
+- Vérification moyenne, filtre des médias explicites pour tous, notifications : mentions seulement ; AutoMod spam et
+  mentions en masse (5).
+
+- Publier la première version dans announcements (dossier `dist/StsTools` zippé, changelog).
 
 ## Options du jeu : réglages du mod
 
