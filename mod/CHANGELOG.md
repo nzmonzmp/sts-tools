@@ -5,11 +5,7 @@ dans [PROTOCOLE.md](PROTOCOLE.md).
 
 ## À faire
 
-- Carte, aperçu des salles : l'or et les combats propres à un événement restent hors de portée (l'événement n'est
-  connu qu'en entrant dans la salle).
-- Rapports : les salons crash-reports et bug-report sont des salons ordinaires. Pour regrouper les rapports par
-  joueur (un fil chacun), les passer en forums et mettre leurs nouveaux webhooks dans les secrets du relais et dans
-  `StsTools.local.props`.
+Rien pour l'instant.
 
 ## Fait
 
