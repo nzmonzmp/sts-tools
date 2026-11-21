@@ -75,12 +75,16 @@ public static class LethalWarning
             if (NCombatRoom.Instance?.Ui.EndTurnButton is not { } button || !GodotObject.IsInstanceValid(button))
                 return;
             var turn = Predict(State(button), out var combat, out var me);
-            Show(button, turn is { } t && t.Taken >= t.Hp
+            bool dies = turn is { } t && t.Taken >= t.Hp
                 // Mort évitée par un effet (Lizard Tail…) : pas une mort, sauf mort imposée (Sandpit…)
-                && (t.Forced || Hook.ShouldDie(combat!.RunState, combat, me!.Creature, out _)) ? (t.Taken, t.Hp, t.Forced) : null);
+                && (t.Forced || Hook.ShouldDie(combat!.RunState, combat, me!.Creature, out _));
+            Show(button, dies ? (turn!.Value.Taken, turn.Value.Hp, turn.Value.Forced) : null);
             ShowExtraTurn(button, turn?.ExtraTurn);
-            // Osty que les attaques ennemies tueront (à chaque tirage si le hasard intervient) : même tête de mort
+            // Le joueur, et Osty, que la fin du tour tuera (à chaque tirage si le hasard intervient) : même tête de mort
+            // que les ennemis condamnés
             var early = turn?.DeadEnemies ?? [];
+            if (dies && me != null)
+                early = [.. early, me.Creature];
             if (turn is { PetDies: true } && me?.Osty is { IsAlive: true } osty)
                 early = [.. early, osty];
             ShowDoomed(early, turn?.LateDeadEnemies ?? []);
@@ -114,7 +118,7 @@ public static class LethalWarning
 
     /// <summary>
     /// Ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom, effets de fin de tour…), et
-    /// Osty que leurs attaques tueront : une tête de mort en transparence par-dessus, qui clignote.
+    /// le joueur ou Osty que la fin du tour tuera : une tête de mort en transparence par-dessus, qui clignote.
     /// </summary>
     /// <param name="late">ceux qui meurent après avoir agi (Doom à la fin de leur tour) : tête de mort violette</param>
     private static void ShowDoomed(IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> early,
@@ -247,7 +251,8 @@ public static class LethalWarning
             SelfModulate = color ?? SkullRed,
             Modulate = new Color(1, 1, 1, 0.35f),
             MouseFilter = Control.MouseFilterEnum.Ignore,
-            ZIndex = 50,
+            // Pas de ZIndex : dernier enfant de la créature (ou du bouton), elle est dessinée juste par-dessus, et sous
+            // la main, les écrans de choix et les menus (un ZIndex la mettait au-dessus de tout : sur les cartes)
         };
         // Clignotement lancé une fois dans la scène (une animation a besoin de l'arbre des nœuds)
         skull.Ready += () =>
