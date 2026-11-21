@@ -23,6 +23,12 @@ public static class ModOptions
     public static event Action? Changed;
     public static bool CardPreview => Current.CardPreview;
     public static bool Skulls => Current.Skulls;
+
+    /// <summary>Choix proposés pour <see cref="RandomDraws"/>.</summary>
+    public static readonly int[] RandomDrawChoices = [4, 8, 12, 16, 24];
+
+    /// <summary>Simulations moyennées quand le hasard intervient (une valeur proposée, sinon 12).</summary>
+    public static int RandomDraws => RandomDrawChoices.Contains(Current.RandomDraws) ? Current.RandomDraws : 12;
     public static bool RelicStats => Current.RelicStats;
     public static bool RoomPreview => Current.RoomPreview;
     public static string? OpenTab => Current.OpenTab;

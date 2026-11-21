@@ -242,7 +242,7 @@ public static class ModGuide
                 $"Win rates, cards, relics, ancients and losses from your whole run history, with filters by mode, ascension and character.",
             ]),
             new("Settings", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres", "Where to change things", [
-                $"{Gold("Settings > Mod > Options")}: GUI tabs, how the GUI opens, tabs switched automatically (combat start and end, merchant), the features above, crash and bug reports, and the {Gold("?")} buttons.",
+                $"{Gold("Settings > Mod > Options")}: GUI tabs, how the GUI opens, tabs switched automatically (combat start and end, merchant), the features above, how many simulations are averaged for random effects (more is more accurate but slower), crash and bug reports, and the {Gold("?")} buttons.",
                 $"{Gold("Settings > Mod > Input")}: the mod's keys.",
                 $"{Gold("Report a bug")}, in the main menu and the pause menu, sends your description (and, if you want, your logs and run) to the mod's author. After a crash, the main menu offers to send the crash report.",
                 $"Open this guide again with the {Gold("?")} buttons of the GUI, the Stats screen and {Gold("Settings > Mod")}.",

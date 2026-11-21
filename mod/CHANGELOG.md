@@ -123,6 +123,8 @@ suite :
   bord gauche fixe ; None, largeur fixe et défilement horizontal) ;
 - GUI ouvert : aperçu des cartes et des potions, têtes de mort, stats des reliques, aperçu des salles ; Path finder
   caché : chemins plus tracés ;
+- « Simulations for random effects » : nombre de simulations moyennées quand le hasard intervient (aperçus, têtes de
+  mort, dégâts annoncés) : 4, 8, 12 (par défaut), 16 ou 24 ; plus, c'est plus précis mais plus lent ;
 - rapports de plantage : Ask, Always, Never ; rapports de bug : nom par défaut, logs et partie joints par défaut ;
 - boutons « ? » du guide (GUI, Stats, onglet Mod).
 

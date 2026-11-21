@@ -100,6 +100,12 @@ public sealed class SavedSettings
     /// <summary>GUI ouvert : aperçu des cartes jouées et des potions (TargetPreview)</summary>
     public bool CardPreview { get; set; } = true;
 
+    /// <summary>
+    /// Simulations moyennées quand le hasard intervient (aperçus, têtes de mort, dégâts annoncés) : plus, c'est plus
+    /// précis mais plus lent (PlaySimulation)
+    /// </summary>
+    public int RandomDraws { get; set; } = 12;
+
     /// <summary>GUI ouvert : têtes de mort (LethalWarning)</summary>
     public bool Skulls { get; set; } = true;
 

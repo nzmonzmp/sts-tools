@@ -273,8 +273,8 @@ public sealed class PlaySimulation
         _aimed = aimed;
     }
 
-    /// <summary>Simulations pour la moyenne d'un effet qui dépend du hasard.</summary>
-    private const int RandomRuns = 12;
+    /// <summary>Simulations pour la moyenne d'un effet qui dépend du hasard (option du mod).</summary>
+    private static int RandomRuns => ModOptions.RandomDraws;
 
     /// <summary>
     /// Effet de <paramref name="card"/> (en main) jouée sur <paramref name="target"/> (null : carte sans cible) ;
@@ -473,13 +473,15 @@ public sealed class PlaySimulation
 
     /// <summary>
     /// Empreinte (PV, Block, pouvoirs, énergie, piles, main), tour, camp, longueur de l'historique (toute action y
-    /// laisse une trace), intentions des ennemis et orbes.
+    /// laisse une trace), intentions des ennemis, orbes et nombre de tirages des moyennes.
     /// </summary>
     private static StateKey KeyOf(ICombatState combat, Creature me)
     {
         var history = HistoryEntries.GetValue(CombatManager.Instance.History) as System.Collections.ICollection;
         var text = new System.Text.StringBuilder()
-            .Append(combat.RoundNumber).Append(' ').Append(combat.CurrentSide).Append(" history ").Append(history?.Count ?? -1);
+            .Append(combat.RoundNumber).Append(' ').Append(combat.CurrentSide).Append(" history ").Append(history?.Count ?? -1)
+            // Nombre de tirages changé dans les options : moyennes à refaire
+            .Append(" draws ").Append(RandomRuns);
         foreach (var enemy in combat.Enemies)
             text.Append(" intent ").Append(enemy.Monster?.NextMove?.Id ?? "-");
         foreach (var player in combat.Players)
