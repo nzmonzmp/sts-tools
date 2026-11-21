@@ -26,6 +26,9 @@ public static class ModOptions
     public static bool RelicStats => Current.RelicStats;
     public static bool RoomPreview => Current.RoomPreview;
     public static string? OpenTab => Current.OpenTab;
+    public static string? TabOnCombatStart => Current.TabOnCombatStart;
+    public static string? TabOnCombatEnd => Current.TabOnCombatEnd;
+    public static string? TabOnMerchant => Current.TabOnMerchant;
     public static string OpenPanel => Current.OpenPanel;
     public static string CrashReports => SavedSettings.Load().CrashReports;
     public static string? BugReportName => SavedSettings.Load().BugReportName;

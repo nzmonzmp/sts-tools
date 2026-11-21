@@ -90,7 +90,7 @@ public static class LethalWarning
     /// <summary>Ce qui se passerait si le joueur terminait son tour maintenant (GUI ouvert, son tour) ; sinon null.</summary>
     private static (int Taken, int Hp, bool Forced, MegaCrit.Sts2.Core.Models.AbstractModel? ExtraTurn,
         IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> DeadEnemies,
-        IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> LateDeadEnemies)? Predict(
+        IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> LateDeadEnemies, int? PetTaken, bool PetDies)? Predict(
         CombatState? state, out CombatState? combat, out MegaCrit.Sts2.Core.Entities.Players.Player? me)
     {
         combat = state;

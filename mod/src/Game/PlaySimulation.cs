@@ -108,6 +108,8 @@ public sealed class PlaySimulation
         /// <summary>La carte termine le tour du joueur (Void Form…) : la fin du tour arrive tout de suite.</summary>
         public const string EndsTurn = "Ends your turn";
         public const string Forge = "Forge";
+        /// <summary>PV d'Osty invoqués (Necrobinder).</summary>
+        public const string Summon = "Summon";
         /// <summary>Cartes de la main défaussées par l'effet (Survivor, Acrobatics…), choisies ou non.</summary>
         public const string Discarded = "Discard";
         /// <summary>Cartes Sly jouées en étant défaussées.</summary>
@@ -382,7 +384,14 @@ public sealed class PlaySimulation
     /// <summary>Ce qui attend le joueur sans jouer la carte : dégâts qu'il prendra, attaques de chaque ennemi.</summary>
     /// <param name="Allies">dégâts que chaque allié du joueur (multijoueur) prendra d'ici l'attaque des ennemis</param>
     private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End, bool Dies = false,
-        AbstractModel? ExtraTurn = null, Dictionary<Creature, int>? Allies = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null);
+        AbstractModel? ExtraTurn = null, Dictionary<Creature, int>? Allies = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null,
+        int? PetTaken = null, bool PetDies = false);
+
+    /// <summary>PV que le familier du joueur (Osty) aura perdus d'ici l'attaque des ennemis ; null : pas de familier en vie.</summary>
+    private int? _petTaken;
+
+    /// <summary>Le familier du joueur meurt d'ici l'attaque des ennemis.</summary>
+    private bool _petDies;
 
     /// <summary>Ce qui accorde un tour supplémentaire au joueur en fin de tour (Pael's Eye…), dans la simulation.</summary>
     private AbstractModel? _extraTurn;
@@ -405,8 +414,10 @@ public sealed class PlaySimulation
     /// que rien n'a empêchée</returns>
     /// <returns>ExtraTurn : ce qui accorde un tour supplémentaire en terminant le tour maintenant (Pael's Eye…)</returns>
     /// <returns>DeadEnemies : ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom…)</returns>
+    /// <returns>PetTaken : PV que son familier (Osty, qui encaisse les attaques à sa place) aura perdus ; null sans
+    /// familier en vie. PetDies : il meurt</returns>
     public static (int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn, IReadOnlyList<Creature> DeadEnemies,
-        IReadOnlyList<Creature> LateDeadEnemies)? PredictTurnEnd(Player player)
+        IReadOnlyList<Creature> LateDeadEnemies, int? PetTaken, bool PetDies)? PredictTurnEnd(Player player)
     {
         if (!EnsurePatched() || Active || player.Creature.CombatState is not { } combat)
             return null;
@@ -418,7 +429,7 @@ public sealed class PlaySimulation
             var rngs = RngState.Capture(combat);
             var baseline = BaselineOf(combat, player.Creature, rngs);
             return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn, baseline.DeadEnemies ?? [],
-                baseline.LateDeadEnemies ?? []);
+                baseline.LateDeadEnemies ?? [], baseline.PetTaken, baseline.PetDies);
         }
         finally
         {
@@ -438,7 +449,8 @@ public sealed class PlaySimulation
             var (taken, incoming, end, allies) = sim.UntilEnemyAttacks(me);
             bool dies = sim._dead.Contains(me);
             return new Baseline(dies ? Math.Max(taken, hp) : taken, incoming, end, dies, sim._extraTurn, allies,
-                sim._dead.Where(c => c.IsEnemy && !sim._lateDead.Contains(c)).ToList(), sim._lateDead.Where(c => c.IsEnemy).ToList());
+                sim._dead.Where(c => c.IsEnemy && !sim._lateDead.Contains(c)).ToList(), sim._lateDead.Where(c => c.IsEnemy).ToList(),
+                sim._petTaken, sim._petDies);
         }
         catch (Exception e)
         {
@@ -493,6 +505,9 @@ public sealed class PlaySimulation
         var kept = _outcome;
         var end = _outcome = new Outcome();
         int hpBefore = Body(me)[0];
+        // Familier en vie (Osty) : il encaisse les attaques à la place du joueur
+        var pet = me.Player?.Osty is { } osty && !IsDead(osty) ? osty : null;
+        int petBefore = pet != null ? Body(pet)[0] : 0;
         var allies = _combat.Players.Select(p => p.Creature).Where(c => c != me && !IsDead(c)).ToList();
         var alliesBefore = allies.ToDictionary(c => c, c => Body(c)[0]);
         // PV perdus par chaque allié depuis le début (fin de tour…), plus les attaques qui passeront son Block
@@ -540,6 +555,7 @@ public sealed class PlaySimulation
         var alliesTaken = AlliesTaken(true);
         int lost = Math.Max(0, hpBefore - Body(me)[0]);
         int block = IsDead(me) ? 0 : Body(me)[1];
+        int petLost = pet != null ? Math.Max(0, petBefore - Body(pet)[0]) : 0;
         // Fin du tour ennemi, après leurs attaques (Doom les tue alors) : ces morts n'empêchent pas leur attaque
         var kept2 = _outcome;
         _outcome = end;
@@ -561,7 +577,15 @@ public sealed class PlaySimulation
             kept.Incomplete |= _outcome.Incomplete;
             _outcome = kept2;
         }
-        return (lost + (IsDead(me) ? 0 : TakenFromAttacks(me, block)), incoming, end, alliesTaken);
+        int petAttacked = 0;
+        bool petKilled = false;
+        int fromAttacks = IsDead(me) ? 0 : TakenFromAttacks(me, block, out petAttacked, out petKilled);
+        if (pet != null)
+        {
+            _petTaken = petLost + petAttacked;
+            _petDies = petKilled || IsDead(pet);
+        }
+        return (lost + fromAttacks, incoming, end, alliesTaken);
     }
 
     private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
@@ -590,6 +614,9 @@ public sealed class PlaySimulation
                     sim._outcome.Add(enemy, Stat.Avoided, avoided);
             if (baseline.Taken - taken is var prevented and not 0)
                 sim._outcome.Add(me, Stat.Prevented, prevented);
+            // Dégâts évités (ou ajoutés) à son familier (Osty), encadré à côté de lui
+            if (player.Osty is { } pet && baseline.PetTaken is { } petBefore && (petBefore - (sim._petTaken ?? 0)) is var petSaved and not 0)
+                sim._outcome.Add(pet, Stat.Prevented, petSaved);
             // Carte qui termine le tour : sa fin de tour n'est plus un « si », elle arrive ; mort comprise, même si
             // terminer le tour sans la carte tuait aussi
             if (sim._endedTurn)
@@ -1604,6 +1631,9 @@ public sealed class PlaySimulation
                 return Task.FromResult(Detached(monster, Arg<CombatSide>("side"), Arg<string>("slotName")));
             case "OstyCmd.Summon" when Arg<Player>("summoner") is { } summoner:
                 decimal summoned = Hook.ModifySummonAmount(_combat, summoner, Amount(), Arg<AbstractModel>("source"));
+                // PV d'Osty invoqués (ou ajoutés s'il est déjà là), notés sur le joueur
+                if (summoned > 0)
+                    _outcome.Add(summoner.Creature, Stat.Summon, (double)summoned);
                 return Task.FromResult(new MegaCrit.Sts2.Core.Entities.Creatures.SummonResult(summoner.Osty ?? summoner.Creature, summoned));
             case "CardSelectCmd.FromHand":
             case "CardSelectCmd.FromHandForDiscard":
@@ -1820,6 +1850,22 @@ public sealed class PlaySimulation
             int hpLost = Math.Min(lost, body[0]);
             body[0] -= hpLost;
 
+            // Osty tué à la place de son maître : le surplus passe au maître, comme le jeu
+            if (receiver != target && lost > hpLost)
+            {
+                decimal rest2 = Hook.ModifyHpLost(runState, _combat, target, lost - hpLost, props, dealer, cardSource, HpLossHookPhase.AfterOsty, out _);
+                var targetBody = Body(target);
+                int targetLost = Math.Min((int)Math.Clamp(rest2, 0, 999999999), Math.Max(0, targetBody[0]));
+                if (targetLost > 0)
+                {
+                    if (targetLost >= targetBody[0])
+                        killedNow.Add(target);
+                    targetBody[0] -= targetLost;
+                    if (target.Side == CombatSide.Player)
+                        _outcome.Add(target, Stat.HpLost, targetLost);
+                    Event(() => Hook.AfterCurrentHpChanged(runState, _combat, target, -targetLost));
+                }
+            }
             if (target.Side == CombatSide.Player)
                 _outcome.Add(receiver, Stat.HpLost, hpLost);
             else
@@ -2138,30 +2184,80 @@ public sealed class PlaySimulation
     /// en retire 1, Intangible la ramène à 1…). Un pouvoir qui s'use à chaque perte évitée (Buffer) ne sert qu'autant de
     /// fois qu'il a de charges.
     /// </summary>
-    private int TakenFromAttacks(Creature target, int block)
+    private int TakenFromAttacks(Creature target, int block) => TakenFromAttacks(target, block, out _, out _);
+
+    /// <param name="petLost">PV que perd le familier de <paramref name="target"/> (Osty) : comme le jeu, après le
+    /// Block du joueur, il prend chaque coup à sa place tant qu'il vit ; le surplus qui le tue passe au joueur</param>
+    /// <param name="petDies">le familier meurt sous ces coups</param>
+    private int TakenFromAttacks(Creature target, int block, out int petLost, out bool petDies)
     {
         int lost = 0;
+        petLost = 0;
+        petDies = false;
         var used = new Dictionary<PowerModel, int>(ReferenceEqualityComparer.Instance);
+        // Les pouvoirs du jeu lisent les PV des créatures : ceux de la simulation
+        SyncBodies();
+        int? petHp = null;
         foreach (var (enemy, damage) in HitsAgainst(target))
         {
             int unblocked = Math.Max(0, damage - block);
             block = Math.Max(0, block - damage);
-            if (unblocked > 0)
-                lost += HpLost(target, enemy, unblocked, used);
+            if (unblocked <= 0)
+                continue;
+            int value = HpLost(target, enemy, unblocked, used, HpLossBeforeOsty);
+            var receiver = UnblockedTarget(target, enemy, value);
+            if (receiver != target && receiver.IsPet && (petHp ??= Body(receiver)[0]) > 0)
+            {
+                int toPet = HpLost(receiver, enemy, value, used, HpLossAfterOsty);
+                int petLoss = Math.Min(toPet, petHp.Value);
+                petHp -= petLoss;
+                petLost += petLoss;
+                if (petHp <= 0)
+                {
+                    petDies = true;
+                    // Osty mort : le jeu ne le fait plus encaisser (DieForYouPower lit ses PV)
+                    HpField.SetValue(receiver, 0);
+                }
+                value = toPet - petLoss;
+                if (value <= 0)
+                    continue;
+            }
+            lost += HpLost(target, enemy, value, used, HpLossAfterOsty);
         }
         return lost;
     }
 
-    private static readonly Func<AbstractModel, Creature, decimal, Creature?, decimal>[] HpLossSteps =
+    /// <summary>Qui perd les PV d'un coup après le Block (Osty à la place de son maître…), comme le jeu.</summary>
+    private Creature UnblockedTarget(Creature target, Creature dealer, int amount)
+    {
+        try
+        {
+            return Hook.ModifyUnblockedDamageTarget(_combat, target, amount, ValueProp.Move, dealer);
+        }
+        catch (Exception e)
+        {
+            Fail("unblocked target", e);
+            return target;
+        }
+    }
+
+    /// <summary>Ce qui modifie une perte de PV avant qu'Osty la prenne à la place de son maître (sur la cible du coup).</summary>
+    private static readonly Func<AbstractModel, Creature, decimal, Creature?, decimal>[] HpLossBeforeOsty =
     [
         (m, t, a, d) => m.ModifyHpLostBeforeOsty(t, a, ValueProp.Move, d, null),
         (m, t, a, d) => m.ModifyHpLostBeforeOstyLate(t, a, ValueProp.Move, d, null),
+    ];
+
+    /// <summary>Puis ce qui la modifie sur celui qui la prend (Osty ou le joueur).</summary>
+    private static readonly Func<AbstractModel, Creature, decimal, Creature?, decimal>[] HpLossAfterOsty =
+    [
         (m, t, a, d) => m.ModifyHpLostAfterOsty(t, a, ValueProp.Move, d, null),
         (m, t, a, d) => m.ModifyHpLostAfterOstyLate(t, a, ValueProp.Move, d, null),
     ];
 
     /// <summary>Perte de PV après les écouteurs qui la modifient, dans l'ordre du jeu, sans ceux déjà usés.</summary>
-    private int HpLost(Creature target, Creature dealer, int amount, Dictionary<PowerModel, int> used)
+    private int HpLost(Creature target, Creature dealer, int amount, Dictionary<PowerModel, int> used,
+        Func<AbstractModel, Creature, decimal, Creature?, decimal>[] steps)
     {
         try
         {
@@ -2169,7 +2265,7 @@ public sealed class PlaySimulation
                 return amount;
             decimal value = amount;
             var listeners = runState.IterateHookListeners(_combat).ToList();
-            foreach (var step in HpLossSteps)
+            foreach (var step in steps)
                 foreach (var model in listeners)
                 {
                     var consumable = model is PowerModel power && UsedPerLoss(power) ? power : null;

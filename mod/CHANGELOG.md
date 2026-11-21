@@ -118,6 +118,7 @@ Onglet Mod des options (aussi depuis le menu principal), sous-onglets Options et
 contrôle). Lignes copiées de celles du jeu, séparées par ses traits ; gardées dans `settings.json`, appliquées tout de
 suite :
 - GUI : ouvert tout seul au lancement ou à la reprise d'une partie ; onglets visibles ; onglet et état à l'ouverture ;
+  onglet choisi tout seul au début d'un combat, à sa fin, chez un marchand (« None » par défaut : rien n'est imposé) ;
 - GUI ouvert : aperçu des cartes et des potions, têtes de mort, stats des reliques, aperçu des salles ; Path finder
   caché : chemins plus tracés ;
 - rapports de plantage : Ask, Always, Never ; rapports de bug : nom par défaut, logs et partie joints par défaut ;
@@ -181,6 +182,13 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
 
 ### Corrigé
 
+- 2026-11-21 : Osty pris en compte dans les dégâts annoncés (onglet Combat, crâne du bouton de fin de tour, aperçu) :
+  comme le jeu, après le Block du joueur il encaisse chaque attaque à sa place tant qu'il vit, et le surplus qui le
+  tue passe au joueur. Nouvelle ligne « Osty's unblocked incoming damage » (« (dies) » s'il meurt) sous « Unblocked
+  incoming damage », et dégâts évités à Osty dans l'aperçu des cartes (encadré à côté de lui).
+- 2026-11-21 : cartes qui invoquent Osty (Bodyguard…) : rien dans l'aperçu (maintenant « Summon +N » sur le joueur),
+  et leurs stats comptaient « Max HP gained » et « Healed » pour les PV d'Osty (le familier n'est plus compté : c'est
+  l'invocation, déjà dans « Summoned »).
 - 2026-11-21, rapport de gel d'un joueur (Vine Shambler) : « preview: listener VineShambler » était un reste de la
   prévision de fin de tour, terminée bien avant le gel. Elle est maintenant suivie comme activité du mod (« turn end
   prediction ») et son étape est effacée à la fin. Le gel venait sans doute de Booba-Necrobinder-Mod, qui n'est plus

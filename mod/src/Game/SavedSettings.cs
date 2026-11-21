@@ -82,6 +82,12 @@ public sealed class SavedSettings
     /// <summary>Onglet affiché à l'ouverture du GUI ; null : le dernier choisi</summary>
     public string? OpenTab { get; set; }
 
+    /// <summary>Onglet choisi tout seul au début d'un combat, à sa fin, en arrivant chez un marchand ; null : aucun
+    /// changement (par défaut, pour ne rien imposer)</summary>
+    public string? TabOnCombatStart { get; set; }
+    public string? TabOnCombatEnd { get; set; }
+    public string? TabOnMerchant { get; set; }
+
     /// <summary>Panneau à l'ouverture du GUI : « last » (comme il a été laissé), « expanded » ou « collapsed »</summary>
     public string OpenPanel { get; set; } = "last";
 

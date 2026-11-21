@@ -61,7 +61,8 @@ public sealed partial class CardRunStats
     {
         public static void Prefix(Creature creature, decimal amount)
         {
-            if (creature is { IsEnemy: false } && amount > 0)
+            // Pas le familier (Osty) : ses PV max sont son invocation, déjà comptée (Summoned)
+            if (creature is { IsEnemy: false, IsPet: false } && amount > 0)
                 Current?.Add(MaxHpGained, amount);
         }
     }
@@ -71,7 +72,7 @@ public sealed partial class CardRunStats
     {
         public static void Prefix(PlayerChoiceContext choiceContext, Creature creature, decimal amount)
         {
-            if (creature is { IsEnemy: false } && amount > 0)
+            if (creature is { IsEnemy: false, IsPet: false } && amount > 0)
                 Current?.Add(MaxHpLost, amount);
         }
     }

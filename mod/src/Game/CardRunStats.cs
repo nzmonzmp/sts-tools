@@ -1150,7 +1150,8 @@ public sealed partial class CardRunStats
     {
         public static void Prefix(Creature creature, decimal amount)
         {
-            if (creature is not { IsEnemy: false })
+            // Pas le familier (Osty) : l'invoquer lui rend des PV, mais c'est l'invocation (Summoned)
+            if (creature is not { IsEnemy: false, IsPet: false })
                 return;
             // PV vraiment rendus : le jeu tronque à l'entier (Creature.SetCurrentHpInternal), un soin de 26,1 rend 26
             decimal healed = Math.Max(0, (int)Math.Min(creature.CurrentHp + amount, creature.MaxHp) - creature.CurrentHp);

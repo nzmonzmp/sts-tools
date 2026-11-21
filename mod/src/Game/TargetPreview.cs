@@ -473,6 +473,7 @@ public static class TargetPreview
         [Stat.Avoided] = CardRunStats.Prevented,
         [Stat.Prevented] = CardRunStats.Prevented,
         [Stat.Forge] = CardRunStats.Forged,
+        [Stat.Summon] = CardRunStats.Summoned,
         [Stat.Discarded] = CardRunStats.CardsDrawn,
         ["Damage added"] = CardRunStats.Damage,
         [AddedRow] = CardRunStats.Damage,

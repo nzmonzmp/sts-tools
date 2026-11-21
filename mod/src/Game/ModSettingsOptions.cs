@@ -39,6 +39,12 @@ public static class ModSettingsOptions
     {
         static Toggle Feature(string id, string title, Func<bool> get, Action<SavedSettings, bool> set) =>
             new(id, title, get, v => ModOptions.Set(s => set(s, v)));
+        // Onglet choisi tout seul à un moment de la partie : « None » (rien ne change) ou un onglet. Pas Path finder :
+        // il ne s'ouvre ni en combat, ni aux récompenses, ni chez un marchand
+        static Choice AutoTab(string id, string title, Func<string?> get, Action<SavedSettings, string?> set) =>
+            new(id, title, ["None", .. AutoTabs.Choices],
+                () => get() is { } t ? Array.IndexOf(AutoTabs.Choices, t) + 1 : 0,
+                i => ModOptions.Set(s => set(s, i == 0 ? null : AutoTabs.Choices[i - 1])));
         // Deck, Game et Combat sont toujours proposés : au moins un reste visible
         static bool OtherAlwaysShown(string tab) =>
             new[] { "Deck", "Game", "Combat" }.Any(t => t != tab && !ModOptions.IsTabHidden(t));
@@ -63,6 +69,11 @@ public static class ModSettingsOptions
                 new Choice("open.panel", "Panel", ["As left", "Expanded", "Collapsed"],
                     () => Math.Max(0, Array.IndexOf(PanelValues, ModOptions.OpenPanel)),
                     i => ModOptions.Set(s => s.OpenPanel = PanelValues[i])),
+            ]),
+            ("Switching tabs automatically", [
+                AutoTab("auto.combatstart", "When a combat starts", () => ModOptions.TabOnCombatStart, (s, t) => s.TabOnCombatStart = t),
+                AutoTab("auto.combatend", "When a combat ends", () => ModOptions.TabOnCombatEnd, (s, t) => s.TabOnCombatEnd = t),
+                AutoTab("auto.merchant", "At a merchant", () => ModOptions.TabOnMerchant, (s, t) => s.TabOnMerchant = t),
             ]),
             ("While the GUI is open", [
                 Feature("feature.cards", "Card and potion previews", () => ModOptions.CardPreview, (s, v) => s.CardPreview = v),

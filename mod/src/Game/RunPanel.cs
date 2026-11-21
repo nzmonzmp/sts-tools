@@ -515,6 +515,34 @@ public sealed class RunPanel
         return true;
     }
 
+    /// <summary>
+    /// Change d'onglet tout seul (début ou fin de combat, marchand : options du mod) : rien si l'option est à « None »
+    /// ou l'onglet caché ou pas proposé. Après coup, une fois la salle en place. GUI fermé : l'onglet sera celui de
+    /// la prochaine ouverture (sauf onglet imposé à l'ouverture).
+    /// </summary>
+    internal static void AutoSelectTab(string? title, string when)
+    {
+        if (title == null)
+            return;
+        Callable.From(() =>
+        {
+            try
+            {
+                if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
+                    return;
+                int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title == title);
+                if (index < 0 || index == panel._tab)
+                    return;
+                BugReport.Note($"tab {title} ({when})");
+                panel.SelectTab(index);
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] cannot switch to the {title} tab: {e.Message}");
+            }
+        }).CallDeferred();
+    }
+
     private void SelectTab(int index)
     {
         _tab = index;
@@ -1076,34 +1104,46 @@ internal sealed class CombatTab : IRunPanelTab
         {
             if (IncomingDamage(shown) is not { } incoming)
                 continue;
-            // Icône d'attaque des intentions, libellé atténué, nombre en clair : comme une ligne du tableau
-            var line = new HBoxContainer();
-            line.AddThemeConstantOverride("separation", 6);
-            line.AddChild(new TextureRect
-            {
-                Texture = StatsTable.LoadIcon("res://images/packed/intents/attack/intent_attack_1.png"),
-                CustomMinimumSize = new Vector2(22, 22),
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
-                MouseFilter = Control.MouseFilterEnum.Ignore,
-            });
-            line.AddChild(RunPanel.Label(players.Count > 1 ? $"Unblocked incoming damage, {RunPanel.PlayerName(shown)}" : "Unblocked incoming damage",
-                18, StsColors.halfTransparentCream));
-            line.AddChild(RunPanel.Label(incoming.ToString(), 18, StsColors.cream));
-            content.AddChild(line);
+            string who = players.Count > 1 ? $", {RunPanel.PlayerName(shown)}" : "";
+            content.AddChild(IncomingLine($"Unblocked incoming damage{who}", incoming.Taken.ToString()));
+            // Osty (Necrobinder) encaisse les attaques à la place du joueur tant qu'il vit
+            if (incoming.PetTaken is { } petTaken)
+                content.AddChild(IncomingLine($"Osty's unblocked incoming damage{who}",
+                    petTaken + (incoming.PetDies ? " (dies)" : "")));
         }
         if (rows.Count > 0)
             content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows]));
+    }
+
+    /// <summary>Ligne des dégâts annoncés : icône d'attaque des intentions, libellé atténué, nombre en clair, comme une
+    /// ligne du tableau.</summary>
+    private static HBoxContainer IncomingLine(string label, string value)
+    {
+        var line = new HBoxContainer();
+        line.AddThemeConstantOverride("separation", 6);
+        line.AddChild(new TextureRect
+        {
+            Texture = StatsTable.LoadIcon("res://images/packed/intents/attack/intent_attack_1.png"),
+            CustomMinimumSize = new Vector2(22, 22),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        });
+        line.AddChild(RunPanel.Label(label, 18, StsColors.halfTransparentCream));
+        line.AddChild(RunPanel.Label(value, 18, StsColors.cream));
+        return line;
     }
 
     /// <summary>
     /// PV que le joueur va perdre s'il termine son tour maintenant : pendant son tour, la fin de tour simulée
     /// (<see cref="PlaySimulation.PredictTurnEnd"/> : Block des orbes, Plating, Burn…, puis chaque coup annoncé contre
     /// son Block et ce qui réduit les pertes de PV) ; sinon, les attaques annoncées par les ennemis en vie (coups
-    /// multiples compris, calculées contre ce joueur) moins son Block actuel. Null sans combat ou s'il est mort.
+    /// multiples compris, calculées contre ce joueur) moins son Block actuel, coup par coup, Osty encaissant à sa
+    /// place tant qu'il vit. Null sans combat ou s'il est mort.
     /// </summary>
-    private static int? IncomingDamage(Player player)
+    /// <returns>PetTaken : PV que perdra son Osty ; null sans Osty en vie. PetDies : il meurt</returns>
+    private static (int Taken, int? PetTaken, bool PetDies)? IncomingDamage(Player player)
     {
         try
         {
@@ -1113,10 +1153,12 @@ internal sealed class CombatTab : IRunPanelTab
             // puis les coups un par un (Buffer, Intangible…)
             if (state.CurrentSide == MegaCrit.Sts2.Core.Combat.CombatSide.Player && !CombatManager.Instance.IsOverOrEnding
                 && PlaySimulation.PredictTurnEnd(player) is { } predicted)
-                return predicted.Taken;
+                return (predicted.Taken, predicted.PetTaken, predicted.PetDies);
             // Chaque attaque recalculée contre ce joueur (le jeu ne calcule les intentions que contre le joueur local) :
             // les monstres frappent tous les joueurs
-            int total = 0;
+            int taken = 0, block = player.Creature.Block;
+            var pet = player.Osty is { IsAlive: true } osty ? osty : null;
+            int petHp = pet?.CurrentHp ?? 0, petTaken = 0;
             foreach (var enemy in state.Enemies)
             {
                 if (enemy.IsDead || enemy.Monster?.NextMove is not { } move)
@@ -1126,10 +1168,19 @@ internal sealed class CombatTab : IRunPanelTab
                     {
                         decimal single = Hook.ModifyDamage(player.RunState, state, player.Creature, enemy, calc(), ValueProp.Move,
                             null, null, ModifyDamageHookType.All, CardPreviewMode.None, out _);
-                        total += Math.Max(0, (int)single) * Math.Max(1, attack.Repeats);
+                        for (int i = 0; i < Math.Max(1, attack.Repeats); i++)
+                        {
+                            // Le Block du joueur d'abord, puis Osty tant qu'il vit, le surplus au joueur
+                            int hit = Math.Max(0, (int)single), unblocked = Math.Max(0, hit - block);
+                            block = Math.Max(0, block - hit);
+                            int toPet = Math.Min(unblocked, petHp);
+                            petHp -= toPet;
+                            petTaken += toPet;
+                            taken += unblocked - toPet;
+                        }
                     }
             }
-            return Math.Max(0, total - player.Creature.Block);
+            return (taken, pet != null ? petTaken : null, pet != null && petHp <= 0);
         }
         catch (Exception e)
         {
