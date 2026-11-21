@@ -46,6 +46,7 @@ public sealed class PlaySimulation
 {
     private static AsyncLocal<PlaySimulation?> CurrentSim => SimulationFlag.Current;
 
+
     /// <summary>Dernière étape de l'aperçu en cours (rapport de gel, <see cref="BugReport"/>) ; null : aucun aperçu.</summary>
     public static volatile string? DebugState;
 
@@ -152,6 +153,23 @@ public sealed class PlaySimulation
             stats[stat] = stats.GetValueOrDefault(stat) + value;
         }
 
+        /// <summary>
+        /// Part de chaque valeur qui est un écart avec la fin de tour sans la carte quand celle-ci dépend du hasard
+        /// (moyenne de plusieurs tirages : Simpleton, orbes…). Comparer un tirage à cette moyenne donnerait des
+        /// fourchettes trompeuses (« −4–12 » : un tirage pire que la moyenne n'est pas la faute de la carte) : cette
+        /// part ne compte que pour l'espérance, pas pour la fourchette (<see cref="Average"/>).
+        /// </summary>
+        internal readonly Dictionary<Creature, Dictionary<string, double>> Compared = new();
+
+        /// <summary>Comme <see cref="Add"/>, pour un écart avec une fin de tour moyennée (<see cref="Compared"/>).</summary>
+        internal void AddCompared(Creature creature, string stat, double value)
+        {
+            Add(creature, stat, value);
+            if (!Compared.TryGetValue(creature, out var stats))
+                Compared[creature] = stats = new Dictionary<string, double>();
+            stats[stat] = stats.GetValueOrDefault(stat) + value;
+        }
+
         /// <summary>Moyenne de plusieurs simulations (une absence compte pour zéro ; Lethal devient une probabilité).</summary>
         /// <summary>Plus grande valeur quand elle dépend d'un choix du joueur (la valeur notée est la plus petite).</summary>
         public readonly Dictionary<Creature, Dictionary<string, double>> Max = new();
@@ -199,12 +217,16 @@ public sealed class PlaySimulation
             foreach (var creature in runs.SelectMany(r => r.Creatures.Keys).Distinct().ToList())
                 foreach (var stat in runs.SelectMany(r => r.Creatures.GetValueOrDefault(creature)?.Keys ?? Enumerable.Empty<string>()).Distinct().ToList())
                 {
-                    var values = runs.Select(r => r.Creatures.GetValueOrDefault(creature)?.GetValueOrDefault(stat) ?? 0).ToList();
+                    // Fourchette : seulement ce que la carte fait elle-même selon le tirage ; l'écart avec une fin de
+                    // tour moyennée (Compared) n'y entre que par sa moyenne
+                    double CompareOf(Outcome r) => r.Compared.GetValueOrDefault(creature)?.GetValueOrDefault(stat) ?? 0;
+                    var values = runs.Select(r => (r.Creatures.GetValueOrDefault(creature)?.GetValueOrDefault(stat) ?? 0) - CompareOf(r)).ToList();
                     if (values.Max() - values.Min() < 0.05)
                         continue;
+                    double compared = runs.Average(CompareOf);
                     if (!average.Spread.TryGetValue(creature, out var spread))
                         average.Spread[creature] = spread = new Dictionary<string, (double, double)>();
-                    spread[stat] = (values.Min(), values.Max());
+                    spread[stat] = (values.Min() + compared, values.Max() + compared);
                 }
             foreach (var run in runs)
             {
@@ -272,12 +294,14 @@ public sealed class PlaySimulation
             return null;
         var choice = selection == null ? null : new Choice(selection, selectionIndex, Resume: true);
         var act = new Act(card.Id.Entry, sim => sim.Play(card, player, target), card);
-        return Traced(act, target, () =>
+        Outcome Compute() => Traced(act, target, () =>
         {
             var rngs = RngState.Capture(combat);
             var baseline = BaselineOf(combat, player.Creature, rngs);
             return WithChoices(act, player, target, choice, combat, rngs, baseline);
         });
+        // Pendant un écran de choix, les cartes choisies changent l'aperçu : pas gardé
+        return choice == null ? Cached(card, target, player.Creature, combat, Compute) : Compute();
     }
 
     /// <summary>Effet de <paramref name="potion"/> utilisée en combat sur <paramref name="target"/> ; null si impossible.</summary>
@@ -291,12 +315,12 @@ public sealed class PlaySimulation
         if (target == null && potion.IsValidTarget(player.Creature))
             target = player.Creature;
         var act = new Act(potion.Id.Entry, sim => sim.UsePotion(potion, target), null);
-        return Traced(act, target, () =>
+        return Cached(potion, target, player.Creature, combat, () => Traced(act, target, () =>
         {
             var rngs = RngState.Capture(combat);
             var baseline = BaselineOf(combat, player.Creature, rngs);
             return WithChoices(act, player, target, null, combat, rngs, baseline);
-        });
+        }));
     }
 
     /// <summary>Aperçu suivi par le rapport de bug : trace pas à pas, durée, étapes, résultat partiel.</summary>
@@ -385,9 +409,11 @@ public sealed class PlaySimulation
 
     /// <summary>Ce qui attend le joueur sans jouer la carte : dégâts qu'il prendra, attaques de chaque ennemi.</summary>
     /// <param name="Allies">dégâts que chaque allié du joueur (multijoueur) prendra d'ici l'attaque des ennemis</param>
+    /// <param name="Random">moyenne de plusieurs tirages (Simpleton, orbes…) : un écart avec elle ne compte que
+    /// pour l'espérance (<see cref="Outcome.Compared"/>)</param>
     private sealed record Baseline(int Taken, Dictionary<Creature, int> Incoming, Outcome End, bool Dies = false,
         AbstractModel? ExtraTurn = null, Dictionary<Creature, int>? Allies = null, IReadOnlyList<Creature>? DeadEnemies = null, IReadOnlyList<Creature>? LateDeadEnemies = null,
-        int? PetTaken = null, bool PetDies = false);
+        int? PetTaken = null, bool PetDies = false, bool Random = false);
 
     /// <summary>PV que le familier du joueur (Osty) aura perdus d'ici l'attaque des ennemis ; null : pas de familier en vie.</summary>
     private int? _petTaken;
@@ -440,13 +466,77 @@ public sealed class PlaySimulation
         }
     }
 
+    // ---- Résultats gardés tant que le combat ne change pas ----
+
+    /// <summary>État du combat vu par la simulation : s'il est le même, ses résultats aussi.</summary>
+    private sealed record StateKey(ICombatState Combat, Creature Me, string Text);
+
+    /// <summary>
+    /// Empreinte (PV, Block, pouvoirs, énergie, piles, main), tour, camp, longueur de l'historique (toute action y
+    /// laisse une trace), intentions des ennemis et orbes.
+    /// </summary>
+    private static StateKey KeyOf(ICombatState combat, Creature me)
+    {
+        var history = HistoryEntries.GetValue(CombatManager.Instance.History) as System.Collections.ICollection;
+        var text = new System.Text.StringBuilder()
+            .Append(combat.RoundNumber).Append(' ').Append(combat.CurrentSide).Append(" history ").Append(history?.Count ?? -1);
+        foreach (var enemy in combat.Enemies)
+            text.Append(" intent ").Append(enemy.Monster?.NextMove?.Id ?? "-");
+        foreach (var player in combat.Players)
+            if (player.PlayerCombatState is { } state)
+                foreach (var orb in state.OrbQueue.Orbs)
+                    text.Append(" orb ").Append(orb.Id.Entry);
+        foreach (var part in Fingerprint(combat))
+            text.Append('|').Append(part);
+        return new StateKey(combat, me, text.ToString());
+    }
+
+    /// <summary>
+    /// Dernière fin de tour sans rien jouer : l'onglet Combat, le bouton de fin de tour et chaque aperçu la
+    /// demandent pour le même état (douze tirages chacun si le hasard intervient : le jeu ralentissait).
+    /// </summary>
+    private static (StateKey Key, Baseline Baseline)? _baselineCache;
+
+    /// <summary>Aperçus déjà calculés pour l'état <see cref="_outcomesKey"/> (carte ou potion, cible).</summary>
+    private static readonly Dictionary<(AbstractModel Act, Creature? Target), Outcome> Outcomes = new();
+
+    private static StateKey? _outcomesKey;
+
+    /// <summary>Aperçu gardé ou calculé : survoler de nouveau une carte, ou une autre cible, ne refait rien.</summary>
+    private static Outcome Cached(AbstractModel act, Creature? target, Creature me, ICombatState combat, Func<Outcome> compute)
+    {
+        var key = KeyOf(combat, me);
+        if (key != _outcomesKey)
+        {
+            Outcomes.Clear();
+            _outcomesKey = key;
+        }
+        if (Outcomes.TryGetValue((act, target), out var known))
+            return known;
+        var outcome = compute();
+        // Calculé sur le même état (sinon, rien de gardé : le prochain survol recalcule)
+        if (KeyOf(combat, me) == key)
+            Outcomes[(act, target)] = outcome;
+        return outcome;
+    }
+
+    private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
+    {
+        var key = KeyOf(combat, me);
+        if (_baselineCache is { } cached && cached.Key == key)
+            return cached.Baseline;
+        var baseline = ComputeBaseline(combat, me, rngs);
+        _baselineCache = (key, baseline);
+        return baseline;
+    }
+
     /// <summary>
     /// Fin de tour sans rien jouer. Si le hasard intervient (Simpleton qui joue une carte au hasard sur un ennemi au
     /// hasard, orbes…), plusieurs simulations avec d'autres tirages que ceux du jeu : seul ce qui arrive dans toutes
     /// est certain (morts), le reste est la moyenne. Les vrais tirages ne sont jamais utilisés : ils diraient au
     /// joueur ce que le hasard lui réserve.
     /// </summary>
-    private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
+    private static Baseline ComputeBaseline(ICombatState combat, Creature me, RngState rngs)
     {
         var first = BaselineOnce(combat, me, rngs, 1, out bool random);
         if (!random)
@@ -467,7 +557,7 @@ public sealed class PlaySimulation
             taken, MeanOf(r => r.Incoming)!, Outcome.Average(runs.Select(r => r.End).ToList()),
             All(r => r.Dies), All(r => r.ExtraTurn != null) ? first.ExtraTurn : null, MeanOf(r => r.Allies),
             Certain(r => r.DeadEnemies), Certain(r => r.LateDeadEnemies),
-            runs.All(r => r.PetTaken != null) ? Mean(r => r.PetTaken ?? 0) : first.PetTaken, All(r => r.PetDies));
+            runs.All(r => r.PetTaken != null) ? Mean(r => r.PetTaken ?? 0) : first.PetTaken, All(r => r.PetDies), Random: true);
     }
 
     private static Baseline BaselineOnce(ICombatState combat, Creature me, RngState rngs, int draw, out bool random)
@@ -659,15 +749,17 @@ public sealed class PlaySimulation
             var (taken, incoming, end, allies) = sim.UntilEnemyAttacks(me, act.Card);
             // Ce que la carte change d'ici l'attaque des ennemis (Howl from Beyond épuisé qui se joue, Block du
             // Plating donné…) : écart avec la même fin de tour sans la carte
-            sim.MergeDifference(end, baseline.End);
+            // Fin de tour sans la carte qui dépend du hasard : écarts avec sa moyenne (espérance seulement)
+            Action<Creature, string, double> compare = baseline.Random ? sim._outcome.AddCompared : sim._outcome.Add;
+            sim.MergeDifference(end, baseline.End, compare);
             foreach (var (enemy, after) in incoming)
                 if (baseline.Incoming.GetValueOrDefault(enemy) - after is var avoided and not 0)
-                    sim._outcome.Add(enemy, Stat.Avoided, avoided);
+                    compare(enemy, Stat.Avoided, avoided);
             if (baseline.Taken - taken is var prevented and not 0)
-                sim._outcome.Add(me, Stat.Prevented, prevented);
+                compare(me, Stat.Prevented, prevented);
             // Dégâts évités (ou ajoutés) à son familier (Osty), encadré à côté de lui
             if (player.Osty is { } pet && baseline.PetTaken is { } petBefore && (petBefore - (sim._petTaken ?? 0)) is var petSaved and not 0)
-                sim._outcome.Add(pet, Stat.Prevented, petSaved);
+                compare(pet, Stat.Prevented, petSaved);
             // Carte qui termine le tour : sa fin de tour n'est plus un « si », elle arrive ; mort comprise, même si
             // terminer le tour sans la carte tuait aussi
             if (sim._endedTurn)
@@ -681,7 +773,7 @@ public sealed class PlaySimulation
             // Block donné…)
             foreach (var (ally, after) in allies)
                 if (baseline.Allies?.TryGetValue(ally, out var before) == true && before - after is var saved and not 0)
-                    sim._outcome.Add(ally, Stat.Prevented, saved);
+                    compare(ally, Stat.Prevented, saved);
         }
         catch (Exception e)
         {
@@ -1146,6 +1238,31 @@ public sealed class PlaySimulation
         }
     }
 
+    /// <summary>
+    /// Contenu d'une pile pendant la simulation : sans les cartes que la simulation en a sorties, avec celles qu'elle
+    /// y a mises (à la fin). Le code du jeu qui parcourt la main la voit comme la simulation : Simpleton jouait sinon
+    /// en fin de tour la carte dont on voyait l'aperçu, encore dans la vraie main (Simpleton+ qui se rejouait).
+    /// </summary>
+    private IReadOnlyList<CardModel> ContentsOf(CardPile pile, IReadOnlyList<CardModel> actual)
+    {
+        bool InPile(CardModel card, PileType type) => card.Owner is { } owner && ReferenceEquals(CardPile.Get(type, owner), pile);
+        var contents = actual.Where(c => !_piles.TryGetValue(c, out var type) || InPile(c, type)).ToList();
+        foreach (var (card, type) in _piles)
+            if (type == pile.Type && !contents.Contains(card) && InPile(card, type))
+                contents.Add(card);
+        return contents;
+    }
+
+    [HarmonyPatch(typeof(CardPile), nameof(CardPile.Cards), MethodType.Getter)]
+    public static class PileCardsPatch
+    {
+        public static void Postfix(CardPile __instance, ref IReadOnlyList<CardModel> __result)
+        {
+            if (CurrentSim.Value is { _piles.Count: > 0 } sim)
+                __result = sim.ContentsOf(__instance, __result);
+        }
+    }
+
     // ---- Choix, défausse, épuisement, cartes jouées par un effet ----
 
     /// <summary>Choix du joueur en cours (aperçu pendant un écran de sélection), sinon null.</summary>
@@ -1260,7 +1377,9 @@ public sealed class PlaySimulation
         [Stat.Damage, Stat.Hits, Stat.ThroughBlock, Stat.Lethal, Stat.LethalLate, Stat.Stunned, Stat.HpLost, Stat.Block, Stat.Healed];
 
     /// <summary>Ajoute l'écart entre deux fins de tour simulées (avec et sans la carte).</summary>
-    private void MergeDifference(Outcome with, Outcome without)
+    /// <param name="add">ajoute un écart à l'effet (<see cref="Outcome.AddCompared"/> si la fin de tour sans la carte
+    /// est une moyenne)</param>
+    private void MergeDifference(Outcome with, Outcome without, Action<Creature, string, double> add)
     {
         foreach (var creature in with.Creatures.Keys.Union(without.Creatures.Keys).ToList())
         {
@@ -1275,13 +1394,17 @@ public sealed class PlaySimulation
                 // la carte pendant le tour
                 if (!TurnEndStats.Contains(stat))
                 {
-                    _outcome.Add(creature, Stat.EndOfTurn + stat, delta);
+                    add(creature, Stat.EndOfTurn + stat, delta);
                     continue;
                 }
-                _outcome.Add(creature, stat, delta);
-                // Mort, étourdi : oui ou non
+                // Mort, étourdi : oui ou non, jamais une part de moyenne (Compared)
                 if (stat is Stat.Lethal or Stat.LethalLate or Stat.Stunned)
+                {
+                    _outcome.Add(creature, stat, delta);
                     _outcome.Of(creature)[stat] = Math.Clamp(_outcome.Of(creature)[stat], 0, 1);
+                }
+                else
+                    add(creature, stat, delta);
             }
         }
         foreach (var (name, path) in with.PowerIcons)

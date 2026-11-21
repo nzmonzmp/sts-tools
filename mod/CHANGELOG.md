@@ -196,6 +196,19 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
   utilisaient les vrais tirages à venir du jeu : la tête de mort montrait quel ennemi la carte jouée au hasard par
   Simpleton allait tuer. Elles ont maintenant toujours d'autres tirages que ceux du jeu ; si le hasard intervient en fin
   de tour, plusieurs tirages : tête de mort seulement si la mort arrive à chacun, dégâts moyens sinon.
+- 2026-11-21 : aperçu quand la fin de tour sans la carte dépend du hasard (Simpleton, qui joue une carte au hasard
+  parmi les moins chères de la main) : chaque tirage était comparé à la moyenne des tirages sans la carte, d'où des
+  fourchettes trompeuses (Deep Stretch+ : « Damage prevented −4–12 », un tirage pire que la moyenne n'étant pas la
+  faute de la carte). Ces écarts (Damage prevented, Block et pouvoirs de fin de tour, « End of turn: ») ne comptent
+  plus que pour la moyenne ; la fourchette ne garde que ce que la carte fait elle-même selon le tirage.
+- 2026-11-21 : aperçu de Simpleton+ : « End of turn: Simpleton +0.2 », Block et dégâts en trop. Le code du jeu qui
+  parcourt une pile (Simpleton cherche la carte la moins chère de la main) voyait la vraie main, où la carte dont on
+  voit l'aperçu est encore : Simpleton pouvait la rejouer en fin de tour. Pendant une simulation, le contenu des piles
+  est maintenant celui de la simulation (cartes jouées, défaussées, épuisées retirées ; cartes ajoutées présentes).
+- 2026-11-21 : lag au survol des cartes quand la fin de tour dépend du hasard (~100 ms par carte : 12 tirages sans la
+  carte, 12 avec). La fin de tour sans la carte est calculée une fois par état du combat (onglet Combat, bouton de fin
+  de tour et aperçus la partagent) et chaque aperçu (carte ou potion, cible) est gardé tant que le combat ne change
+  pas (PV, Block, pouvoirs, énergie, piles, main, tour, historique, intentions, orbes).
 - 2026-11-21 : aperçu des cartes du Fool : les mélodies gagnées (Wah, Cho, Ki jouées pour la première fois ce tour, par
   la carte ou par un effet comme Lost Lute) s'affichent, avec l'icône du jeu (« Melody Wah »…).
 - 2026-11-21 : onglet Mod des options en clavier seul (et à la manette) : sous-onglets Options et Input et bouton
