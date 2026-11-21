@@ -30,3 +30,15 @@ A Mod tab in the game options (what is shown, key bindings) and an in-game guide
 A "Report a bug" button (main menu, pause menu). After a crash, the mod offers to send a crash report (Ask, Always, Never in the options). Reports go to the mod's Discord server.
 
 Discord: https://discord.gg/wEB5NVwZPX
+
+[h2]Version 0.1.2[/h2]
+[list]
+[*][b]Smoother previews[/b]: much less lag when hovering cards in fights where the end of the turn involves chance; a preview already computed is shown instantly until something changes in the combat.
+[*][b]New option "Simulations for random effects"[/b] (4 to 24, 12 by default): how many simulations are averaged when chance is involved. More is more accurate, fewer is faster.
+[*][b]No hidden information[/b]: previews and skulls never use the game's upcoming random draws (random targets, random cards); when chance is involved, they show an average, and a skull only when death is certain.
+[*][b]Clearer ranges[/b] when the end of the turn is random (Simpleton): no more negative "Damage prevented" caused by chance alone.
+[*][b]The Fool[/b]: melodies gained (Wah, Cho, Ki) shown in previews; Simpleton no longer replays the previewed card in its preview.
+[*][b]Necrobinder[/b]: Osty takes the attacks after your Block in the incoming damage, the skulls and the previews; cards that summon Osty show "Summon +N".
+[*][b]New options[/b]: switch the GUI tab automatically when a combat starts, when it ends and at a merchant; choose the side the GUI widens toward. The Mod options tab works with keyboard and controller.
+[*][b]Fixed[/b] a freeze with Simpleton against a Wriggler.
+[/list]
