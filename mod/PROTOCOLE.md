@@ -136,10 +136,24 @@ l'overlay, 0 sur 20 sans.
 
 ## Steam Workshop
 
-- Publier une nouvelle version : monter `version` dans `StsTools.json`, puis `workshop/publish.sh public "note"`
-  (build Release normale dans `dist/StsTools`, puis mise à jour de l'item `workshop/item_id.txt` par SteamUGC ; Steam
-  doit être lancé). Vérifier avant que la DLL n'a ni webhook ni pont de test. Les images de `workshop/screenshots`
-  (ordre des noms, JPEG 1920×1080) remplacent la galerie de l'item à chaque publication.
+- Publier une nouvelle version, dans l'ordre :
+  1. Monter `version` dans `StsTools.json`.
+  2. Vérifier que le mod peut être distribué : rien de sensible ni rien qui sert aux tests. Build Release
+     (`dotnet build -c Release`), puis sur `dist/StsTools/StsTools.dll` : `grep -c -a TestBridge` (pont de test, doit
+     être 0) et `grep -c -a 'api/webhooks'` (webhooks Discord, doit être 0 ; seule l'adresse du relais des rapports
+     peut y être). Les commandes de test (console, `#if TESTBRIDGE`) ne doivent pas y être non plus.
+  3. Décrire les ajouts de la version dans `workshop/description.txt` : section `[h2]Version x.y.z[/h2]` tout en bas
+     (après le lien Discord), liste BBCode `[list][*]…[/list]`, écrite pour les joueurs à partir des commits depuis la
+     dernière publication (`git log` depuis le commit « Workshop x.y.z » précédent) et du CHANGELOG.
+  4. `workshop/publish.sh public "note"` (build Release normale dans `dist/StsTools`, puis mise à jour de l'item
+     `workshop/item_id.txt` par SteamUGC ; Steam doit être lancé). La note résume la version (notes de version Steam).
+     Les images de `workshop/screenshots` (ordre des noms, JPEG 1920×1080) remplacent la galerie de l'item à chaque
+     publication.
+  5. Réinstaller le mod local à la nouvelle version (`dotnet build -t:Install -p:TestBridge=true`, jeu fermé) : à
+     version égale ou plus récente, le jeu joue la copie locale et désactive l'abonnement Workshop ; plus ancienne,
+     c'est l'abonnement qui est joué. Vérifier dans le log après relance : « Local version (vx.y.z) is greater than
+     steam version » ou absence de « disabling » pour la copie locale, puis « Loading assembly » sur `mods/StsTools`.
+  6. Commit « Workshop x.y.z: … » (version et description) et push.
 - Tester l'item comme un joueur : `workshop/publish.sh subscribe` (attend le téléchargement), jeu fermé, sortir
   `mods/StsTools` du dossier `mods/` (à version égale le jeu garde la copie locale et désactive celle du Workshop ;
   si celle du Workshop est plus récente, c'est la copie locale qui est désactivée), relancer, chercher « Steam Workshop
