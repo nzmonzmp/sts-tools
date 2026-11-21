@@ -79,7 +79,11 @@ public static class LethalWarning
                 // Mort évitée par un effet (Lizard Tail…) : pas une mort, sauf mort imposée (Sandpit…)
                 && (t.Forced || Hook.ShouldDie(combat!.RunState, combat, me!.Creature, out _)) ? (t.Taken, t.Hp, t.Forced) : null);
             ShowExtraTurn(button, turn?.ExtraTurn);
-            ShowDoomed(turn?.DeadEnemies ?? [], turn?.LateDeadEnemies ?? []);
+            // Osty que les attaques ennemies tueront (à chaque tirage si le hasard intervient) : même tête de mort
+            var early = turn?.DeadEnemies ?? [];
+            if (turn is { PetDies: true } && me?.Osty is { IsAlive: true } osty)
+                early = [.. early, osty];
+            ShowDoomed(early, turn?.LateDeadEnemies ?? []);
         }
         catch (Exception e)
         {
@@ -109,8 +113,8 @@ public static class LethalWarning
     private static readonly HashSet<MegaCrit.Sts2.Core.Entities.Creatures.Creature> Doomed = [];
 
     /// <summary>
-    /// Ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom, effets de fin de tour…) :
-    /// une tête de mort en transparence par-dessus, qui clignote.
+    /// Ennemis qui meurent d'ici leur attaque sans que le joueur fasse rien (poison, Doom, effets de fin de tour…), et
+    /// Osty que leurs attaques tueront : une tête de mort en transparence par-dessus, qui clignote.
     /// </summary>
     /// <param name="late">ceux qui meurent après avoir agi (Doom à la fin de leur tour) : tête de mort violette</param>
     private static void ShowDoomed(IReadOnlyList<MegaCrit.Sts2.Core.Entities.Creatures.Creature> early,

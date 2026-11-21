@@ -229,7 +229,7 @@ public static class ModGuide
             ]),
             new("Combat", "res://images/packed/intents/attack/intent_attack_1.png", "In combat, while the GUI is open", [
                 $"Aim a card or a potion: a box next to each creature shows what it will do ({Blue("damage")}, {Blue("Block")}, powers, kills, damage avoided).",
-                $"Skulls: on the {Gold("End turn")} button when ending the turn kills you, on the enemies that will die.",
+                $"Skulls: on the {Gold("End turn")} button when ending the turn kills you, on the enemies that will die, on Osty when the enemies will kill it.",
                 $"Relic tooltips: what each relic did this run.",
             ]),
             new("Map", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres", "On the map", [

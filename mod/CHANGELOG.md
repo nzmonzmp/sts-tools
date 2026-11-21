@@ -56,7 +56,8 @@ cartes choisies pendant un écran de choix (Sly, épuisement…).
 Aussi : fin de tour séparée (« End of turn: »), cibles au hasard des cartes jouées par un effet (fourchette et
 espérance), bouton de fin de tour (tête de mort si terminer le tour tue le joueur, tour supplémentaire de Pael's Eye),
 Sandpit, réactions aux pouvoirs donnés (Vicious), tête de mort sur les monstres qui mourront sans rien faire (rouge :
-avant d'agir ; violet : après, Doom) et sur ceux que la carte tue à coup sûr. Lignes « Forge +n » (Regent), « Discard »
+avant d'agir ; violet : après, Doom) et sur ceux que la carte tue à coup sûr ; tête de mort rouge sur Osty quand les
+attaques des ennemis le tueront si le tour se termine (à chaque tirage si le hasard intervient). Lignes « Forge +n » (Regent), « Discard »
 et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form).
 
 ### GUI
