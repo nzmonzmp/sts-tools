@@ -410,10 +410,21 @@ public sealed class PlaySimulation
     {
         if (!EnsurePatched() || Active || player.Creature.CombatState is not { } combat)
             return null;
-        var rngs = RngState.Capture(combat);
-        var baseline = BaselineOf(combat, player.Creature, rngs);
-        return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn, baseline.DeadEnemies ?? [],
-            baseline.LateDeadEnemies ?? []);
+        // Suivi par le rapport de gel comme un aperçu ; l'étape est effacée ensuite (sinon elle restait affichée
+        // après coup, comme si l'aperçu tournait encore)
+        BugReport.Activity = "turn end prediction";
+        try
+        {
+            var rngs = RngState.Capture(combat);
+            var baseline = BaselineOf(combat, player.Creature, rngs);
+            return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn, baseline.DeadEnemies ?? [],
+                baseline.LateDeadEnemies ?? []);
+        }
+        finally
+        {
+            BugReport.Activity = null;
+            DebugState = null;
+        }
     }
 
     private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)

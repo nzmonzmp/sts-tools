@@ -181,6 +181,10 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
 
 ### Corrigé
 
+- 2026-11-21, rapport de gel d'un joueur (Vine Shambler) : « preview: listener VineShambler » était un reste de la
+  prévision de fin de tour, terminée bien avant le gel. Elle est maintenant suivie comme activité du mod (« turn end
+  prediction ») et son étape est effacée à la fin. Le gel venait sans doute de Booba-Necrobinder-Mod, qui n'est plus
+  compatible avec le jeu (337 MissingMethodException dans la session).
 - 2026-11-20 : gel au démarrage avant le menu (1 fois sur 5 environ) : c'est l'overlay Steam, pas le mod. Conseil aux
   joueurs : désactiver l'overlay pour le jeu (Propriétés → Général).
 - 2026-11-19, acte 1 joué avec le pont : coup qui tue le dernier ennemi pas compté ; « HP healed » en décimales ; un tour
