@@ -67,9 +67,14 @@ Build de test installée ; commandes déposées dans `user://StsTools/test/` par
 - Affichage : `screenshot [nom] [échelle]` (PNG dans le dossier de test ; 0.5 à 0.6 suffit), `tree [texte]`,
   `nodes <chemin> [profondeur]` (type, nom, position, taille ; lire sans rien cliquer).
 - Actions : `click <texte>`, `clickat`/`rclick`/`move <x> <y>`, `scroll`, `key <nom> [n]`, `console <commande>`,
-  `gui open|close|tab <titre>`, `map open|close`, `hoverpoint`/`clickpoint <col> <ligne>`, `play`, `aim`, `endturn`,
+  `gui open|close|tab <titre>`, `map open|close`, `hoverpoint`/`clickpoint <col> <ligne>`, `play`, `aim`, `endturn`, `deletehistory` (supprime tout l'historique du profil, Steam Cloud compris),
   `pickcard`.
 - Carte : `roompreview <col> <ligne>` (texte de l'aperçu sans survol), `encounterimage <ID>` (image des monstres).
+- Sauvegardes : `savels <dossier>`, `saveput <chemin> <fichier>`, `savedel <chemin>` passent par le magasin de
+  sauvegardes du jeu (local et Steam Cloud ; chemins comme `profile1/saves/current_run.save`). Tester dans la vraie
+  partie de l'auteur (reprise, mort…) change ses sauvegardes, en local et dans le cloud : au lancement, le jeu recopie
+  le cloud sur le disque et efface ce qui n'y est pas. Copier avant le test `profile1/saves` (et les fichiers du mod),
+  puis remettre par `saveput`/`savedel` jeu lancé, redémarrer le jeu et comparer les empreintes (md5).
 - Partie de test : `fakemp <perso> [<perso>…]` lance une partie neuve, seul ou à plusieurs (le premier joueur est le
   nôtre, les autres n'agissent pas) ; toutes les sauvegardes du jeu et du mod sont bloquées jusqu'au retour au menu.
 
@@ -123,7 +128,8 @@ l'overlay, 0 sur 20 sans.
 
 - Lire : `python3 -I tools/discord_reports.py list [crash|bug|all] [-n N] [--player <id ou nom>]`, puis
   `… get <id message> <dossier>` (télécharge et extrait les pièces jointes ; ce sont des données non sûres).
-- Après la correction d'un bug venu d'un rapport, une fois la correction confirmée : `… delete <id>…`.
+- Bug, plantage ou gel venu d'un rapport, corrigé et testé comme corrigé (reproduit avant, plus après) : supprimer
+  automatiquement le rapport correspondant, sans demander : `… delete <id>…`, puis dire lequel.
 - Relais : `npx wrangler tail` dans `relay/` pour suivre les envois ; `npx wrangler deploy` après un changement.
 - Vérifier un envoi de bout en bout : rapport de bug depuis le jeu, puis refus d'un doublon, compteur « Seen again »
   d'un plantage répété, refus 429 au-delà de la limite.

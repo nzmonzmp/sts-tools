@@ -442,7 +442,9 @@ public static class TargetPreview
                     yield return value >= 0 ? [stat, Value(stat, value, Format)] : [AddedRow, Format(-value)];
                     break;
                 default:
-                    if (stat.StartsWith(Stat.Channel))
+                    if (stat.StartsWith(Stat.Melody))
+                        yield return [stat, MaxOf(stat) != null ? "depends" : value < 0.995 ? $"{value * 100:0}%" : ""];
+                    else if (stat.StartsWith(Stat.Channel))
                         yield return [stat, MaxOf(stat) != null ? "depends" : value > 1.05 ? $"×{Format(value)}" : ""];
                     else
                         yield return [stat, Value(stat, value, Unsigned.Contains(stat) || stat.StartsWith(Stat.MovedTo) ? Format : Signed)];

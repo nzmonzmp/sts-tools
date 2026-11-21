@@ -283,8 +283,9 @@ public sealed class RunPanel
         _subTabBar.AddThemeConstantOverride("separation", 6);
         _body.AddChild(_subTabBar);
 
-        // Défilement vertical seulement : la largeur du contenu reste celle du panneau
-        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
+        // Défilement vertical ; horizontal seulement si le GUI ne s'élargit pas (option « None ») : sinon la largeur
+        // du contenu est celle du panneau
+        _scroll = new ScrollContainer { HorizontalScrollMode = HorizontalScroll };
         KeyboardNav.ScrollWithKeys(_scroll);
 
         _body.AddChild(_scroll);
@@ -399,6 +400,12 @@ public sealed class RunPanel
     {
         if (_current is { } panel && GodotObject.IsInstanceValid(panel._help))
             panel._help.Visible = ModOptions.HelpInGui;
+        // Côté vers lequel il s'élargit : défilement horizontal ou non, puis replacé
+        if (_current is { } grown && GodotObject.IsInstanceValid(grown._scroll))
+        {
+            grown._scroll.HorizontalScrollMode = HorizontalScroll;
+            Callable.From(grown.FitHeight).CallDeferred();
+        }
         TabsChanged();
     }
 
@@ -670,7 +677,7 @@ public sealed class RunPanel
     /// <summary>Les stats ont changé : redessine si le panneau est ouvert (sinon, ce sera fait à l'ouverture).</summary>
     private void OnChanged()
     {
-        if (!GodotObject.IsInstanceValid(_panel) || !_panel.Visible || _refreshQueued)
+        if (!GodotObject.IsInstanceValid(_panel) || !_panel.Visible || _refreshQueued || PlaySimulation.Active)
             return;
         // Un seul redessin par image, même si beaucoup de stats changent d'un coup (une attaque sur tous les ennemis)
         _refreshQueued = true;
@@ -724,19 +731,29 @@ public sealed class RunPanel
         Place();
     }
 
+    /// <summary>Le GUI ne s'élargit pas (option « None ») : le contenu trop large défile horizontalement.</summary>
+    private static ScrollContainer.ScrollMode HorizontalScroll =>
+        ModOptions.PanelGrow == "none" ? ScrollContainer.ScrollMode.Auto : ScrollContainer.ScrollMode.Disabled;
+
     /// <summary>
     /// Place le panneau en haut à droite sous la barre, avec sa largeur fixe ; s'il doit s'élargir pour son
-    /// contenu, il s'étend vers la gauche et reste collé au bord droit.
+    /// contenu, il s'étend du côté choisi dans les options (vers la gauche par défaut : bord droit fixe ; vers la
+    /// droite : bord gauche fixe).
     /// </summary>
     private void Place()
     {
+        bool towardRight = ModOptions.PanelGrow == "right";
+        _panel.GrowHorizontal = towardRight ? Control.GrowDirection.End : Control.GrowDirection.Begin;
         // Toujours dans l'écran, où que le joueur l'ait mis
         var screen = _panel.IsInsideTree() ? _panel.GetViewportRect().Size : Vector2.Zero;
         if (screen.X > 0)
         {
             // Largeur réelle : le panneau s'élargit vers la gauche si son contenu le demande
             float width = Math.Max(Width, _panel.Size.X);
-            _right = Math.Clamp(_right, 0, Math.Max(0, screen.X - width));
+            // Vers la droite, le surplus dépasse à droite de la place de base : celle-ci s'écarte d'autant du bord
+            _right = towardRight
+                ? Math.Clamp(_right, Math.Min(width - Width, Math.Max(0, screen.X - Width)), Math.Max(0, screen.X - Width))
+                : Math.Clamp(_right, 0, Math.Max(0, screen.X - width));
             // Jamais sous la barre du haut du jeu, ni plus bas que le bas de l'écran (le panneau entier y tient)
             const float bottomMargin = 8;
             float height = Math.Max(_panel.Size.Y, 60);

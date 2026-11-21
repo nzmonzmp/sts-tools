@@ -419,7 +419,13 @@ public sealed partial class CardRunStats
     [HarmonyPatch(typeof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature), nameof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature.UpdateIntent))]
     public static class IntentPatch
     {
-        public static void Postfix() => Changed?.Invoke();
+        // Pas pendant un aperçu (rien n'a vraiment changé) : un monstre qui change de coup dans la simulation
+        // relançait le redessin de l'onglet Combat, qui refait la simulation…
+        public static void Postfix()
+        {
+            if (!PlaySimulation.Active)
+                Changed?.Invoke();
+        }
     }
 
     /// <summary>Stats du joueur local pour le combat en cours (ou le dernier combat, une fois fini).</summary>

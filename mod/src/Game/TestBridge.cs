@@ -49,6 +49,11 @@ public static class TestBridge
           play <card> [enemy]       play the hand card at this index (on this enemy index if it needs a target)
           aim <card> [enemy]        like play, without the last click: the card stays aimed (mod preview); rclick cancels
           endturn                   click the end turn button
+          deletehistory             delete every run history file of the profile (local and Steam Cloud)
+          savels <dir>              files of a save folder, through the game's save store (e.g. profile1/saves)
+          saveput <path> <file>     write a save file through the game's save store (local and Steam Cloud) from
+                                    an absolute file path: restores a save after a test
+          savedel <path>            delete a save file through the game's save store (local and Steam Cloud)
           fakemp <char> [<char>...] NEW test run, saves blocked (one player per character, you are the first; the
                                     others never act). Saves come back at the main menu (the test run is gone)
           graph                     JSON: every map point (coord, type, children), visited coords, free moves
@@ -408,9 +413,49 @@ public static class TestBridge
                 await Frames(30);
                 return "end turn clicked";
             }
+            case "deletehistory":
+                return DeleteHistory();
+            case "savels":
+                return string.Join("\n", Store().GetFilesInDirectory(args[0]));
+            case "saveput":
+                Store().WriteFile(args[0], File.ReadAllBytes(args[1]));
+                return $"wrote {args[0]} via {Store().GetType().Name}";
+            case "savedel":
+                Store().DeleteFile(args[0]);
+                return $"deleted {args[0]} via {Store().GetType().Name}";
             default:
                 throw new ArgumentException($"unknown command \"{cmd}\"\n{Help}");
         }
+    }
+
+    /// <summary>
+    /// Supprime toutes les parties de l'historique du profil courant (jeu non moddé et moddé) par le magasin de
+    /// sauvegardes du jeu : CloudSaveStore.DeleteFile efface aussi la copie Steam Cloud, sinon le jeu la retélécharge.
+    /// </summary>
+    /// <summary>Magasin de sauvegardes du jeu (local et Steam Cloud).</summary>
+    private static MegaCrit.Sts2.Core.Saves.ISaveStore Store()
+    {
+        var saves = MegaCrit.Sts2.Core.Saves.SaveManager.Instance;
+        return (MegaCrit.Sts2.Core.Saves.ISaveStore)AccessTools.Field(saves.GetType(), "_saveStore").GetValue(saves)!;
+    }
+
+    private static string DeleteHistory()
+    {
+        var saves = MegaCrit.Sts2.Core.Saves.SaveManager.Instance;
+        var store = (MegaCrit.Sts2.Core.Saves.ISaveStore)AccessTools.Field(saves.GetType(), "_saveStore").GetValue(saves)!;
+        int profile = saves.CurrentProfileId, deleted = 0;
+        foreach (var modded in new[] { false, true })
+        {
+            var dir = MegaCrit.Sts2.Core.Saves.Managers.RunHistorySaveManager.GetHistoryPath(profile, modded);
+            if (!store.DirectoryExists(dir))
+                continue;
+            foreach (var file in store.GetFilesInDirectory(dir).Where(f => f.EndsWith(".run")))
+            {
+                store.DeleteFile(dir.PathJoin(file));
+                deleted++;
+            }
+        }
+        return $"deleted {deleted} run files via {store.GetType().Name}";
     }
 
     // ---- Entrées ----

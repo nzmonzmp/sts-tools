@@ -30,6 +30,7 @@ public static class ModOptions
     public static string? TabOnCombatEnd => Current.TabOnCombatEnd;
     public static string? TabOnMerchant => Current.TabOnMerchant;
     public static string OpenPanel => Current.OpenPanel;
+    public static string PanelGrow => Current.PanelGrow;
     public static string CrashReports => SavedSettings.Load().CrashReports;
     public static string? BugReportName => SavedSettings.Load().BugReportName;
     public static bool BugReportAttach => Current.BugReportAttach;

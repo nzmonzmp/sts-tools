@@ -47,6 +47,9 @@ public static class MainMenuPatch
     public static void Postfix(NMainMenu __instance)
     {
         ModEntry.ApplyLatePatches();
+        // Rapport de gel : quel code du mod tourne (une fois tous les patchs posés)
+        if (ModEntry.Harmony is { } harmony)
+            FreezeTrace.Install(harmony);
         // Options du menu principal prêtes avant les patchs : onglet Mod ajouté maintenant
         ModSettingsTab.AddToExisting(__instance.GetTree().Root);
         ModGuide.ShowOnFirstLaunch();

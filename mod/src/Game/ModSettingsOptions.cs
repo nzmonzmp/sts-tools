@@ -76,6 +76,9 @@ public static class ModSettingsOptions
                 AutoTab("auto.merchant", "At a merchant", () => ModOptions.TabOnMerchant, (s, t) => s.TabOnMerchant = t),
             ]),
             ("While the GUI is open", [
+                new Choice("panel.grow", "Widen toward", ["Left", "None", "Right"],
+                    () => Math.Max(0, Array.IndexOf(GrowValues, ModOptions.PanelGrow)),
+                    i => ModOptions.Set(s => s.PanelGrow = GrowValues[i])),
                 Feature("feature.cards", "Card and potion previews", () => ModOptions.CardPreview, (s, v) => s.CardPreview = v),
                 Feature("feature.skulls", "Lethal warnings (skulls)", () => ModOptions.Skulls, (s, v) => s.Skulls = v),
                 Feature("feature.relics", "Relic stats in tooltips", () => ModOptions.RelicStats, (s, v) => s.RelicStats = v),
@@ -105,6 +108,9 @@ public static class ModSettingsOptions
     }
 
     private static readonly string[] PanelValues = ["last", "expanded", "collapsed"];
+
+    /// <summary>Côté vers lequel le GUI s'élargit (<see cref="SavedSettings.PanelGrow"/>), dans l'ordre des choix.</summary>
+    private static readonly string[] GrowValues = ["left", "none", "right"];
     private static readonly string[] CrashValues = ["ask", "always", "never"];
 
     /// <summary>

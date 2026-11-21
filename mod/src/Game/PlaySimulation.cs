@@ -102,6 +102,8 @@ public sealed class PlaySimulation
         public const string Avoided = "Incoming damage avoided";
         public const string Prevented = "Damage prevented";
         public const string Channel = "Channel ";
+        /// <summary>Suivi du nom de la mélodie (Wah, Cho, Ki) jouée pour la première fois ce tour (Fool).</summary>
+        public const string Melody = "Melody ";
 
         /// <summary>Devant le nom d'un pouvoir changé en fin de tour à cause de la carte.</summary>
         public const string EndOfTurn = "End of turn: ";
@@ -438,11 +440,43 @@ public sealed class PlaySimulation
         }
     }
 
+    /// <summary>
+    /// Fin de tour sans rien jouer. Si le hasard intervient (Simpleton qui joue une carte au hasard sur un ennemi au
+    /// hasard, orbes…), plusieurs simulations avec d'autres tirages que ceux du jeu : seul ce qui arrive dans toutes
+    /// est certain (morts), le reste est la moyenne. Les vrais tirages ne sont jamais utilisés : ils diraient au
+    /// joueur ce que le hasard lui réserve.
+    /// </summary>
     private static Baseline BaselineOf(ICombatState combat, Creature me, RngState rngs)
     {
+        var first = BaselineOnce(combat, me, rngs, 1, out bool random);
+        if (!random)
+            return first;
+        var runs = new List<Baseline> { first };
+        for (int i = 2; i <= RandomRuns; i++)
+            runs.Add(BaselineOnce(combat, me, rngs, i, out _));
+        int Mean(Func<Baseline, int> of) => (int)Math.Round(runs.Average(of));
+        bool All(Func<Baseline, bool> of) => runs.All(of);
+        List<Creature> Certain(Func<Baseline, IReadOnlyList<Creature>?> of) =>
+            (of(first) ?? []).Where(c => runs.All(r => of(r)?.Contains(c) == true)).ToList();
+        Dictionary<Creature, int>? MeanOf(Func<Baseline, Dictionary<Creature, int>?> of) =>
+            of(first)?.Keys.ToDictionary(c => c, c => Mean(r => of(r)?.GetValueOrDefault(c) ?? 0));
+        // Dégâts : la moyenne, mais mortels seulement s'ils le sont à chaque tirage (tête de mort = certaine)
+        int hp = me.CurrentHp, taken = Mean(r => r.Taken);
+        taken = runs.All(r => r.Taken >= hp) ? Math.Max(taken, hp) : Math.Min(taken, hp - 1);
+        return new Baseline(
+            taken, MeanOf(r => r.Incoming)!, Outcome.Average(runs.Select(r => r.End).ToList()),
+            All(r => r.Dies), All(r => r.ExtraTurn != null) ? first.ExtraTurn : null, MeanOf(r => r.Allies),
+            Certain(r => r.DeadEnemies), Certain(r => r.LateDeadEnemies),
+            runs.All(r => r.PetTaken != null) ? Mean(r => r.PetTaken ?? 0) : first.PetTaken, All(r => r.PetDies));
+    }
+
+    private static Baseline BaselineOnce(ICombatState combat, Creature me, RngState rngs, int draw, out bool random)
+    {
+        random = false;
         // PV réels avant la simulation (pendant, la créature porte les PV simulés)
         int hp = me.CurrentHp;
         var sim = new PlaySimulation(combat, null);
+        rngs.Perturb(draw);
         Enter(sim);
         try
         {
@@ -462,6 +496,7 @@ public sealed class PlaySimulation
         {
             sim.RestoreBodies();
             Exit();
+            random = rngs.Changed();
             rngs.Restore();
         }
     }
@@ -588,6 +623,13 @@ public sealed class PlaySimulation
         return (lost + fromAttacks, incoming, end, alliesTaken);
     }
 
+    private static readonly (CardTag Tag, string Name, string Icon)[] Melodies =
+    [
+        (CardTag.Wah, "Wah", "res://images/packed/fool/symbol_wah.png"),
+        (CardTag.Cho, "Cho", "res://images/packed/fool/symbol_cho.png"),
+        (CardTag.Ki, "Ki", "res://images/packed/fool/symbol_ki.png"),
+    ];
+
     private static Outcome RunOnce(Act act, Player player, Creature? target, Choice? choice, ICombatState combat,
         RngState rngs, int draw, Baseline baseline, out bool random)
     {
@@ -596,12 +638,21 @@ public sealed class PlaySimulation
         var fingerprint = Fingerprint(combat);
         // PV réels avant la simulation (pendant, la créature porte les PV simulés)
         int hpBefore = player.Creature.CurrentHp;
-        if (draw > 0)
-            rngs.Perturb(draw);
+        // Jamais les vrais tirages à venir : la première simulation aussi a les siens
+        rngs.Perturb(draw + 1);
+        var melodiesBefore = Melodies.Where(m => MelodyCmd.PlayedThisTurn(player, m.Tag)).Select(m => m.Tag).ToList();
         Enter(sim);
         try
         {
             act.Run(sim);
+            // Mélodies (Wah, Cho, Ki) gagnées : première carte du tour avec ce tag, jouée par la carte ou par un
+            // effet (Lost Lute…) ; le jeu les lit dans l'historique, où la simulation ajoute ses cartes
+            foreach (var (tag, name, icon) in Melodies)
+                if (!melodiesBefore.Contains(tag) && MelodyCmd.PlayedThisTurn(player, tag))
+                {
+                    sim._outcome.Add(player.Creature, Stat.Melody + name, 1);
+                    sim._outcome.PowerIcons[Stat.Melody + name] = icon;
+                }
             // Jusqu'à l'attaque des ennemis : dégâts que le joueur prendra (fin de tour comprise : Burn, Plating…),
             // et attaque de chaque ennemi, sans et avec la carte (ennemi tué, étourdi, affaibli, empoisonné…)
             var me = player.Creature;
@@ -1633,7 +1684,18 @@ public sealed class PlaySimulation
                 decimal summoned = Hook.ModifySummonAmount(_combat, summoner, Amount(), Arg<AbstractModel>("source"));
                 // PV d'Osty invoqués (ou ajoutés s'il est déjà là), notés sur le joueur
                 if (summoned > 0)
+                {
                     _outcome.Add(summoner.Creature, Stat.Summon, (double)summoned);
+                    // PV d'Osty dans la simulation, comme le jeu : ajoutés à son maximum s'il vit (GainMaxHp), sinon
+                    // ramené à la vie avec ces PV. Il encaisse alors les attaques à la place du joueur : dégâts évités
+                    // dans l'aperçu. Sans Osty du tout dans le combat (jamais invoqué), rien à simuler
+                    if (summoner.Osty is { } osty)
+                    {
+                        var ostyBody = Body(osty);
+                        ostyBody[0] = IsDead(osty) ? (int)summoned : ostyBody[0] + (int)summoned;
+                        SyncBodies();
+                    }
+                }
                 return Task.FromResult(new MegaCrit.Sts2.Core.Entities.Creatures.SummonResult(summoner.Osty ?? summoner.Creature, summoned));
             case "CardSelectCmd.FromHand":
             case "CardSelectCmd.FromHandForDiscard":
@@ -2659,7 +2721,7 @@ internal sealed class RngState
     {
         try
         {
-            return _saved.Any(r => r.Rng.ToSerializable() != r.State)
+            return _saved.Select((r, i) => r.Rng.ToSerializable() != (i < _start.Count ? _start[i] : r.State)).Any(changed => changed)
                 || _sets.Any(set => set.Rngs.Count != set.Keys.Count)
                 || _monsters.Any(m => !ReferenceEquals(MonsterRng!.GetValue(m.Monster), m.Rng));
         }
@@ -2669,11 +2731,20 @@ internal sealed class RngState
         }
     }
 
-    /// <summary>Autres tirages pour la simulation n° <paramref name="draw"/> : état des générateurs brouillé.</summary>
+    /// <summary>État des générateurs au début de la simulation en cours (brouillé), pour <see cref="Changed"/>.</summary>
+    private readonly List<SerializableRng> _start = [];
+
+    /// <summary>
+    /// Autres tirages pour la simulation n° <paramref name="draw"/> (à partir de 1) : état des générateurs brouillé.
+    /// Toujours appelé avant une simulation : le vrai état du jeu donnerait les vrais tirages à venir (cible au
+    /// hasard, carte choisie au hasard…), une information que le joueur n'a pas.
+    /// </summary>
     public void Perturb(int draw)
     {
-        ulong mix = 0x9E3779B97F4A7C15UL * (ulong)draw;
+        ulong mix = 0x9E3779B97F4A7C15UL * (ulong)Math.Max(1, draw);
+        _start.Clear();
         foreach (var (rng, saved) in _saved)
+        {
             rng.LoadFromSerializable(saved with
             {
                 state0 = saved.state0 ^ mix,
@@ -2681,6 +2752,8 @@ internal sealed class RngState
                 state2 = saved.state2 ^ (mix << 29 | mix >> 35),
                 state3 = saved.state3 ^ (mix << 41 | mix >> 23) ^ 1,
             });
+            _start.Add(rng.ToSerializable());
+        }
     }
 
     public void Restore()

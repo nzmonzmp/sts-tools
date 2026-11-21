@@ -514,7 +514,11 @@ public static class BugReport
         Listen();
         _watching = true;
         Interlocked.Exchange(ref _lastFrame, Stopwatch.GetTimestamp());
-        tree.ProcessFrame += () => Interlocked.Exchange(ref _lastFrame, Stopwatch.GetTimestamp());
+        tree.ProcessFrame += () =>
+        {
+            Interlocked.Exchange(ref _lastFrame, Stopwatch.GetTimestamp());
+            FreezeTrace.Frame();
+        };
         var thread = new Thread(Watch) { IsBackground = true, Name = "StsTools frame watchdog" };
         thread.Start();
     }
@@ -551,12 +555,14 @@ public static class BugReport
                 Mod activity: {Activity ?? "none"}
                 Card preview: {PlaySimulation.DebugState ?? "none"}
                 In combat: {CombatManager.Instance?.IsInProgress}
+                {FreezeTrace.Describe()}
 
                 Last journal lines:
                 {string.Join("\n", recent)}
                 """;
             File.WriteAllText(FreezeFile, text);
             Note($"FREEZE: no frame for {seconds:0} s; mod activity: {Activity ?? "none"}; preview: {PlaySimulation.DebugState ?? "none"}");
+            Note("FREEZE context: " + FreezeTrace.Describe().Replace("\n", "; "));
         }
         catch (Exception)
         {

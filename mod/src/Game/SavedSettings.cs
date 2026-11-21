@@ -91,6 +91,12 @@ public sealed class SavedSettings
     /// <summary>Panneau à l'ouverture du GUI : « last » (comme il a été laissé), « expanded » ou « collapsed »</summary>
     public string OpenPanel { get; set; } = "last";
 
+    /// <summary>
+    /// Côté vers lequel le GUI s'élargit quand son contenu le demande : « left » (bord droit fixe), « right » (bord
+    /// gauche fixe) ou « none » (largeur fixe, défilement horizontal)
+    /// </summary>
+    public string PanelGrow { get; set; } = "left";
+
     /// <summary>GUI ouvert : aperçu des cartes jouées et des potions (TargetPreview)</summary>
     public bool CardPreview { get; set; } = true;
 

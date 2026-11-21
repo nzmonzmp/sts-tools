@@ -27,6 +27,9 @@ public static class ModSettingsTab
     private static readonly AccessTools.FieldRef<NSettingsTabManager, Dictionary<NSettingsTab, NSettingsPanel>> Tabs =
         AccessTools.FieldRefAccess<NSettingsTabManager, Dictionary<NSettingsTab, NSettingsPanel>>("_tabs");
 
+    private static readonly AccessTools.FieldRef<NSettingsPanel, Control?> FirstControl =
+        AccessTools.FieldRefAccess<NSettingsPanel, Control?>("_firstControl");
+
     /// <summary>
     /// Écrans d'options déjà créés avant les patchs (celui du menu principal, prêt avant le menu lui-même) : l'onglet y
     /// est ajouté après coup.
@@ -94,7 +97,23 @@ public static class ModSettingsTab
             var help = ModGuide.GameHelpButton(64);
             help.Visible = ModOptions.HelpInSettings;
             left.AddChild(help);
-            void HelpOption() => help.Visible = ModOptions.HelpInSettings;
+            // Atteignable au clavier seul et à la manette, à gauche des sous-onglets (voisins : LinkSubTabs). Le jeu
+            // envoie la sélection comme ui_select, qu'un bouton Godot ignore (il attend ui_accept)
+            help.FocusMode = Control.FocusModeEnum.All;
+            help.GuiInput += ev =>
+            {
+                if (ev.IsActionPressed(MegaInput.select))
+                {
+                    help.AcceptEvent();
+                    help.EmitSignal(BaseButton.SignalName.Pressed);
+                }
+            };
+            bool keysShown = false;
+            void HelpOption()
+            {
+                help.Visible = ModOptions.HelpInSettings;
+                LinkSubTabs(keysShown);
+            }
             ModOptions.Changed += HelpOption;
             help.TreeExiting += () => ModOptions.Changed -= HelpOption;
             // Un peu d'espace sous les sous-onglets
@@ -157,6 +176,7 @@ public static class ModSettingsTab
 
             void Show(bool keys)
             {
+                keysShown = keys;
                 SameWidth();
                 foreach (var row in optionRows)
                     row.Visible = !keys;
@@ -181,9 +201,40 @@ public static class ModSettingsTab
                     if (!GodotObject.IsInstanceValid(panel))
                         return;
                     AccessTools.Method(typeof(NSettingsPanel), "UpdateNavigation")?.Invoke(panel, null);
+                    LinkSubTabs(keys);
                     SameWidth();
                     AccessTools.Method(typeof(NSettingsPanel), "RefreshSize")?.Invoke(panel, null);
                 }).CallDeferred();
+            }
+            // Le jeu chaîne les sous-onglets de haut en bas comme des lignes (Options puis Input), sans gauche ni
+            // droite : ils sont sur une même rangée (avec « ? » à gauche), donc gauche et droite de l'un à l'autre, bas vers la première
+            // ligne de la vue, et haut depuis cette ligne vers le sous-onglet de la vue affichée
+            void LinkSubTabs(bool keys)
+            {
+                if (!GodotObject.IsInstanceValid(optionsTab) || !GodotObject.IsInstanceValid(keysTab))
+                    return;
+                var below = keysTab.FocusNeighborBottom;
+                var firstRow = below.IsEmpty || below == keysTab.GetPath() ? null : keysTab.GetNodeOrNull<Control>(below);
+                bool withHelp = GodotObject.IsInstanceValid(help) && help.Visible;
+                optionsTab.FocusNeighborLeft = (withHelp ? (Control)help : optionsTab).GetPath();
+                optionsTab.FocusNeighborRight = keysTab.GetPath();
+                keysTab.FocusNeighborLeft = optionsTab.GetPath();
+                keysTab.FocusNeighborRight = keysTab.GetPath();
+                optionsTab.FocusNeighborTop = optionsTab.GetPath();
+                keysTab.FocusNeighborTop = keysTab.GetPath();
+                optionsTab.FocusNeighborBottom = below;
+                if (GodotObject.IsInstanceValid(help) && help.IsInsideTree())
+                {
+                    help.FocusNeighborLeft = help.GetPath();
+                    help.FocusNeighborTop = help.GetPath();
+                    help.FocusNeighborRight = optionsTab.GetPath();
+                    help.FocusNeighborBottom = firstRow != null ? below : help.GetPath();
+                }
+                if (firstRow == null)
+                    return;
+                firstRow.FocusNeighborTop = (keys ? keysTab : optionsTab).GetPath();
+                // Focus à l'ouverture de l'onglet sur la première ligne, comme dans les onglets du jeu
+                FirstControl(panel) = firstRow;
             }
             optionsTab.Connect(NClickableControl.SignalName.Released, Callable.From<NSettingsTab>(_ => Show(false)));
             keysTab.Connect(NClickableControl.SignalName.Released, Callable.From<NSettingsTab>(_ => Show(true)));
@@ -217,6 +268,10 @@ public static class ModSettingsTab
         parent.AddChild(holder);
         // Ancres de l'onglet du jeu centrées : dans sa case, il serait décalé de la moitié de sa taille
         tab.SetAnchorsPreset(Control.LayoutPreset.TopLeft);
+        // Les onglets du jeu ne prennent pas le focus (on en change avec des touches dédiées) : les sous-onglets, si,
+        // pour que le jeu les mette dans la navigation du panneau (clavier seul, manette). Avant l'entrée dans l'arbre :
+        // le bouton retient alors qu'il est navigable (et le reste après une désactivation)
+        tab.FocusMode = Control.FocusModeEnum.All;
         tab.Position = Vector2.Zero;
         holder.AddChild(tab);
         tab.SetLabel(text);

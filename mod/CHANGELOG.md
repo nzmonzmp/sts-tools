@@ -119,6 +119,8 @@ contrôle). Lignes copiées de celles du jeu, séparées par ses traits ; gardé
 suite :
 - GUI : ouvert tout seul au lancement ou à la reprise d'une partie ; onglets visibles ; onglet et état à l'ouverture ;
   onglet choisi tout seul au début d'un combat, à sa fin, chez un marchand (« None » par défaut : rien n'est imposé) ;
+- GUI : côté vers lequel il s'élargit quand son contenu est plus large (Left par défaut, bord droit fixe ; Right,
+  bord gauche fixe ; None, largeur fixe et défilement horizontal) ;
 - GUI ouvert : aperçu des cartes et des potions, têtes de mort, stats des reliques, aperçu des salles ; Path finder
   caché : chemins plus tracés ;
 - rapports de plantage : Ask, Always, Never ; rapports de bug : nom par défaut, logs et partie joints par défaut ;
@@ -182,6 +184,24 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
 
 ### Corrigé
 
+- 2026-11-21 : gel au début du tour (Fool avec Simpleton, contre un Wriggler), reproduit puis corrigé. La simulation de
+  la fin de tour de l'onglet Combat (Simpleton joue Foolish Shot sur le Wriggler, qui change de coup) mettait à jour
+  ses intentions, ce qui comptait comme un changement : redessin de l'onglet, nouvelle simulation… sans fin dans la
+  même image (835 redessins par image dans le rapport de gel). Les intentions mises à jour et le redessin du GUI sont
+  maintenant ignorés pendant une simulation.
+- 2026-11-21 : rapport de gel plus précis : code du mod en cours au moment du gel (patchs et mises à jour, imbriqués),
+  dernier fini, nombre d'appels de chacun depuis la dernière image (une boucle s'y voit), tour et camp du combat, action
+  du jeu en cours.
+- 2026-11-21 : le hasard n'est plus dévoilé. Les simulations (aperçus, fin de tour, têtes de mort, dégâts annoncés)
+  utilisaient les vrais tirages à venir du jeu : la tête de mort montrait quel ennemi la carte jouée au hasard par
+  Simpleton allait tuer. Elles ont maintenant toujours d'autres tirages que ceux du jeu ; si le hasard intervient en fin
+  de tour, plusieurs tirages : tête de mort seulement si la mort arrive à chacun, dégâts moyens sinon.
+- 2026-11-21 : aperçu des cartes du Fool : les mélodies gagnées (Wah, Cho, Ki jouées pour la première fois ce tour, par
+  la carte ou par un effet comme Lost Lute) s'affichent, avec l'icône du jeu (« Melody Wah »…).
+- 2026-11-21 : onglet Mod des options en clavier seul (et à la manette) : sous-onglets Options et Input et bouton
+  « ? » du guide atteignables (gauche et droite entre eux, haut depuis la première ligne).
+- 2026-11-21 : cartes qui invoquent Osty : l'aperçu ne montrait pas les dégâts évités (Osty invoqué ou renforcé
+  encaisse les attaques à la place du joueur) ; les PV invoqués sont maintenant donnés à Osty dans la simulation.
 - 2026-11-21 : Osty pris en compte dans les dégâts annoncés (onglet Combat, crâne du bouton de fin de tour, aperçu) :
   comme le jeu, après le Block du joueur il encaisse chaque attaque à sa place tant qu'il vit, et le surplus qui le
   tue passe au joueur. Nouvelle ligne « Osty's unblocked incoming damage » (« (dies) » s'il meurt) sous « Unblocked
