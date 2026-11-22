@@ -927,6 +927,7 @@ public sealed class StatsScreen
                     KeyboardNav.Focusable(control, _root);
                 grid.AddChild(control);
             }
+        RowHighlight.Attach(grid);
         _content.AddChild(WithTableMargin(grid));
         _tables.Add((grid, key, table));
     }

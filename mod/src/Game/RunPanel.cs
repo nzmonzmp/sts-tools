@@ -977,7 +977,7 @@ internal sealed class DeckTab(CardHover cardHover) : IRunPanelTab
         }
         // Lignes des types dans la couleur du type, comme dans Cards
         content.AddChild(StatsTable.Create(table, name => DeckStats.IconFor(rows, name),
-            name => Array.Find(Types, t => t.Name == name) is { Name: not null } t ? t.Color : null));
+            name => Array.Find(Types, t => t.Name == name) is { Name: not null } t ? t.Color : null, highlight: true));
     }
 
     /// <summary>
@@ -1129,7 +1129,7 @@ internal sealed class CombatTab : IRunPanelTab
                     petTaken + (incoming.PetDies ? " (dies)" : "")));
         }
         if (rows.Count > 0)
-            content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows]));
+            content.AddChild(StatsTable.Create([["", "Total", "This turn", "Per turn"], .. rows], highlight: true));
     }
 
     /// <summary>Ligne des dégâts annoncés : icône d'attaque des intentions, libellé atténué, nombre en clair, comme une
@@ -1242,7 +1242,7 @@ internal sealed class GameTab : IRunPanelTab
             return;
         }
         content.AddChild(RunPanel.Label($"{combats} combats, {turns} turns", 18, StsColors.halfTransparentCream));
-        content.AddChild(StatsTable.Create([["", "Total", "Per combat", "Per turn"], .. rows]));
+        content.AddChild(StatsTable.Create([["", "Total", "Per combat", "Per turn"], .. rows], highlight: true));
     }
 }
 
@@ -1280,6 +1280,6 @@ internal sealed class SupportTab : IRunPanelTab
             return;
         }
         content.AddChild(RunPanel.Label("Given to allies", 18, StsColors.halfTransparentCream));
-        content.AddChild(StatsTable.Create([["", "Combat", "Game", "Per combat"], .. rows]));
+        content.AddChild(StatsTable.Create([["", "Combat", "Game", "Per combat"], .. rows], highlight: true));
     }
 }

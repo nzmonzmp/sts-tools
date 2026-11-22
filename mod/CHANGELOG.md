@@ -113,7 +113,8 @@ visibles des autres joueurs même sans le mod. Choix gardés dans les réglages.
 ### Écran Stats (menu principal)
 
 Bouton « Stats » sous Compendium : historique des parties (taux de victoire, cartes, reliques, défaites, rencontres avec
-l'image des monstres) ; bouton « ? » aligné sur Reload et Close.
+l'image des monstres) ; bouton « ? » aligné sur Reload et Close. Ligne survolée mise en évidence (fond clair), comme dans les tableaux
+du GUI (Combat, Support, types de cartes), pour suivre une ligne d'un bout à l'autre.
 
 ### Options du jeu : onglet Mod
 
