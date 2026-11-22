@@ -198,7 +198,26 @@ public static class ModGuide
     // ---- Contenu ----
 
     /// <summary>Une page du guide : titre de son onglet, icône du jeu (chemins possibles séparés par |), paragraphes (BBCode, voir <see cref="Gold"/>, <see cref="Key"/>).</summary>
-    private sealed record Page(string Tab, string Icon, string Title, string[] Lines);
+    /// <param name="Accent">couleur de la page : titre et liseré de chaque ligne</param>
+    /// <param name="Lines">lignes : icône du jeu (absente : case vide), texte BBCode</param>
+    private sealed record Page(string Tab, string Icon, string Title, Color Accent, (string Icon, string Text)[] Lines);
+
+    // Images du jeu pour les lignes du guide
+    private const string Inspect = "res://images/packed/common_ui/cursor_inspect.png";
+    private const string CardIcon = "res://images/packed/sprite_fonts/card_icon.png";
+    private const string Attack = "res://images/packed/intents/attack/intent_attack_1.png";
+    private const string Shield = "res://images/ui/combat/block.png";
+    private const string Heal = "res://images/packed/intents/intent_heal.png";
+    private const string Skull = "res://images/ui/emote/skull.png";
+    private const string DeathBlow = "res://images/packed/intents/intent_death_blow.png";
+    private const string Relic = "res://images/atlases/relic_atlas.sprites/ostys_devotion.tres";
+    private const string Question = "res://images/ui/emote/question.png";
+    private const string MapIcon = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres";
+    private const string Sparkle = "res://images/packed/blitz/small_tokens/entry_card_enchant.png";
+    private const string Trophy = "res://images/atlases/stats_screen_atlas.sprites/stats_achievements.tres";
+    private const string Cards = "res://images/atlases/stats_screen_atlas.sprites/stats_cards.tres";
+    private const string Gear = "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres";
+    private const string Bug = "res://images/atlases/stats_screen_atlas.sprites/stats_questionmark.tres";
 
     private static string Hex(Color color) => "#" + color.ToHtml(false);
 
@@ -206,7 +225,9 @@ public static class ModGuide
     private static string Gold(string text) => $"[color={Hex(StsColors.gold)}]{text}[/color]";
 
     /// <summary>Mot-clé de combat (Block, Vulnerable…), en bleu comme dans les descriptions du jeu.</summary>
-    private static string Blue(string text) => $"[color={Hex(StsColors.blue)}]{text}[/color]";
+    private static string Red(string text) => $"[color={Hex(StsColors.red)}]{text}[/color]";
+
+    private static string Purple(string text) => $"[color={Hex(StsColors.purple)}]{text}[/color]";
 
     /// <summary>Touche ou bouton à presser, en relief clair sur fond sombre.</summary>
     private static string Key(string text) =>
@@ -217,35 +238,36 @@ public static class ModGuide
         string gui = Key(ModHotkeys.RunStats.Display);
         string stats = Key(ModHotkeys.StatsScreenKey.Display);
         string collapse = Key(ModHotkeys.CollapseGui.Display);
+        string relics = Key(ModHotkeys.RelicBar.Display);
         return
         [
-            new("GUI", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_deck.tres", "The GUI, your run at a glance", [
-                $"Open it in a run with {gui} or the {Gold("GUI")} button of the top bar. Drag its header to move it, {collapse} or {Gold("▲")} to collapse it, its bottom edge to resize it.",
-                $"{Gold("Deck")}: what each card of your deck did this run ({Blue("damage")}, {Blue("Block")}, energy, cards drawn…), with the card on hover.",
-                $"{Gold("Game")}: totals of the run.",
-                $"{Gold("Combat")}: this combat, turn by turn, and the damage the enemies will deal to each player. {Gold("End turn")}: what ending your turn now would do (HP lost, each enemy's attack, end of turn effects).",
-                $"{Gold("Support")} (multiplayer): what you gave your allies.",
-                $"{Gold("Path finder")} (map open): the best paths to the boss by room type, drawn on the map (see the {Gold("Map")} page).",
+            new("GUI", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_deck.tres", "The GUI, your run at a glance", StsColors.gold, [
+                (Inspect, $"{gui} or the top bar button: open it. Drag the header to move it, {collapse} to fold it."),
+                (CardIcon, $"{Gold("Deck")}: your deck, and what each card did this run (hover a card)."),
+                (Attack, $"{Gold("Game")}: run totals. {Gold("Combat")}: this fight, turn by turn."),
+                (Shield, $"{Gold("End turn")} (in Combat): what happens if you end your turn now."),
+                (Heal, $"{Gold("Support")} (multiplayer): what you gave your allies."),
             ]),
-            new("Combat", "res://images/packed/intents/attack/intent_attack_1.png", "In combat, while the GUI is open", [
-                $"Aim a card or a potion: a box next to each creature shows what it will do ({Blue("damage")}, {Blue("Block")}, powers, kills, damage avoided).",
-                $"Skulls: on the {Gold("End turn")} button when ending the turn kills you, on you and on Osty when ending the turn kills you or it, on the enemies that will die.",
-                $"Relic tooltips: what each relic did this run.",
+            new("Combat", "res://images/packed/intents/attack/intent_attack_1.png", "In combat", StsColors.red, [
+                (Attack, $"Aim a card or a potion: see its effect on every creature."),
+                (Skull, $"Skull on a creature: it will die. {Red("Red")}: before acting. {Purple("Purple")}: after."),
+                (DeathBlow, $"Skull on {Gold("End turn")}: ending your turn now kills you."),
+                (Relic, $"Hover a relic: what it did this run."),
             ]),
-            new("Map", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres", "On the map", [
-                $"Hover a room (GUI open): the enemies you can meet there, the rewards (gold, potion, cards, relics) and, for a {Gold("?")} room, the odds of each outcome.",
-                $"{Gold("Path finder")} tab: rank the room types (shops, elites, rest sites, ?, fights), each with a number (Max, Min, exactly or at least n) and where you want them ({Gold("Early")}, {Gold("Late")}, {Gold("Grouped")}, {Gold("Spread")}); the best paths to the boss are drawn on the map.",
-                $"{Gold("Draw")} draws them with the game's map pen: they stay on the map with the GUI closed, and in multiplayer everyone sees them.",
+            new("Map", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres", "On the map", StsColors.aqua, [
+                (Question, $"Hover a room: its enemies, rewards and {Gold("?")} odds."),
+                (MapIcon, $"{Gold("Path finder")}: rank the room types, say how many and where. The best paths are drawn."),
+                (Sparkle, $"{Gold("Draw")}: trace them with the game's pen."),
             ]),
-            new("Stats", "res://images/atlases/stats_screen_atlas.sprites/stats_achievements.tres|res://images/atlases/stats_screen_atlas.sprites/stats_cards.tres", "Stats screen", [
-                $"Open it with {stats}, or {Gold("Stats")} in the main menu and the pause menu.",
-                $"Win rates, cards, relics, ancients and losses from your whole run history, with filters by mode, ascension and character.",
+            new("Stats", "res://images/atlases/stats_screen_atlas.sprites/stats_achievements.tres|res://images/atlases/stats_screen_atlas.sprites/stats_cards.tres", "Stats screen", StsColors.blue, [
+                (Trophy, $"{stats}, or {Gold("Stats")} in the main and pause menus."),
+                (Cards, $"Win rates, cards, relics, ancients, deaths, from all your runs."),
             ]),
-            new("Settings", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres", "Where to change things", [
-                $"{Gold("Settings > Mod > Options")}: GUI tabs, how the GUI opens, tabs switched automatically (combat start and end, turn start, merchant), the features above, how many simulations are averaged for random effects (more is more accurate but slower), crash and bug reports, and the {Gold("?")} buttons.",
-                $"{Gold("Settings > Mod > Input")}: the mod's keys.",
-                $"{Gold("Report a bug")}, in the main menu and the pause menu, sends your description (and, if you want, your logs and run) to the mod's author. After a crash, the main menu offers to send the crash report.",
-                $"Open this guide again with the {Gold("?")} buttons of the GUI, the Stats screen and {Gold("Settings > Mod")}.",
+            new("Settings", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres", "Settings and help", StsColors.orange, [
+                (Gear, $"{Gold("Settings > Mod")}: tabs, features on or off, the mod's keys."),
+                (Relic, $"{relics}: hide or show the relic bar."),
+                (Bug, $"{Gold("Report a bug")}: in the main and pause menus."),
+                (Question, $"{Gold("?")} buttons: open this guide again."),
             ]),
         ];
     }
@@ -362,7 +384,7 @@ public static class ModGuide
         };
         body.AddChild(icon);
         var text = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        text.AddThemeConstantOverride("separation", 0);
+        text.AddThemeConstantOverride("separation", 12);
         body.AddChild(text);
         var title = Label("", 32, StsColors.gold);
         title.CustomMinimumSize = new Vector2(0, 56);
@@ -403,19 +425,16 @@ public static class ModGuide
             // Première image du jeu trouvée parmi celles proposées (séparées par |)
             icon.Texture = page.Icon.Split('|').Select(StatsTable.LoadIcon).FirstOrDefault(t => t != null);
             title.Text = page.Title;
+            title.AddThemeColorOverride("font_color", page.Accent);
             foreach (var row in rows)
             {
                 text.RemoveChild(row);
                 row.QueueFree();
             }
             rows.Clear();
-            foreach (var line in page.Lines)
+            foreach (var (lineIcon, line) in page.Lines)
             {
-                var row = new VBoxContainer();
-                row.AddThemeConstantOverride("separation", 12);
-                row.AddChild(new ColorRect { Color = new Color(StsColors.cream, 0.12f), CustomMinimumSize = new Vector2(0, 2) });
-                row.AddChild(Rich(line, models.Description));
-                row.AddChild(new Control { CustomMinimumSize = new Vector2(0, 2) });
+                var row = LineCard(lineIcon, Rich(line, models.Description), page.Accent);
                 text.AddChild(row);
                 rows.Add(row);
             }
@@ -431,6 +450,37 @@ public static class ModGuide
             label();
         ShowPage(0);
         close.GrabFocus();
+    }
+
+    /// <summary>
+    /// Ligne du guide en carte : fond sombre arrondi, liseré à gauche de la couleur de la page, icône du jeu, texte.
+    /// </summary>
+    private static PanelContainer LineCard(string iconPath, RichTextLabel text, Color accent)
+    {
+        var card = new PanelContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        card.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.08f, 0.1f, 0.14f, 0.9f).Lerp(accent, 0.06f),
+            BorderColor = accent,
+            BorderWidthLeft = 5,
+            CornerRadiusTopLeft = 10, CornerRadiusTopRight = 10, CornerRadiusBottomLeft = 10, CornerRadiusBottomRight = 10,
+            ContentMarginLeft = 18, ContentMarginRight = 18, ContentMarginTop = 12, ContentMarginBottom = 12,
+        });
+        var row = new HBoxContainer { MouseFilter = Control.MouseFilterEnum.Ignore };
+        row.AddThemeConstantOverride("separation", 18);
+        card.AddChild(row);
+        row.AddChild(new TextureRect
+        {
+            Texture = StatsTable.LoadIcon(iconPath),
+            CustomMinimumSize = new Vector2(52, 52),
+            ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+            StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+            MouseFilter = Control.MouseFilterEnum.Ignore,
+        });
+        text.SizeFlagsVertical = Control.SizeFlags.ShrinkCenter;
+        row.AddChild(text);
+        return card;
     }
 
     /// <summary>Texte d'une ligne : BBCode, police de la description des infobulles du jeu si trouvée.</summary>

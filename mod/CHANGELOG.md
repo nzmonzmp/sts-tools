@@ -170,6 +170,10 @@ suite :
 Guide plein écran dans le style des options du jeu (pages GUI, Combat, Map, Stats, Settings ; icône du jeu par page ;
 flèches de choix ; bouton retour). Ouvert tout seul au premier menu principal avec le mod (`GuideSeen`), puis par les
 boutons « ? ». Gauche et droite changent de page, Échap le ferme sans fermer ce qu'il y a derrière.
+Réécrit le 2026-11-22 pour être lu d'un coup d'œil : une idée par ligne, mot-clé en tête, détails retirés (ils
+sont dans les infobulles et les options) ; couleurs des têtes de mort (rouge, violet) dans le texte.
+Moins austère : chaque ligne en carte (fond arrondi, icône du jeu à gauche, liseré de la couleur de la page) ; une
+couleur par page (GUI or, Combat rouge, Map aqua, Stats bleu, Settings orange), reprise par le titre.
 
 ### Rapports de bug et de plantage
 
