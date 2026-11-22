@@ -370,7 +370,7 @@ public static class TargetPreview
 
     /// <summary>Caractéristiques sans signe (des quantités, pas des gains ou des pertes).</summary>
     private static readonly HashSet<string> Unsigned =
-        [Stat.Damage, Stat.ThroughBlock, Stat.HpLost, Stat.Draw, Stat.Created, Stat.Avoided, Stat.Prevented,
+        [Stat.Damage, Stat.ThroughBlock, Stat.HpLost, Stat.Draw, .. CardRunStats.CreatedStats, Stat.Avoided, Stat.Prevented,
             Stat.ArrowsShot, Stat.ArrowsRetrieved, Stat.Upgraded, Stat.Transformed, Stat.Discarded, Stat.SlyPlayed];
 
     /// <summary>Lignes d'une créature, dans l'ordre où les effets arrivent ; les dégâts d'abord.</summary>
@@ -471,7 +471,6 @@ public static class TargetPreview
         [Stat.Energy] = CardRunStats.EnergyGained,
         [Stat.Stars] = CardRunStats.StarsGained,
         [Stat.Draw] = CardRunStats.CardsDrawn,
-        [Stat.Created] = CardRunStats.CardsCreated,
         [Stat.Avoided] = CardRunStats.Prevented,
         [Stat.Prevented] = CardRunStats.Prevented,
         [Stat.Forge] = CardRunStats.Forged,
@@ -484,6 +483,7 @@ public static class TargetPreview
 
     private static Texture2D? IconOf(string name, Outcome outcome) =>
         RowIcons.TryGetValue(name, out var stat) ? CardRunStats.IconFor(stat)
+        : CardRunStats.CreatedStats.Contains(name) ? CardRunStats.IconFor(name)
         : name.StartsWith(Stat.Channel) ? CardRunStats.IconFor(CardRunStats.Orbs)
         : outcome.PowerIcons.TryGetValue(name.StartsWith(Stat.EndOfTurn) ? name[Stat.EndOfTurn.Length..] : name, out var path)
             ? StatsTable.LoadIcon(path)

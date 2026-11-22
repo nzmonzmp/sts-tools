@@ -37,6 +37,25 @@ public sealed partial class CardRunStats
     public const string CardsDiscarded = "Cards discarded";
     public const string CardsExhausted = "Cards exhausted";
     public const string CardsCreated = "Cards created";
+    // Cartes créées par type ; « Cards created » reste pour les parties sauvegardées avant la séparation
+    public const string AttacksCreated = "Attacks created";
+    public const string SkillsCreated = "Skills created";
+    public const string PowersCreated = "Powers created";
+    public const string StatusesCreated = "Statuses created";
+    public const string CursesCreated = "Curses created";
+
+    /// <summary>Stat des cartes créées de ce type (Attack, Skill…) ; « Cards created » pour un autre type.</summary>
+    public static string CreatedStat(CardType type) => type switch
+    {
+        CardType.Attack => AttacksCreated,
+        CardType.Skill => SkillsCreated,
+        CardType.Power => PowersCreated,
+        CardType.Status => StatusesCreated,
+        CardType.Curse => CursesCreated,
+        _ => CardsCreated,
+    };
+
+    public static readonly string[] CreatedStats = [AttacksCreated, SkillsCreated, PowersCreated, StatusesCreated, CursesCreated, CardsCreated];
     public const string Exhausted = "Times exhausted";
     public const string Energy = "Energy spent";
     public const string StarsSpent = "Stars spent";
@@ -113,7 +132,7 @@ public sealed partial class CardRunStats
         Played, AutoPlayed, CardsPlayed, Damage, BonusDamage, Kills, DamageTaken, DamageBlocked, OstyTanked, Block, BonusBlock, Prevented,
         Healed, SelfDamage, Energy,
         EnergyGained, StarsSpent, StarsGained, Gold, Drawn, CardsDrawn,
-        CardsDiscarded, CardsExhausted, CardsCreated, Exhausted, Orbs, Summoned,
+        CardsDiscarded, CardsExhausted, AttacksCreated, SkillsCreated, PowersCreated, StatusesCreated, CursesCreated, CardsCreated, Exhausted, Orbs, Summoned,
         MaxHpGained, MaxHpLost, DeckAdded, DeckRemoved, Upgraded, UpgradedInCombat, Transformed, Enchanted, Potions,
         PotionSlots, EnergySaved, StarsSaved, Stunned, OrbsEvoked, OrbSlots, ArrowsShot, ArrowsRetrieved, ArrowSlots, Forged, BlockRetained, DeathsPrevented,
         CardsRetained, ExtraTurns, XBonus, ExtraHits, OrbTriggers, DebuffsPrevented, GoldSaved, CardChoices, RewardsAdded,
@@ -139,6 +158,11 @@ public sealed partial class CardRunStats
         [CardsDiscarded] = "res://images/packed/combat_ui/discard_pile.png",
         [CardsExhausted] = "res://images/packed/combat_ui/exhaust_pile.png",
         [CardsCreated] = "res://images/packed/sprite_fonts/card_icon.png",
+        [AttacksCreated] = "res://images/packed/card_library/type_sort_attack.png",
+        [SkillsCreated] = "res://images/packed/card_library/type_sort_skill.png",
+        [PowersCreated] = "res://images/packed/card_library/type_sort_power.png",
+        [StatusesCreated] = "res://images/packed/intents/intent_status_card.png",
+        [CursesCreated] = "res://images/ui/game_over_screen/badge_curses.png",
         [Exhausted] = "res://images/packed/combat_ui/exhaust_pile.png",
         [Orbs] = "res://images/orbs/empty_orb.png",
         [BonusDamage] = "res://images/atlases/power_atlas.sprites/strength_power.tres",
@@ -1018,8 +1042,8 @@ public sealed partial class CardRunStats
                 if (!IsPlaying(exhausted.Card))
                     Current?.Add(CardsExhausted, 1);
                 return;
-            case CardGeneratedEntry:
-                Current?.Add(CardsCreated, 1);
+            case CardGeneratedEntry generated:
+                Current?.Add(CreatedStat(generated.Card.Type), 1);
                 return;
 
             case StarsModifiedEntry { Amount: > 0 } stars:

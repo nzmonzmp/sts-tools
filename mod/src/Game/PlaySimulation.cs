@@ -99,7 +99,6 @@ public sealed class PlaySimulation
         public const string Energy = "Energy";
         public const string Stars = "Stars";
         public const string Draw = "Draw";
-        public const string Created = "Cards created";
         public const string Avoided = "Incoming damage avoided";
         public const string Prevented = "Damage prevented";
         public const string Channel = "Channel ";
@@ -683,6 +682,10 @@ public sealed class PlaySimulation
         int lost = Math.Max(0, hpBefore - Body(me)[0]);
         int block = IsDead(me) ? 0 : Body(me)[1];
         int petLost = pet != null ? Math.Max(0, petBefore - Body(pet)[0]) : 0;
+        // Attaques des ennemis, avant la fin de leur tour : un ennemi que Doom tuera ensuite frappe quand même
+        int petAttacked = 0;
+        bool petKilled = false;
+        int fromAttacks = IsDead(me) ? 0 : TakenFromAttacks(me, block, out petAttacked, out petKilled);
         // Fin du tour ennemi, après leurs attaques (Doom les tue alors) : ces morts n'empêchent pas leur attaque
         var kept2 = _outcome;
         _outcome = end;
@@ -704,9 +707,6 @@ public sealed class PlaySimulation
             kept.Incomplete |= _outcome.Incomplete;
             _outcome = kept2;
         }
-        int petAttacked = 0;
-        bool petKilled = false;
-        int fromAttacks = IsDead(me) ? 0 : TakenFromAttacks(me, block, out petAttacked, out petKilled);
         if (pet != null)
         {
             _petTaken = petLost + petAttacked;
@@ -1967,12 +1967,14 @@ public sealed class PlaySimulation
                 _outcome.Add(Arg<Player>("player")!.Creature, Stat.Draw, (int)Amount("count"));
                 return null;
             case "CardPileCmd.AddGeneratedCardToCombat":
-                if (Arg<Player>("creator") is { } creator)
-                    _outcome.Add(creator.Creature, Stat.Created, 1);
+                if (Arg<Player>("creator") is { } creator && Arg<CardModel>("card") is { } created)
+                    _outcome.Add(creator.Creature, CardRunStats.CreatedStat(created.Type), 1);
                 return null;
             case "CardPileCmd.AddGeneratedCardsToCombat":
+                // Par type : Attacks created, Statuses created…
                 if (Arg<Player>("creator") is { } creators)
-                    _outcome.Add(creators.Creature, Stat.Created, Arg<IEnumerable<CardModel>>("cards")?.Count() ?? 0);
+                    foreach (var createdCard in Arg<IEnumerable<CardModel>>("cards") ?? [])
+                        _outcome.Add(creators.Creature, CardRunStats.CreatedStat(createdCard.Type), 1);
                 return null;
             case "OrbCmd.Channel":
                 if (Arg<OrbModel>("orb") is { } orb && Arg<Player>("player") is { } channeler)

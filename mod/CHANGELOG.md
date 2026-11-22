@@ -59,7 +59,8 @@ Sandpit, réactions aux pouvoirs donnés (Vicious), tête de mort sur les monstr
 avant d'agir ; violet : après, Doom) et sur ceux que la carte tue à coup sûr ; tête de mort rouge sur le joueur et sur
 Osty quand terminer le tour les tuera (à chaque tirage si le hasard intervient). Têtes de mort sans ZIndex : sous la
 main, les écrans de choix et les menus (elles passaient par-dessus les cartes). Lignes « Forge +n » (Regent), « Discard »
-et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form).
+et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form). Cartes créées séparées par type (« Attacks created »,
+« Statuses created »…), comme dans les stats des cartes et l'onglet Combat.
 
 ### GUI
 
@@ -188,6 +189,9 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
 
 ### Corrigé
 
+- 2026-11-22 : un ennemi que Doom tue à la fin de son tour attaque quand même. Les attaques des ennemis étaient
+  calculées après la fin de leur tour : l'aperçu montrait ses dégâts comme évités, et la tête de mort du joueur ou
+  d'Osty pouvait manquer.
 - 2026-11-21 : gel au début du tour (Fool avec Simpleton, contre un Wriggler), reproduit puis corrigé. La simulation de
   la fin de tour de l'onglet Combat (Simpleton joue Foolish Shot sur le Wriggler, qui change de coup) mettait à jour
   ses intentions, ce qui comptait comme un changement : redessin de l'onglet, nouvelle simulation… sans fin dans la
