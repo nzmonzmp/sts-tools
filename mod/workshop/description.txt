@@ -4,6 +4,7 @@ Stats and previews for Slay the Spire 2. The mod only reads the game: it does no
 [list]
 [*][b]Card and potion preview[/b]: aim a card at a creature to see the damage, the part that goes through Block, lethal hits, powers, Block, energy, draw, orbs, and the damage you avoid until the enemies attack. Computed by playing the card in a dry run with the game's own code (average or range when randomness or a choice is involved).
 [*][b]Skulls[/b] on monsters that will die before acting, and on the end turn button when ending the turn would kill you.
+[*][b]End turn tab[/b]: what ending your turn now would do: HP lost and left, each enemy's attack, end of turn effects.
 [*][b]Combat stats[/b]: damage, Block, energy, draw, healing per card, per turn and per combat, including bonus damage from Strength and debuffs.
 [*][b]Relic stats[/b] under each relic's tooltip, updated live.
 [/list]
@@ -11,7 +12,7 @@ Stats and previews for Slay the Spire 2. The mod only reads the game: it does no
 [h2]On the map[/h2]
 [list]
 [*][b]Room preview[/b]: what can happen in a room (possible enemies, gold, potion chance, card rewards, "?" outcomes with the game's rules). Never reads the seed: only what is possible, not what will happen.
-[*][b]Path finder[/b]: rank room types (shops, elites, rest sites, "?", fights), get the best paths drawn on the map. In multiplayer, "Draw" sketches them with the game's drawing tool so other players see them.
+[*][b]Path finder[/b]: rank room types (shops, elites, rest sites, "?", fights), say how many and where (early, late, grouped, spread), get the best paths drawn on the map. "Draw" sketches them with the game's map pen (in multiplayer, other players see them).
 [/list]
 
 [h2]Multiplayer[/h2]
@@ -48,4 +49,14 @@ Discord: https://discord.gg/wEB5NVwZPX
 [*][b]Skull on your character[/b] when ending the turn now would kill you, as on doomed enemies (in addition to the one on the end turn button).
 [*][b]Necrobinder[/b]: skull on Osty when the enemies will kill it if you end the turn.
 [*][b]Fixed[/b]: skulls no longer show over your hand, card choice screens and menus.
+[/list]
+
+[h2]Version 0.1.4[/h2]
+[list]
+[*][b]New "End turn" tab[/b] (in Combat): what ending your turn now would do: HP lost and left, Osty, extra turn, each enemy's attack (and whether it dies before or after acting), end of turn effects on every creature. New option: switch the GUI tab automatically when your turn starts.
+[*][b]Path finder[/b]: for each room type, choose where you want them: early, late, grouped or spread. Clearer tab with each room type in its color. "Draw" also works in solo.
+[*][b]More accurate end of turn[/b]: Ethereal cards are exhausted (Feel No Pain), reactions to enemy hits count (Self-Forming Clay), enemies killed by Doom still attack, orbs are evoked and triggered (Lightning, Dark, Consuming Shadow).
+[*][b]Clearer stats[/b]: "Cards created" split into attacks, skills, powers, statuses and curses; the row under the mouse is highlighted in stats tables.
+[*][b]Mod guide[/b] rewritten: shorter, with icons and colors.
+[*][b]Fixed[/b] a crash when aiming at the sleeping Lagavulin Matriarch.
 [/list]
