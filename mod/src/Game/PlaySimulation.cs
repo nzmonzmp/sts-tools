@@ -1,5 +1,6 @@
 using System.Reflection;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Entities.Orbs;
 using MegaCrit.Sts2.Core.CardSelection;
 using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Combat.History;
@@ -653,8 +654,9 @@ public sealed class PlaySimulation
             {
                 if (player.PlayerCombatState is not { } state || IsDead(player.Creature))
                     continue;
-                foreach (var orb in state.OrbQueue.Orbs.ToList())
-                    Event(() => ((OrbModel)ShadowOf(orb)).BeforeTurnEndOrbTrigger(context));
+                // Orbes de l'état simulé : sans les évoquées par la carte, avec celles qu'elle a placées
+                foreach (var orb in OrbsOf(player).ToList())
+                    Event(() => orb.BeforeTurnEndOrbTrigger(context));
                 foreach (var card in state.Hand.Cards.Where(c => c.HasTurnEndInHandEffect && c != played && c.Pile?.Type == PileType.Hand).ToList())
                     Event(() => ((CardModel)ShadowOf(card)).OnTurnEndInHandWrapper(context));
             }
@@ -876,6 +878,78 @@ public sealed class PlaySimulation
         {
             if (CurrentSim.Value is { _finished: false } sim)
                 card = (CardModel)sim.ShadowOf(card);
+        }
+    }
+
+    // ---- Orbes (Defect) ----
+
+    /// <summary>
+    /// Orbes de chaque joueur dans l'état simulé, dans l'ordre : copies des réelles, puis celles placées pendant la
+    /// simulation ; sans les évoquées. C'est la vraie liste de sa file, remplie des copies le temps de la simulation
+    /// (comme les PV simulés) : le code du jeu qui la lit voit l'état simulé (Consuming Shadow n'évoque que s'il y a
+    /// une orbe). Remise telle quelle à la fin (<see cref="RestoreBodies"/>).
+    /// </summary>
+    private readonly Dictionary<Player, List<OrbModel>> _orbs = new();
+
+    /// <summary>Files d'orbes réelles et leur contenu d'avant la simulation.</summary>
+    private readonly List<(List<OrbModel> List, OrbModel[] Saved)> _realOrbs = [];
+
+    private static readonly FieldInfo QueueOrbs = AccessTools.Field(typeof(OrbQueue), "_orbs");
+
+    private List<OrbModel> OrbsOf(Player player)
+    {
+        if (_orbs.TryGetValue(player, out var orbs))
+            return orbs;
+        if (player.PlayerCombatState?.OrbQueue is { } queue && QueueOrbs.GetValue(queue) is List<OrbModel> real)
+        {
+            var saved = real.ToArray();
+            _realOrbs.Add((real, saved));
+            real.Clear();
+            real.AddRange(saved.Select(o => (OrbModel)ShadowOf(o)));
+            orbs = real;
+        }
+        else
+            orbs = [];
+        return _orbs[player] = orbs;
+    }
+
+    /// <summary>Évoque la première (ou la dernière) orbe, comme le jeu : ses dégâts, son Block… et les réactions.</summary>
+    /// <param name="dequeue">l'orbe quitte la file (presque toujours ; pas pour les évocations répétées)</param>
+    private void Evoke(Player player, PlayerChoiceContext context, bool last, bool dequeue)
+    {
+        var orbs = OrbsOf(player);
+        if (orbs.Count == 0)
+            return;
+        var orb = last ? orbs[^1] : orbs[0];
+        if (dequeue)
+            orbs.Remove(orb);
+        Event(async () =>
+        {
+            var targets = await orb.Evoke(context);
+            await Hook.AfterOrbEvoked(context, _combat, orb, targets);
+        });
+        // Évoquée : n'écoute plus rien (ni la fin du tour)
+        if (dequeue)
+            _removed.Add(orb);
+    }
+
+    /// <summary>Place une orbe, comme le jeu : la première est évoquée si toutes les places sont prises.</summary>
+    private void Channel(Player player, OrbModel orb, PlayerChoiceContext context)
+    {
+        if (player.PlayerCombatState is not { } state)
+            return;
+        var orbs = OrbsOf(player);
+        int capacity = Math.Max(state.OrbQueue.Capacity, player.Character.BaseOrbSlotCount == 0 ? 1 : 0);
+        if (orbs.Count >= capacity)
+            Evoke(player, context, false, true);
+        // Orbe neuve (ToMutable) : la simulation en est propriétaire, comme d'une copie
+        if (orb.Owner == null)
+            orb.Owner = player;
+        _clones.Add(orb);
+        if (orbs.Count < capacity)
+        {
+            orbs.Add(orb);
+            Event(() => Hook.AfterOrbChanneled(_combat, context, player, orb));
         }
     }
 
@@ -1749,6 +1823,13 @@ public sealed class PlaySimulation
     {
         _finished = true;
         RemoveHistory();
+        foreach (var (list, saved) in _realOrbs)
+        {
+            list.Clear();
+            list.AddRange(saved);
+        }
+        _realOrbs.Clear();
+        _orbs.Clear();
         foreach (var (creature, (hp, block)) in _realBodies)
         {
             HpField.SetValue(creature, hp);
@@ -1978,7 +2059,22 @@ public sealed class PlaySimulation
                 return null;
             case "OrbCmd.Channel":
                 if (Arg<OrbModel>("orb") is { } orb && Arg<Player>("player") is { } channeler)
+                {
                     _outcome.Add(channeler.Creature, Stat.Channel + orb.Title.GetFormattedText(), 1);
+                    Channel(channeler, orb, Arg<PlayerChoiceContext>("choiceContext") ?? new BlockingPlayerChoiceContext());
+                }
+                return null;
+            case "OrbCmd.EvokeNext" or "OrbCmd.EvokeLast" when Arg<Player>("player") is { } evoker:
+                Evoke(evoker, Arg<PlayerChoiceContext>("choiceContext") ?? new BlockingPlayerChoiceContext(),
+                    key == "OrbCmd.EvokeLast", Arg<bool>("dequeue"));
+                return null;
+            case "OrbCmd.Passive" when Arg<OrbModel>("orb") is { } passiveOrb:
+                var passiveShadow = (OrbModel)ShadowOf(passiveOrb);
+                var passiveContext = Arg<PlayerChoiceContext>("choiceContext") ?? new BlockingPlayerChoiceContext();
+                var passiveTarget = Arg<Creature>("target");
+                Event(() => Arg<bool>("countAffectedByHooks")
+                    ? passiveShadow.TriggerPassive(passiveContext, passiveTarget)
+                    : passiveShadow.Passive(passiveContext, passiveTarget));
                 return null;
         }
         return null;

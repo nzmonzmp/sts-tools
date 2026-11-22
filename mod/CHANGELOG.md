@@ -189,6 +189,12 @@ Path finder, écran Stats, aperçu de potion, options), envoyées par `publish.s
 
 ### Corrigé
 
+- 2026-11-22 : orbes dans l'aperçu. Évoquer une orbe ne faisait rien (dégâts de Lightning ou de Dark absents) ;
+  maintenant évocation (première ou dernière), passif déclenché par une carte, orbe placée qui évoque la première quand
+  les places sont prises. Pendant la simulation, la vraie file d'orbes contient les orbes simulées (remise ensuite) :
+  Consuming Shadow évoque l'orbe placée par la carte, la fin de tour ne déclenche plus une orbe évoquée.
+- 2026-11-22 : pont de test : `fakemp` refuse de démarrer pendant une partie en cours ; son échec laissait les
+  sauvegardes de la vraie partie bloquées.
 - 2026-11-22 : un ennemi que Doom tue à la fin de son tour attaque quand même. Les attaques des ennemis étaient
   calculées après la fin de leur tour : l'aperçu montrait ses dégâts comme évités, et la tête de mort du joueur ou
   d'Osty pouvait manquer.

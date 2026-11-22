@@ -678,6 +678,10 @@ public static class TestBridge
                 .FirstOrDefault(c => c.Id.Entry.Equals(a, StringComparison.OrdinalIgnoreCase))
             ?? throw new ArgumentException($"unknown character {a}: " +
                 string.Join(", ", MegaCrit.Sts2.Core.Models.ModelDb.AllCharacters.Select(c => c.Id.Entry)))).ToList();
+        // Partie en cours (la vraie partie du joueur) : refusé avant de bloquer quoi que ce soit. Un échec laissait les
+        // sauvegardes bloquées pendant que le joueur continuait sa vraie partie (2026-11-22)
+        if (MegaCrit.Sts2.Core.Runs.RunManager.Instance.IsInProgress)
+            throw new InvalidOperationException("a run is in progress: go back to the main menu first (saves untouched)");
         _fakeRun = true;
         CardRunStats.SavesBlocked = true;
         Log.Warn($"[{ModEntry.Id}] test bridge: fake multiplayer run, game saves blocked until the game closes");
