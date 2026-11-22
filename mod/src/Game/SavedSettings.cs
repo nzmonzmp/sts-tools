@@ -57,6 +57,12 @@ public sealed class SavedSettings
     /// <summary>Chercheur de chemins : un seul des chemins à égalité tracé à la fois (par défaut : tous)</summary>
     public bool MapPathShowOne { get; set; }
 
+    /// <summary>
+    /// Chercheur de chemins : placement des salles de chaque type du classement (« early », « late », « grouped »,
+    /// « spread ») ; absent : aucune préférence
+    /// </summary>
+    public Dictionary<string, string>? MapPathPlacements { get; set; }
+
     /// <summary>Rapports de plantage : « ask » (demander au menu principal), « always » (envoyer sans demander) ou « never »</summary>
     public string CrashReports { get; set; } = "ask";
 

@@ -234,7 +234,7 @@ public static class ModGuide
             ]),
             new("Map", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_map.tres", "On the map", [
                 $"Hover a room (GUI open): the enemies you can meet there, the rewards (gold, potion, cards, relics) and, for a {Gold("?")} room, the odds of each outcome.",
-                $"{Gold("Path finder")} tab: rank the room types (shops, elites, rest sites, ?, fights) and the best paths to the boss are drawn on the map.",
+                $"{Gold("Path finder")} tab: rank the room types (shops, elites, rest sites, ?, fights), each with a number (Max, Min, exactly or at least n) and where you want them ({Gold("Early")}, {Gold("Late")}, {Gold("Grouped")}, {Gold("Spread")}); the best paths to the boss are drawn on the map.",
                 $"{Gold("Draw")} draws them with the game's map pen: they stay on the map with the GUI closed, and in multiplayer everyone sees them.",
             ]),
             new("Stats", "res://images/atlases/stats_screen_atlas.sprites/stats_achievements.tres|res://images/atlases/stats_screen_atlas.sprites/stats_cards.tres", "Stats screen", [

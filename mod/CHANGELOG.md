@@ -60,7 +60,12 @@ avant d'agir ; violet : après, Doom) et sur ceux que la carte tue à coup sûr 
 Osty quand terminer le tour les tuera (à chaque tirage si le hasard intervient). Têtes de mort sans ZIndex : sous la
 main, les écrans de choix et les menus (elles passaient par-dessus les cartes). Lignes « Forge +n » (Regent), « Discard »
 et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form). Cartes créées séparées par type (« Attacks created »,
-« Statuses created »…), comme dans les stats des cartes et l'onglet Combat.
+« Statuses created »…), comme dans les stats des cartes et l'onglet Combat. Réactions aux coups des ennemis qui font
+perdre des PV, jouées après leurs attaques (Self-Forming Clay : Block au prochain tour, visible dans End turn et dans
+l'effet d'une carte qui évite la perte de PV) ; ce qu'elles font aux ennemis arrive après leur attaque.
+Fin de tour : les cartes Ethereal de la main sont épuisées comme dans le jeu (Ascender's Bane…), avant les cartes à
+effet de fin de tour (épuisées elles aussi si elles sont Ethereal) : Feel No Pain et les autres réactions à
+l'épuisement comptent (Block avant l'attaque des ennemis).
 
 Corrigé : viser la Lagavulin Matriarch endormie fermait le jeu au deuxième aperçu. Le premier arrêtait pour de vrai ses
 « Z » (effet libéré, que le champ du monstre remis après la simulation désignait encore) ; les arrêts d'effets visuels
@@ -121,6 +126,15 @@ all ») ou un par un (◀ ▶) ; composition de l'acte en suivant le chemin ; sa
 de 300 chemins à égalité, « N+ ». Bouton « Draw » (solo et multijoueur) : dessine les chemins avec l'outil de dessin
 du jeu ; ils restent sur la carte GUI fermé et, en multijoueur, les autres joueurs les voient même sans le mod. Choix
 gardés dans les réglages. Vérifié contre une énumération brute (76 chemins sans saut, 266 131 avec 3 sauts).
+
+Placement de chaque type du classement, au même rang que son nombre (appliqué juste après) : Early (étage moyen le
+plus bas), Late (le plus haut), Grouped (le moins d'étages entre la première et la dernière salle), Spread (le plus
+grand écart minimal entre deux salles qui se suivent), sur tout l'acte (salles faites comprises). Un clic sur le choix
+le retire ; pas de placement pour les types Any. La recherche garde pour chaque suite de chemin, en plus de sa
+composition, ce qu'il faut pour juger les placements choisis (temps noté dans le log au-delà de 200 ms).
+Couleurs dans l'onglet : nom de chaque type dans sa couleur (celle du tracé), barre de sa couleur à gauche de ses
+rangées « Count » et « Where », choix en surbrillance dans sa couleur (Any en cyan), types Any atténués, noms du tableau
+de composition de l'acte colorés (coffres en or).
 
 ### Écran Stats (menu principal)
 

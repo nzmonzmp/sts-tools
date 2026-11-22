@@ -878,7 +878,8 @@ public static class TestBridge
             pathFinder = new
             {
                 // Classement : « Type:règle » (max, min, =n, >=n, sur tout l'acte) ; any : types hors du classement
-                importance = MapPaths.Order.Select(t => $"{t}:{MapPaths.RuleOf(t)}").ToList(),
+                importance = MapPaths.Order.Select(t => $"{t}:{MapPaths.RuleOf(t)}"
+                    + (MapPaths.PlacementOf(t) is var p and not MapPaths.Placement.None ? $":{p}" : "")).ToList(),
                 freeMoves = MapPaths.FreeMoves,
                 truncated = MapPaths.Truncated,
                 any = MapPaths.Types.Where(t => !MapPaths.IsRanked(t.Type)).Select(t => t.Type.ToString()).ToList(),

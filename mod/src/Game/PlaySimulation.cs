@@ -677,8 +677,17 @@ public sealed class PlaySimulation
                 // Orbes de l'état simulé : sans les évoquées par la carte, avec celles qu'elle a placées
                 foreach (var orb in OrbsOf(player).ToList())
                     Event(() => orb.BeforeTurnEndOrbTrigger(context));
-                foreach (var card in state.Hand.Cards.Where(c => c.HasTurnEndInHandEffect && c != played && c.Pile?.Type == PileType.Hand).ToList())
+                // Comme le jeu (DoTurnEnd) : les cartes Ethereal de la main sont épuisées (Feel No Pain…), puis les cartes
+                // à effet de fin de tour (Burn…) jouent leur effet, et sont épuisées elles aussi si elles sont Ethereal
+                var hand = state.Hand.Cards.Where(c => c != played && c.Pile?.Type == PileType.Hand).ToList();
+                foreach (var card in hand.Where(c => !c.HasTurnEndInHandEffect && Ethereal(c)).ToList())
+                    Exhaust(card, causedByEthereal: true);
+                foreach (var card in hand.Where(c => c.HasTurnEndInHandEffect).ToList())
+                {
                     Event(() => ((CardModel)ShadowOf(card)).OnTurnEndInHandWrapper(context));
+                    if (card.Keywords.Contains(CardKeyword.Ethereal) && card.Pile?.Type == PileType.Hand)
+                        Exhaust(card, causedByEthereal: true);
+                }
             }
             foreach (var step in AfterTurnEndSteps)
                 EachListener(m => step(m, context, CombatSide.Player, players));
@@ -707,13 +716,17 @@ public sealed class PlaySimulation
         // Attaques des ennemis, avant la fin de leur tour : un ennemi que Doom tuera ensuite frappe quand même
         int petAttacked = 0;
         bool petKilled = false;
-        int fromAttacks = IsDead(me) ? 0 : TakenFromAttacks(me, block, out petAttacked, out petKilled);
+        var wounds = new List<(Creature, Creature, DamageResult)>();
+        int fromAttacks = IsDead(me) ? 0 : TakenFromAttacks(me, block, out petAttacked, out petKilled, wounds);
         // Fin du tour ennemi, après leurs attaques (Doom les tue alors) : ces morts n'empêchent pas leur attaque
         var kept2 = _outcome;
         _outcome = end;
         _late = true;
         try
         {
+            // Le joueur mort sous les coups ne réagit plus
+            if (fromAttacks < Body(me)[0])
+                ReactToAttacks(wounds);
             var context = new BlockingPlayerChoiceContext();
             var enemies = _combat.Enemies.Where(e => !IsDead(e)).ToList();
             foreach (var step in BeforeTurnEndSteps)
@@ -1403,6 +1416,20 @@ public sealed class PlaySimulation
 
     private static List<CardModel> Forced(List<CardModel> cards, CardSelectorPrefs prefs) =>
         cards.Count > 0 && !prefs.RequireManualConfirmation && cards.Count <= prefs.MinSelect ? cards : [];
+
+    /// <summary>Carte Ethereal que la fin du tour épuisera (sauf si un effet l'empêche), comme le jeu.</summary>
+    private bool Ethereal(CardModel card)
+    {
+        try
+        {
+            return card.Keywords.Contains(CardKeyword.Ethereal) && Hook.ShouldEtherealTrigger(_combat, card);
+        }
+        catch (Exception e)
+        {
+            Fail("ethereal", e);
+            return false;
+        }
+    }
 
     private void Exhaust(CardModel card, bool causedByEthereal)
     {
@@ -2495,12 +2522,15 @@ public sealed class PlaySimulation
     /// en retire 1, Intangible la ramène à 1…). Un pouvoir qui s'use à chaque perte évitée (Buffer) ne sert qu'autant de
     /// fois qu'il a de charges.
     /// </summary>
-    private int TakenFromAttacks(Creature target, int block) => TakenFromAttacks(target, block, out _, out _);
+    private int TakenFromAttacks(Creature target, int block) => TakenFromAttacks(target, block, out _, out _, null);
 
     /// <param name="petLost">PV que perd le familier de <paramref name="target"/> (Osty) : comme le jeu, après le
     /// Block du joueur, il prend chaque coup à sa place tant qu'il vit ; le surplus qui le tue passe au joueur</param>
     /// <param name="petDies">le familier meurt sous ces coups</param>
-    private int TakenFromAttacks(Creature target, int block, out int petLost, out bool petDies)
+    /// <param name="wounds">reçoit chaque coup qui fait perdre des PV (qui, de qui, résultat), pour les réactions
+    /// (<see cref="ReactToAttacks"/>)</param>
+    private int TakenFromAttacks(Creature target, int block, out int petLost, out bool petDies,
+        List<(Creature Receiver, Creature Enemy, DamageResult Result)>? wounds)
     {
         int lost = 0;
         petLost = 0;
@@ -2523,6 +2553,11 @@ public sealed class PlaySimulation
                 int petLoss = Math.Min(toPet, petHp.Value);
                 petHp -= petLoss;
                 petLost += petLoss;
+                if (petLoss > 0)
+                    wounds?.Add((receiver, enemy, new DamageResult(receiver, ValueProp.Move)
+                    {
+                        UnblockedDamage = petLoss, WasTargetKilled = petHp <= 0, IntendedHpLoss = unblocked, OriginalTarget = target,
+                    }));
                 if (petHp <= 0)
                 {
                     petDies = true;
@@ -2533,9 +2568,32 @@ public sealed class PlaySimulation
                 if (value <= 0)
                     continue;
             }
-            lost += HpLost(target, enemy, value, used, HpLossAfterOsty);
+            int hpLost = HpLost(target, enemy, value, used, HpLossAfterOsty);
+            lost += hpLost;
+            if (hpLost > 0)
+                wounds?.Add((target, enemy, new DamageResult(target, ValueProp.Move)
+                {
+                    UnblockedDamage = hpLost, IntendedHpLoss = unblocked, OriginalTarget = target,
+                }));
         }
         return lost;
+    }
+
+    /// <summary>
+    /// Réactions aux coups des ennemis qui font perdre des PV (Self-Forming Clay : Block au prochain tour…) : les
+    /// attaques sont comptées coup par coup sans passer par les dégâts simulés, ces réactions sont donc jouées à part,
+    /// après. Ce qu'elles font aux ennemis (Thorns…) arrive après leur attaque.
+    /// </summary>
+    private void ReactToAttacks(List<(Creature Receiver, Creature Enemy, DamageResult Result)> wounds)
+    {
+        var context = new BlockingPlayerChoiceContext();
+        var runState = _combat.RunState;
+        foreach (var (receiver, enemy, result) in wounds)
+        {
+            if (result.WasTargetKilled || IsDead(receiver))
+                continue;
+            Event(() => Hook.AfterDamageReceived(context, runState, _combat, receiver, result, ValueProp.Move, enemy, null));
+        }
     }
 
     /// <summary>Qui perd les PV d'un coup après le Block (Osty à la place de son maître…), comme le jeu.</summary>
