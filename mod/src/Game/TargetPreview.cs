@@ -378,7 +378,7 @@ public static class TargetPreview
     /// Lignes d'une créature, dans l'ordre où les effets arrivent ; les dégâts d'abord. Une valeur qui dépend d'un
     /// choix du joueur s'affiche en fourchette (« 0–18 »).
     /// </summary>
-    private static IEnumerable<string[]> Rows(Creature creature, Dictionary<string, double> stats, Outcome outcome)
+    internal static IEnumerable<string[]> Rows(Creature creature, Dictionary<string, double> stats, Outcome outcome)
     {
         var max = outcome.Max.GetValueOrDefault(creature);
         var spread = outcome.Spread.GetValueOrDefault(creature);
@@ -481,7 +481,7 @@ public static class TargetPreview
         [NetRow] = CardRunStats.Healed,
     };
 
-    private static Texture2D? IconOf(string name, Outcome outcome) =>
+    internal static Texture2D? IconOf(string name, Outcome outcome) =>
         RowIcons.TryGetValue(name, out var stat) ? CardRunStats.IconFor(stat)
         : CardRunStats.CreatedStats.Contains(name) ? CardRunStats.IconFor(name)
         : name.StartsWith(Stat.Channel) ? CardRunStats.IconFor(CardRunStats.Orbs)

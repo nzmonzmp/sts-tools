@@ -407,6 +407,15 @@ public sealed class RunPanel
             Callable.From(grown.FitHeight).CallDeferred();
         }
         TabsChanged();
+        // Sous-onglet caché ou montré (End turn…) : barre refaite si elle change
+        if (_current is { } sub && GodotObject.IsInstanceValid(sub._panel)
+            && ShownSubTabs(sub._tabs[sub._tab]) is var shown
+            && !(shown.Length > 1 ? shown : []).SequenceEqual(sub._subTabButtons.Select(b => b.Text)))
+        {
+            sub.BuildSubTabs();
+            sub.StyleTabs();
+            sub.Refresh();
+        }
     }
 
     /// <summary>
@@ -510,27 +519,42 @@ public sealed class RunPanel
             panel._menu.FocusDefault();
     }
 
-    /// <summary>Choisit l'onglet de ce titre s'il est proposé (pont de test) ; faux sinon.</summary>
-    internal static bool SelectTabByTitle(string title)
+    /// <summary>
+    /// Choisit l'onglet de ce titre s'il est proposé (pont de test), et son sous-onglet avec « Onglet/Sous-onglet »
+    /// (« Combat/End turn ») s'il est montré ; faux sinon.
+    /// </summary>
+    internal static bool SelectTabByTitle(string choice)
     {
         if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
             return false;
+        var (title, subTab) = AutoTabs.Split(choice);
         int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
             return false;
+        if (subTab != null)
+        {
+            var name = ShownSubTabs(panel._tabs[index]).FirstOrDefault(s => s.Equals(subTab, StringComparison.OrdinalIgnoreCase));
+            if (name == null)
+                return false;
+            var tab = panel._tabs[index].Title;
+            panel._subTabs[tab] = name;
+            Save(s => s.RunPanelSubTabs[tab] = name);
+        }
         panel.SelectTab(index);
         return true;
     }
 
     /// <summary>
-    /// Change d'onglet tout seul (début ou fin de combat, marchand : options du mod) : rien si l'option est à « None »
-    /// ou l'onglet caché ou pas proposé. Après coup, une fois la salle en place. GUI fermé : l'onglet sera celui de
-    /// la prochaine ouverture (sauf onglet imposé à l'ouverture).
+    /// Change d'onglet tout seul (début ou fin de combat, début du tour, marchand : options du mod) : rien si l'option
+    /// est à « None » ou l'onglet caché ou pas proposé. « Onglet/Sous-onglet » (« Combat/End turn ») choisit aussi le
+    /// sous-onglet, s'il est montré. Après coup, une fois la salle en place. GUI fermé : l'onglet sera celui de la
+    /// prochaine ouverture (sauf onglet imposé à l'ouverture).
     /// </summary>
-    internal static void AutoSelectTab(string? title, string when)
+    internal static void AutoSelectTab(string? choice, string when)
     {
-        if (title == null)
+        if (choice == null)
             return;
+        var (title, subTab) = AutoTabs.Split(choice);
         Callable.From(() =>
         {
             try
@@ -538,10 +562,25 @@ public sealed class RunPanel
                 if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
                     return;
                 int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title == title);
-                if (index < 0 || index == panel._tab)
+                if (index < 0)
                     return;
-                BugReport.Note($"tab {title} ({when})");
-                panel.SelectTab(index);
+                bool newSub = subTab != null && ShownSubTabs(panel._tabs[index]).Contains(subTab)
+                              && panel.SubTabOf(index) != subTab;
+                if (index == panel._tab && !newSub)
+                    return;
+                BugReport.Note($"tab {choice} ({when})");
+                if (newSub)
+                {
+                    panel._subTabs[title] = subTab!;
+                    Save(s => s.RunPanelSubTabs[title] = subTab!);
+                }
+                if (index != panel._tab)
+                    panel.SelectTab(index);
+                else
+                {
+                    panel.StyleTabs();
+                    panel.Refresh();
+                }
             }
             catch (Exception e)
             {
@@ -560,17 +599,20 @@ public sealed class RunPanel
         Refresh();
     }
 
-    /// <summary>Sous-onglet affiché dans l'onglet courant : le dernier choisi, sinon le premier.</summary>
-    private string? CurrentSubTab
+    /// <summary>Sous-onglet affiché dans l'onglet courant : le dernier choisi, sinon le premier montré.</summary>
+    private string? CurrentSubTab => SubTabOf(_tab);
+
+    private string? SubTabOf(int tab)
     {
-        get
-        {
-            var subTabs = _tabs[_tab].SubTabs;
-            if (subTabs.Length == 0)
-                return null;
-            return _subTabs.TryGetValue(_tabs[_tab].Title, out var name) && subTabs.Contains(name) ? name : subTabs[0];
-        }
+        var subTabs = ShownSubTabs(_tabs[tab]);
+        if (subTabs.Length == 0)
+            return null;
+        return _subTabs.TryGetValue(_tabs[tab].Title, out var name) && subTabs.Contains(name) ? name : subTabs[0];
     }
+
+    /// <summary>Sous-onglets d'un onglet qui ne sont pas cachés dans les options du mod (le premier ne l'est jamais).</summary>
+    private static string[] ShownSubTabs(IRunPanelTab tab) =>
+        tab.SubTabs.Where((s, i) => i == 0 || !ModOptions.IsTabHidden(tab.Title + "/" + s)).ToArray();
 
     /// <summary>Nom d'un joueur comme le jeu l'affiche ; « You » pour le joueur local.</summary>
     private string NameOf(Player player) => player == _player ? "You" : PlayerName(player);
@@ -647,14 +689,14 @@ public sealed class RunPanel
         }
     }
 
-    /// <summary>Boutons des sous-onglets de l'onglet courant ; la barre disparaît s'il n'en a pas.</summary>
+    /// <summary>Boutons des sous-onglets montrés de l'onglet courant ; la barre disparaît s'il en a moins de deux.</summary>
     private void BuildSubTabs()
     {
         RemoveChildren(_subTabBar);
         _subTabButtons.Clear();
-        var subTabs = _tabs[_tab].SubTabs;
-        _subTabBar.Visible = subTabs.Length > 0;
-        foreach (var name in subTabs)
+        var subTabs = ShownSubTabs(_tabs[_tab]);
+        _subTabBar.Visible = subTabs.Length > 1;
+        foreach (var name in subTabs.Length > 1 ? subTabs : [])
         {
             var button = new Button { Text = name };
             KeyboardNav.Focusable(button);
@@ -1097,8 +1139,16 @@ internal sealed class CombatTab : IRunPanelTab
 
     public bool HasTeam => true;
 
+    /// <summary>Stats : stats du combat ; End turn : ce que donnerait la fin du tour (<see cref="EndTurnView"/>).</summary>
+    public string[] SubTabs => ["Stats", EndTurnView.Name];
+
     public void Fill(VBoxContainer content, IReadOnlyList<Player> players, string? subTab)
     {
+        if (subTab == EndTurnView.Name)
+        {
+            EndTurnView.Fill(content, players);
+            return;
+        }
         // Un joueur, ou l'équipe : la somme de tous (tours : ceux du joueur le plus avancé)
         var totals = players.Select(CardRunStats.TotalsOf).ToList();
         var combat = CardRunStats.Merge(totals.Select(t => t.Combat));

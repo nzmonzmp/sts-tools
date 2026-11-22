@@ -445,7 +445,26 @@ public sealed class PlaySimulation
     /// <returns>PetTaken : PV que son familier (Osty, qui encaisse les attaques à sa place) aura perdus ; null sans
     /// familier en vie. PetDies : il meurt</returns>
     public static (int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn, IReadOnlyList<Creature> DeadEnemies,
-        IReadOnlyList<Creature> LateDeadEnemies, int? PetTaken, bool PetDies)? PredictTurnEnd(Player player)
+        IReadOnlyList<Creature> LateDeadEnemies, int? PetTaken, bool PetDies)? PredictTurnEnd(Player player) =>
+        PredictTurnEndDetail(player) is { } d
+            ? (d.Taken, d.Hp, d.Forced, d.ExtraTurn, d.DeadEnemies, d.LateDeadEnemies, d.PetTaken, d.PetDies)
+            : null;
+
+    /// <summary>
+    /// Détail de la fin de tour sans rien jouer (sous-onglet End turn du GUI) : ce que donne
+    /// <see cref="PredictTurnEnd"/>, plus l'attaque de chaque ennemi au moment d'attaquer, ce que la fin de tour change
+    /// à chaque créature (Block du Plating, Burn, poison…) et les PV perdus par chaque allié.
+    /// </summary>
+    /// <param name="Incoming">dégâts annoncés par chaque ennemi après le début de son tour (0 : mort ou étourdi)</param>
+    /// <param name="End">effets de la fin de tour, par créature (moyennes si <paramref name="Random"/>)</param>
+    /// <param name="Allies">PV que chaque allié (multijoueur) aura perdus quand les ennemis auront attaqué</param>
+    /// <param name="Random">moyenne de plusieurs tirages qui ne sont pas ceux du jeu (Simpleton, orbes…)</param>
+    public sealed record TurnEndDetail(int Taken, int Hp, bool Forced, AbstractModel? ExtraTurn,
+        IReadOnlyList<Creature> DeadEnemies, IReadOnlyList<Creature> LateDeadEnemies, int? PetTaken, bool PetDies,
+        IReadOnlyDictionary<Creature, int> Incoming, Outcome End, IReadOnlyDictionary<Creature, int> Allies, bool Random);
+
+    /// <summary>Comme <see cref="PredictTurnEnd"/>, avec le détail (<see cref="TurnEndDetail"/>) ; null si impossible.</summary>
+    public static TurnEndDetail? PredictTurnEndDetail(Player player)
     {
         if (!EnsurePatched() || Active || player.Creature.CombatState is not { } combat)
             return null;
@@ -456,8 +475,9 @@ public sealed class PlaySimulation
         {
             var rngs = RngState.Capture(combat);
             var baseline = BaselineOf(combat, player.Creature, rngs);
-            return (baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn, baseline.DeadEnemies ?? [],
-                baseline.LateDeadEnemies ?? [], baseline.PetTaken, baseline.PetDies);
+            return new TurnEndDetail(baseline.Taken, player.Creature.CurrentHp, baseline.Dies, baseline.ExtraTurn,
+                baseline.DeadEnemies ?? [], baseline.LateDeadEnemies ?? [], baseline.PetTaken, baseline.PetDies,
+                baseline.Incoming, baseline.End, baseline.Allies ?? new Dictionary<Creature, int>(), baseline.Random);
         }
         finally
         {

@@ -223,7 +223,7 @@ public static class ModGuide
                 $"Open it in a run with {gui} or the {Gold("GUI")} button of the top bar. Drag its header to move it, {collapse} or {Gold("▲")} to collapse it, its bottom edge to resize it.",
                 $"{Gold("Deck")}: what each card of your deck did this run ({Blue("damage")}, {Blue("Block")}, energy, cards drawn…), with the card on hover.",
                 $"{Gold("Game")}: totals of the run.",
-                $"{Gold("Combat")}: this combat, turn by turn, and the damage the enemies will deal to each player.",
+                $"{Gold("Combat")}: this combat, turn by turn, and the damage the enemies will deal to each player. {Gold("End turn")}: what ending your turn now would do (HP lost, each enemy's attack, end of turn effects).",
                 $"{Gold("Support")} (multiplayer): what you gave your allies.",
                 $"{Gold("Path finder")} (map open): the best paths to the boss by room type, drawn on the map (see the {Gold("Map")} page).",
             ]),
@@ -242,7 +242,7 @@ public static class ModGuide
                 $"Win rates, cards, relics, ancients and losses from your whole run history, with filters by mode, ascension and character.",
             ]),
             new("Settings", "res://images/atlases/ui_atlas.sprites/top_bar/top_bar_settings.tres", "Where to change things", [
-                $"{Gold("Settings > Mod > Options")}: GUI tabs, how the GUI opens, tabs switched automatically (combat start and end, merchant), the features above, how many simulations are averaged for random effects (more is more accurate but slower), crash and bug reports, and the {Gold("?")} buttons.",
+                $"{Gold("Settings > Mod > Options")}: GUI tabs, how the GUI opens, tabs switched automatically (combat start and end, turn start, merchant), the features above, how many simulations are averaged for random effects (more is more accurate but slower), crash and bug reports, and the {Gold("?")} buttons.",
                 $"{Gold("Settings > Mod > Input")}: the mod's keys.",
                 $"{Gold("Report a bug")}, in the main menu and the pause menu, sends your description (and, if you want, your logs and run) to the mod's author. After a crash, the main menu offers to send the crash report.",
                 $"Open this guide again with the {Gold("?")} buttons of the GUI, the Stats screen and {Gold("Settings > Mod")}.",

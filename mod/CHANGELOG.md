@@ -68,6 +68,13 @@ et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form).
   barre du haut, repliable (flèche, touche Collapse GUI).
 - Bouton de la barre du haut (avant la carte) : icône de suivi de stats (barres crème et courbe orange montante,
   contours fins), agrandie autour de son centre au survol.
+- Onglet Combat en deux sous-onglets : Stats (le contenu d'avant) et End turn, ce que donnerait la fin du tour
+  maintenant, d'après la même simulation que le bouton de fin de tour et les têtes de mort : PV perdus et PV restants
+  (mort, mort évitée), Osty, tour supplémentaire, attaque de chaque ennemi au moment d'attaquer (mort avant d'agir, ou
+  après), effets de la fin de tour sur chaque créature (Block, Burn, poison, pouvoirs…), moyenne des tirages si le
+  hasard intervient (jamais ceux du jeu). Équipe : PV de chaque joueur. Seulement pendant le tour des joueurs.
+  Options : « Show the End turn sub-tab (Combat) » (caché, plus de barre de sous-onglets), « Combat: End turn » parmi
+  les onglets choisis automatiquement, et nouveau moment « When your turn starts ». Guide du mod mis à jour.
 
 ### Multijoueur
 

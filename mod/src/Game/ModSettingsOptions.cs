@@ -42,7 +42,7 @@ public static class ModSettingsOptions
         // Onglet choisi tout seul à un moment de la partie : « None » (rien ne change) ou un onglet. Pas Path finder :
         // il ne s'ouvre ni en combat, ni aux récompenses, ni chez un marchand
         static Choice AutoTab(string id, string title, Func<string?> get, Action<SavedSettings, string?> set) =>
-            new(id, title, ["None", .. AutoTabs.Choices],
+            new(id, title, ["None", .. AutoTabs.Choices.Select(AutoTabs.Label)],
                 () => get() is { } t ? Array.IndexOf(AutoTabs.Choices, t) + 1 : 0,
                 i => ModOptions.Set(s => set(s, i == 0 ? null : AutoTabs.Choices[i - 1])));
         // Deck, Game et Combat sont toujours proposés : au moins un reste visible
@@ -59,7 +59,18 @@ public static class ModSettingsOptions
                     if (!v)
                         s.HiddenTabs.Add(tab);
                 }),
-                tab is "Deck" or "Game" or "Combat" ? () => OtherAlwaysShown(tab) : null)).ToList()),
+                tab is "Deck" or "Game" or "Combat" ? () => OtherAlwaysShown(tab) : null))
+                // Sous-onglets qu'on peut cacher (End turn) : seul le premier reste, sans barre de sous-onglets
+                .Concat(ModOptions.SubTabs.Select(sub => (Option)new Toggle($"subtab.{sub.Tab}.{sub.SubTab}",
+                    $"Show the {sub.SubTab} sub-tab ({sub.Tab})",
+                    () => !ModOptions.IsTabHidden($"{sub.Tab}/{sub.SubTab}"),
+                    v => ModOptions.Set(s =>
+                    {
+                        s.HiddenTabs.Remove($"{sub.Tab}/{sub.SubTab}");
+                        if (!v)
+                            s.HiddenTabs.Add($"{sub.Tab}/{sub.SubTab}");
+                    }))))
+                .ToList()),
             ("Opening the GUI", [
                 Feature("open.start", "Open the GUI when a run starts", () => ModOptions.OpenOnRunStart,
                     (s, v) => s.OpenOnRunStart = v),
@@ -72,6 +83,7 @@ public static class ModSettingsOptions
             ]),
             ("Switching tabs automatically", [
                 AutoTab("auto.combatstart", "When a combat starts", () => ModOptions.TabOnCombatStart, (s, t) => s.TabOnCombatStart = t),
+                AutoTab("auto.turnstart", "When your turn starts", () => ModOptions.TabOnTurnStart, (s, t) => s.TabOnTurnStart = t),
                 AutoTab("auto.combatend", "When a combat ends", () => ModOptions.TabOnCombatEnd, (s, t) => s.TabOnCombatEnd = t),
                 AutoTab("auto.merchant", "At a merchant", () => ModOptions.TabOnMerchant, (s, t) => s.TabOnMerchant = t),
             ]),

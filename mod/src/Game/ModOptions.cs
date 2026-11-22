@@ -35,12 +35,17 @@ public static class ModOptions
     public static string? TabOnCombatStart => Current.TabOnCombatStart;
     public static string? TabOnCombatEnd => Current.TabOnCombatEnd;
     public static string? TabOnMerchant => Current.TabOnMerchant;
+    public static string? TabOnTurnStart => Current.TabOnTurnStart;
     public static string OpenPanel => Current.OpenPanel;
     public static string PanelGrow => Current.PanelGrow;
     public static string CrashReports => SavedSettings.Load().CrashReports;
     public static string? BugReportName => SavedSettings.Load().BugReportName;
     public static bool BugReportAttach => Current.BugReportAttach;
 
+    /// <summary>Sous-onglets qu'on peut cacher (le premier d'un onglet ne l'est jamais) : onglet, sous-onglet.</summary>
+    public static readonly (string Tab, string SubTab)[] SubTabs = [("Combat", EndTurnView.Name)];
+
+    /// <summary>Onglet caché (« Deck »), ou sous-onglet caché (« Combat/End turn »).</summary>
     public static bool IsTabHidden(string title) => Current.HiddenTabs.Contains(title);
 
     /// <summary>Change une option : sauvegardée tout de suite (avec les autres réglages, relus), GUI mis à jour.</summary>

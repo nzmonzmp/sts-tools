@@ -38,7 +38,7 @@ public static class TestBridge
           scroll <x> <y> <up|down> [n]
           key <name> [n]            press a key (Godot names: Escape, Enter, M, F7, Ctrl+Z...), n times
           console <command>         dev console command (solo)
-          gui open|close            the mod's GUI;  gui tab <title>: select a GUI tab
+          gui open|close            the mod's GUI;  gui tab <title>[/<sub-tab>]: select a GUI tab
           map open|close            the map screen
           points                    map points: coord, type, state, center
           hoverpoint <col> <row>    hover a map point;  clickpoint <col> <row>: click it
@@ -217,7 +217,7 @@ public static class TestBridge
                             throw new InvalidOperationException("no such tab available");
                         break;
                     default:
-                        throw new ArgumentException("gui open|close|tab <title>");
+                        throw new ArgumentException("gui open|close|tab <title>[/<sub-tab>]");
                 }
                 await Frames(3);
                 return $"GUI {(RunPanel.IsOpen ? "open" : "closed")}";

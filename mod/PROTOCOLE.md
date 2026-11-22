@@ -67,7 +67,7 @@ Build de test installée ; commandes déposées dans `user://StsTools/test/` par
 - Affichage : `screenshot [nom] [échelle]` (PNG dans le dossier de test ; 0.5 à 0.6 suffit), `tree [texte]`,
   `nodes <chemin> [profondeur]` (type, nom, position, taille ; lire sans rien cliquer).
 - Actions : `click <texte>`, `clickat`/`rclick`/`move <x> <y>`, `scroll`, `key <nom> [n]`, `console <commande>`,
-  `gui open|close|tab <titre>`, `map open|close`, `hoverpoint`/`clickpoint <col> <ligne>`, `play`, `aim`, `endturn`, `deletehistory` (supprime tout l'historique du profil, Steam Cloud compris),
+  `gui open|close|tab <titre>[/<sous-onglet>]` (`gui tab Combat/End turn`), `map open|close`, `hoverpoint`/`clickpoint <col> <ligne>`, `play`, `aim`, `endturn`, `deletehistory` (supprime tout l'historique du profil, Steam Cloud compris),
   `pickcard`.
 - Carte : `roompreview <col> <ligne>` (texte de l'aperçu sans survol), `encounterimage <ID>` (image des monstres).
 - Sauvegardes : `savels <dossier>`, `saveput <chemin> <fichier>`, `savedel <chemin>` passent par le magasin de

@@ -88,6 +88,10 @@ public sealed class SavedSettings
     public string? TabOnCombatEnd { get; set; }
     public string? TabOnMerchant { get; set; }
 
+    /// <summary>Onglet choisi tout seul au début de chaque tour du joueur ; null : aucun changement. Comme les autres,
+    /// « Onglet/Sous-onglet » (« Combat/End turn ») choisit aussi le sous-onglet</summary>
+    public string? TabOnTurnStart { get; set; }
+
     /// <summary>Panneau à l'ouverture du GUI : « last » (comme il a été laissé), « expanded » ou « collapsed »</summary>
     public string OpenPanel { get; set; } = "last";
 
