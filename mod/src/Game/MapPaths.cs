@@ -250,9 +250,9 @@ public static class MapPaths
     internal static void SetShowAll(bool all) => Set(() => ShowAll = all);
 
     /// <summary>
-    /// Multijoueur : dessine sur la carte, avec l'outil de dessin du jeu (couleur du personnage du joueur), le chemin
-    /// affiché ou tous ceux à égalité ; les autres joueurs le voient comme un dessin fait à la main. Rien d'autre ne
-    /// change (dessin seulement, effaçable avec les outils du jeu).
+    /// Dessine sur la carte, avec l'outil de dessin du jeu (couleur du personnage du joueur), le chemin affiché ou tous
+    /// ceux à égalité : il reste une fois le GUI fermé ; à plusieurs, les autres joueurs le voient comme un dessin fait
+    /// à la main. Rien d'autre ne change (dessin seulement, effaçable avec les outils du jeu).
     /// </summary>
     internal static void DrawForTeam()
     {
@@ -285,7 +285,7 @@ public static class MapPaths
             drawings.StopLineLocal();
             lines++;
         }
-        BugReport.Note($"Path finder: drew {lines} path(s) on the map for the team");
+        BugReport.Note($"Path finder: drew {lines} path(s) on the map");
     }
 
     /// <summary>
@@ -626,12 +626,16 @@ internal sealed class PathFinderTab : IRunPanelTab
             cycle.AddChild(counter);
             cycle.AddChild(Choice("▶", false, () => MapPaths.Step(1)));
         }
-        // Multijoueur : dessiner le ou les chemins affichés pour les autres joueurs (outil de dessin du jeu)
-        if (players.Count > 0 && players[0].RunState.Players.Count > 1)
+        // Dessiner le ou les chemins affichés avec l'outil de dessin du jeu : reste sur la carte une fois le GUI fermé ;
+        // à plusieurs, les autres joueurs le voient
+        if (players.Count > 0)
         {
+            bool team = players[0].RunState.Players.Count > 1;
             var draw = Choice(MapPaths.ShowAll && best.Count > 1 ? $"Draw {best.Count} paths" : "Draw path", false,
                 MapPaths.DrawForTeam);
-            draw.TooltipText = "Draw on the map for the other players (erase with the game's map tools)";
+            draw.TooltipText = team
+                ? "Draw on the map for the other players (erase with the game's map tools)"
+                : "Draw on the map with the game's pen: it stays when the GUI is closed (erase with the game's map tools)";
             content.AddChild(draw);
         }
 

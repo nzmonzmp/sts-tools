@@ -1160,6 +1160,12 @@ public sealed class PlaySimulation
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
                 if (!method.IsSpecialName && !method.IsGenericMethodDefinition && !method.Name.StartsWith('_'))
                     yield return method;
+        // Arrêt d'un effet visuel gardé par un monstre (Z de la Lagavulin Matriarch endormie, arrêtés quand elle prend
+        // un coup) : l'effet se libérait pour de vrai, puis le champ du monstre, remis après la simulation, pointait
+        // vers un nœud libéré ; l'aperçu suivant y touchait et le jeu se fermait
+        foreach (var type in assembly.GetTypes().Where(t => t.Namespace == "MegaCrit.Sts2.Core.Nodes.Vfx" && t.IsClass))
+            if (type.GetMethod("Stop", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, Type.EmptyTypes) is { } stop)
+                yield return stop;
         var room = typeof(MegaCrit.Sts2.Core.Nodes.Rooms.NCombatRoom);
         foreach (var name in new[] { "RadialBlur", "ShakeOstyIfDead", "RemoveCreatureNode" })
             foreach (var method in room.GetMethods(BindingFlags.Public | BindingFlags.Instance).Where(m => m.Name == name))

@@ -527,7 +527,8 @@ public sealed class RunPanel
     {
         if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
             return false;
-        var (title, subTab) = AutoTabs.Split(choice);
+        int slash = choice.IndexOf('/');
+        var (title, subTab) = slash >= 0 ? (choice[..slash], choice[(slash + 1)..]) : (choice, (string?)null);
         int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title.Equals(title, StringComparison.OrdinalIgnoreCase));
         if (index < 0)
             return false;
@@ -546,15 +547,13 @@ public sealed class RunPanel
 
     /// <summary>
     /// Change d'onglet tout seul (début ou fin de combat, début du tour, marchand : options du mod) : rien si l'option
-    /// est à « None » ou l'onglet caché ou pas proposé. « Onglet/Sous-onglet » (« Combat/End turn ») choisit aussi le
-    /// sous-onglet, s'il est montré. Après coup, une fois la salle en place. GUI fermé : l'onglet sera celui de la
-    /// prochaine ouverture (sauf onglet imposé à l'ouverture).
+    /// est à « None » ou l'onglet caché ou pas proposé. Après coup, une fois la salle en place. GUI fermé : l'onglet
+    /// sera celui de la prochaine ouverture (sauf onglet imposé à l'ouverture).
     /// </summary>
-    internal static void AutoSelectTab(string? choice, string when)
+    internal static void AutoSelectTab(string? title, string when)
     {
-        if (choice == null)
+        if (title == null)
             return;
-        var (title, subTab) = AutoTabs.Split(choice);
         Callable.From(() =>
         {
             try
@@ -562,25 +561,10 @@ public sealed class RunPanel
                 if (_current is not { } panel || !GodotObject.IsInstanceValid(panel._panel))
                     return;
                 int index = Array.FindIndex(panel._tabs, t => Shown(t) && t.Title == title);
-                if (index < 0)
+                if (index < 0 || index == panel._tab)
                     return;
-                bool newSub = subTab != null && ShownSubTabs(panel._tabs[index]).Contains(subTab)
-                              && panel.SubTabOf(index) != subTab;
-                if (index == panel._tab && !newSub)
-                    return;
-                BugReport.Note($"tab {choice} ({when})");
-                if (newSub)
-                {
-                    panel._subTabs[title] = subTab!;
-                    Save(s => s.RunPanelSubTabs[title] = subTab!);
-                }
-                if (index != panel._tab)
-                    panel.SelectTab(index);
-                else
-                {
-                    panel.StyleTabs();
-                    panel.Refresh();
-                }
+                BugReport.Note($"tab {title} ({when})");
+                panel.SelectTab(index);
             }
             catch (Exception e)
             {
@@ -600,14 +584,15 @@ public sealed class RunPanel
     }
 
     /// <summary>Sous-onglet affiché dans l'onglet courant : le dernier choisi, sinon le premier montré.</summary>
-    private string? CurrentSubTab => SubTabOf(_tab);
-
-    private string? SubTabOf(int tab)
+    private string? CurrentSubTab
     {
-        var subTabs = ShownSubTabs(_tabs[tab]);
-        if (subTabs.Length == 0)
-            return null;
-        return _subTabs.TryGetValue(_tabs[tab].Title, out var name) && subTabs.Contains(name) ? name : subTabs[0];
+        get
+        {
+            var subTabs = ShownSubTabs(_tabs[_tab]);
+            if (subTabs.Length == 0)
+                return null;
+            return _subTabs.TryGetValue(_tabs[_tab].Title, out var name) && subTabs.Contains(name) ? name : subTabs[0];
+        }
     }
 
     /// <summary>Sous-onglets d'un onglet qui ne sont pas cachés dans les options du mod (le premier ne l'est jamais).</summary>

@@ -62,6 +62,11 @@ main, les écrans de choix et les menus (elles passaient par-dessus les cartes).
 et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form). Cartes créées séparées par type (« Attacks created »,
 « Statuses created »…), comme dans les stats des cartes et l'onglet Combat.
 
+Corrigé : viser la Lagavulin Matriarch endormie fermait le jeu au deuxième aperçu. Le premier arrêtait pour de vrai ses
+« Z » (effet libéré, que le champ du monstre remis après la simulation désignait encore) ; les arrêts d'effets visuels
+(`Stop` des nœuds `Nodes.Vfx`) sont maintenant bloqués pendant les aperçus, comme les autres animations directes.
+Reproduit puis vérifié corrigé en partie de test (rapport de plantage du 2026-11-22).
+
 ### GUI
 
 - Déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et sous la
@@ -73,8 +78,8 @@ et « Sly played » (Survivor, Acrobatics…), « Ends your turn » (Void Form).
   (mort, mort évitée), Osty, tour supplémentaire, attaque de chaque ennemi au moment d'attaquer (mort avant d'agir, ou
   après), effets de la fin de tour sur chaque créature (Block, Burn, poison, pouvoirs…), moyenne des tirages si le
   hasard intervient (jamais ceux du jeu). Équipe : PV de chaque joueur. Seulement pendant le tour des joueurs.
-  Options : « Show the End turn sub-tab (Combat) » (caché, plus de barre de sous-onglets), « Combat: End turn » parmi
-  les onglets choisis automatiquement, et nouveau moment « When your turn starts ». Guide du mod mis à jour.
+  Options : « Show the End turn sub-tab (Combat) » (caché, plus de barre de sous-onglets), et nouveau moment
+  « When your turn starts » pour changer d'onglet automatiquement. Guide du mod mis à jour.
 
 ### Multijoueur
 
@@ -113,9 +118,9 @@ Onglet « Path finder » du GUI, seulement quand la carte est ouverte. Classemen
 (bouton ≥), respecté strictement (nombre impossible en rouge). Nombres proposés : ceux qui restent possibles une fois
 les types au-dessus appliqués. Meilleurs chemins tracés sur la carte (couleur du premier type), tous ensemble (« Show
 all ») ou un par un (◀ ▶) ; composition de l'acte en suivant le chemin ; sauts libres marqués d'un trait doré ; au-delà
-de 300 chemins à égalité, « N+ ». Bouton « Draw » (multijoueur) : dessine les chemins avec l'outil de dessin du jeu,
-visibles des autres joueurs même sans le mod. Choix gardés dans les réglages. Vérifié contre une énumération brute
-(76 chemins sans saut, 266 131 avec 3 sauts).
+de 300 chemins à égalité, « N+ ». Bouton « Draw » (solo et multijoueur) : dessine les chemins avec l'outil de dessin
+du jeu ; ils restent sur la carte GUI fermé et, en multijoueur, les autres joueurs les voient même sans le mod. Choix
+gardés dans les réglages. Vérifié contre une énumération brute (76 chemins sans saut, 266 131 avec 3 sauts).
 
 ### Écran Stats (menu principal)
 

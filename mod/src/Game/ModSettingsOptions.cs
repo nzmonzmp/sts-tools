@@ -42,7 +42,7 @@ public static class ModSettingsOptions
         // Onglet choisi tout seul à un moment de la partie : « None » (rien ne change) ou un onglet. Pas Path finder :
         // il ne s'ouvre ni en combat, ni aux récompenses, ni chez un marchand
         static Choice AutoTab(string id, string title, Func<string?> get, Action<SavedSettings, string?> set) =>
-            new(id, title, ["None", .. AutoTabs.Choices.Select(AutoTabs.Label)],
+            new(id, title, ["None", .. AutoTabs.Choices],
                 () => get() is { } t ? Array.IndexOf(AutoTabs.Choices, t) + 1 : 0,
                 i => ModOptions.Set(s => set(s, i == 0 ? null : AutoTabs.Choices[i - 1])));
         // Deck, Game et Combat sont toujours proposés : au moins un reste visible

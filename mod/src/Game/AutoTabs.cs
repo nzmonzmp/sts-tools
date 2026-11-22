@@ -14,22 +14,8 @@ namespace StsTools.Game;
 /// </summary>
 public static class AutoTabs
 {
-    /// <summary>
-    /// Onglets proposés : pas Path finder, qui ne s'ouvre ni en combat, ni aux récompenses, ni chez un marchand. Puis
-    /// les sous-onglets qu'on peut cacher, en « Onglet/Sous-onglet » (« Combat/End turn »).
-    /// </summary>
-    public static readonly string[] Choices =
-    [
-        .. ModOptions.Tabs.Where(t => t != "Path finder"),
-        .. ModOptions.SubTabs.Select(s => $"{s.Tab}/{s.SubTab}"),
-    ];
-
-    /// <summary>Texte d'un choix dans les options : « Combat: End turn » pour un sous-onglet.</summary>
-    public static string Label(string choice) => choice.Replace("/", ": ");
-
-    /// <summary>Onglet et sous-onglet d'un choix (sous-onglet null : celui de l'onglet ne change pas).</summary>
-    public static (string Tab, string? SubTab) Split(string choice) =>
-        choice.IndexOf('/') is var i and >= 0 ? (choice[..i], choice[(i + 1)..]) : (choice, null);
+    /// <summary>Onglets proposés : pas Path finder, qui ne s'ouvre ni en combat, ni aux récompenses, ni chez un marchand.</summary>
+    public static readonly string[] Choices = ModOptions.Tabs.Where(t => t != "Path finder").ToArray();
 
     /// <summary>Onglet réglé, s'il fait partie des choix (une valeur gardée d'avant, Path finder, est ignorée).</summary>
     private static string? Valid(string? tab) => tab != null && Choices.Contains(tab) ? tab : null;
