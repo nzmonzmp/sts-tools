@@ -1985,8 +1985,12 @@ public sealed class PlaySimulation
                 return null;
             case "CreatureCmd.Damage":
                 var targets = Arg<IEnumerable<DamageTargetData>>("targetData")?.Select(d => d.target).ToList() ?? [];
+                // Modificateurs à appliquer : Cap pour des dégâts déjà calculés (éclats de Rain Shot, Omnislice), sans
+                // remettre la Force ni Vulnerable
+                var hookType = parameters.Any(p => p.Name == "modifyDamageHookType")
+                    ? Arg<ModifyDamageHookType>("modifyDamageHookType") : ModifyDamageHookType.All;
                 IEnumerable<DamageResult> results = Damage(targets, Amount(), Arg<ValueProp>("props"), Arg<Creature>("dealer"),
-                    Arg<CardModel>("cardSource"), Arg<CardPlay>("cardPlay"));
+                    Arg<CardModel>("cardSource"), Arg<CardPlay>("cardPlay"), hookType);
                 return Task.FromResult(results);
             case "CreatureCmd.GainBlock":
                 return Task.FromResult(GainBlock(Arg<Creature>("creature")!, Amount(), Arg<ValueProp>("props"), Arg<CardPlay>("cardPlay")));
@@ -2142,7 +2146,7 @@ public sealed class PlaySimulation
     /// perdus ; côté monstres, des dégâts, la part qui passe le Block et le nombre de coups.
     /// </summary>
     private List<DamageResult> Damage(IReadOnlyList<Creature> targets, decimal amount, ValueProp props, Creature? dealer,
-        CardModel? cardSource, CardPlay? cardPlay)
+        CardModel? cardSource, CardPlay? cardPlay, ModifyDamageHookType hookType = ModifyDamageHookType.All)
     {
         var results = new List<DamageResult>();
         if (dealer != null && IsDead(dealer) || _damageDepth > 4)
@@ -2150,7 +2154,7 @@ public sealed class PlaySimulation
         _damageDepth++;
         try
         {
-            DamageEach(targets, amount, props, dealer, cardSource, cardPlay, results);
+            DamageEach(targets, amount, props, dealer, cardSource, cardPlay, hookType, results);
         }
         finally
         {
@@ -2160,7 +2164,7 @@ public sealed class PlaySimulation
     }
 
     private void DamageEach(IReadOnlyList<Creature> targets, decimal amount, ValueProp props, Creature? dealer,
-        CardModel? cardSource, CardPlay? cardPlay, List<DamageResult> results)
+        CardModel? cardSource, CardPlay? cardPlay, ModifyDamageHookType hookType, List<DamageResult> results)
     {
         var context = new BlockingPlayerChoiceContext();
         var killedNow = new List<Creature>();
@@ -2170,7 +2174,7 @@ public sealed class PlaySimulation
             if (IsDead(target))
                 continue;
             decimal modified = Hook.ModifyDamage(runState, _combat, target, dealer, amount, props, cardSource, cardPlay,
-                ModifyDamageHookType.All, CardPreviewMode.None, out _);
+                hookType, CardPreviewMode.None, out _);
             Event(() => Hook.BeforeDamageReceived(context, runState, _combat, target, modified, props, dealer, cardSource));
             if (dealer != null && IsDead(dealer))
                 break;
