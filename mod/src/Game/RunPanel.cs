@@ -159,12 +159,10 @@ public sealed class RunPanel
         panel.SetCollapsed(panel._body.Visible);
     }
 
-    /// <summary>Le panneau de stats est ouvert (les infobulles des reliques n'affichent leurs stats qu'à ce moment).</summary>
-#if TESTBRIDGE
-    /// <summary>Le panneau ouvert (pont de test : lecture de son texte) ; null s'il est fermé.</summary>
+    /// <summary>Le panneau ouvert (pont de test, place de l'aperçu des salles) ; null s'il est fermé.</summary>
     internal static Control? OpenPanel => IsOpen ? _current!._panel : null;
-#endif
 
+    /// <summary>Le panneau de stats est ouvert (les infobulles des reliques n'affichent leurs stats qu'à ce moment).</summary>
     public static bool IsOpen => _current != null && GodotObject.IsInstanceValid(_current._panel) && _current._panel.Visible;
 
     public static void Close()

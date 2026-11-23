@@ -649,6 +649,22 @@ public sealed class PlaySimulation
     private (int Taken, Dictionary<Creature, int> Incoming, Outcome End, Dictionary<Creature, int> Allies) UntilEnemyAttacks(
         Creature me, CardModel? played = null)
     {
+        // Le jeu passe au camp ennemi avant le début de leur tour (Inferno, Rupture… ne réagissent qu'à leur
+        // propre tour) : le camp réel est remis après
+        var side = _combat.CurrentSide;
+        try
+        {
+            return UntilEnemyAttacksInSide(me, played);
+        }
+        finally
+        {
+            _combat.CurrentSide = side;
+        }
+    }
+
+    private (int Taken, Dictionary<Creature, int> Incoming, Outcome End, Dictionary<Creature, int> Allies) UntilEnemyAttacksInSide(
+        Creature me, CardModel? played)
+    {
         var kept = _outcome;
         var end = _outcome = new Outcome();
         int hpBefore = Body(me)[0];
@@ -698,6 +714,7 @@ public sealed class PlaySimulation
                 _extraTurn = extraTurnSource is { } copy && _realOf.TryGetValue(copy, out var real) ? real : extraTurnSource;
                 return (Math.Max(0, hpBefore - Body(me)[0]), _combat.Enemies.ToDictionary(e => e, _ => 0), end, AlliesTaken(false));
             }
+            _combat.CurrentSide = CombatSide.Enemy;
             var enemies = _combat.Enemies.Where(e => !IsDead(e)).ToList();
             EachListener(m => m.BeforeSideTurnStart(context, CombatSide.Enemy, enemies, _combat));
             EachListener(m => m.AfterSideTurnStart(CombatSide.Enemy, enemies, _combat));

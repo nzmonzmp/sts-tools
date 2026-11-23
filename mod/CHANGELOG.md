@@ -88,6 +88,12 @@ Fourchettes des quantités (dégâts, pioche, PV perdus…) ramenées à 0 au mi
 carte, elles pouvaient passer sous 0 (Dualcast qui retire une orbe Lightning : « Damage -1.5–14.5 », maintenant
 « 0–14.5 »).
 
+Corrigé : la fin de tour simulée restait dans le camp du joueur pendant le tour ennemi ; Inferno comptait donc les
+dégâts des attaques ennemies comme s'ils étaient pris pendant le tour du joueur (6 dégâts annoncés sur chaque ennemi). La
+simulation passe maintenant au camp ennemi au même moment que le jeu (`SwitchSides`), puis remet le camp réel. Ce
+correctif s'applique aussi à Rupture et Demon Tongue. Vérifié en partie de test : l'aperçu n'annonce plus rien et le
+Nibbit garde ses PV.
+
 ### GUI
 
 - Déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et sous la
@@ -131,6 +137,17 @@ libre (Winged Boots, Flight) pris en compte. Cartes proposées : Lasting Candy, 
 Molten, Toxic et Frozen Egg, Lava Lamp, Silver Crucible, Glitter, Silken Tress, Fresnel Lens, Wing Charm ; Big Game
 Hunter ; Wongo's Mystery Ticket. Petite image fixe des monstres à droite de chaque rencontre (`EncounterVisuals`, même
 rendu que l'écran Stats), dans leur animation de départ.
+
+Soins en entrant dans la salle (une ligne par relique) : Pantograph et Bath Robes au boss, Eternal Feather au feu de
+camp (taille du deck actuel), Planisphere dans un « ? », Meal Ticket chez le marchand. Le marchand, qui n'avait pas
+d'encadré, en a un quand une relique le soigne. Avant ce correctif, seul le soin du feu de camp était affiché ; il est
+maintenant marqué « (rest) ».
+
+Place de l'encadré : il ne se met plus à côté de la salle survolée, où il cachait les autres choix possibles. Il va
+dans la marge à gauche ou à droite des salles, de préférence celle où il ne couvre pas le GUI ; si aucune marge n'est
+assez large, il se met contre le bord gauche de l'écran. Les marges sont mesurées depuis le centre des icônes, car le
+nœud d'une salle est plus large que son icône. Vérifié avec le GUI replié (marge de gauche) et déplié à gauche (marge
+de droite).
 
 ### Carte : chercheur de chemins
 

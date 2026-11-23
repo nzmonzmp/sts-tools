@@ -213,18 +213,32 @@ public static class MapRoomPreview
         screen.AddChild(_panel);
     }
 
-    /// <summary>À droite de la salle, ou à gauche près du bord droit ; centré sur elle en hauteur, dans l'écran.</summary>
+    /// <summary>
+    /// Hors de la carte, pour ne cacher aucune salle (les autres choix possibles) : dans la marge à gauche ou à droite
+    /// des salles, de préférence celle où il ne couvre pas le GUI ; si aucune marge n'est assez large, contre le bord
+    /// gauche de l'écran. Centré sur la salle en hauteur, dans l'écran.
+    /// </summary>
     private static void Place(NMapPoint point)
     {
-        const float gap = 24;
+        // Demi-largeur visible d'une icône de salle (le rectangle du nœud est plus large que l'icône)
+        const float gap = 16, margin = 8, icon = 36;
         var rect = point.GetGlobalRect();
         var size = _panel!.Size;
         var screen = _panel.GetViewportRect().Size;
-        float x = rect.End.X + gap;
-        if (x + size.X > screen.X)
-            x = Math.Max(0, rect.Position.X - size.X - gap);
+        float left = rect.GetCenter().X - icon, right = rect.GetCenter().X + icon;
+        foreach (var other in point.GetParent().GetChildren().OfType<NMapPoint>())
+            if (other.IsVisibleInTree())
+            {
+                float center = other.GetGlobalRect().GetCenter().X;
+                left = Math.Min(left, center - icon);
+                right = Math.Max(right, center + icon);
+            }
         float y = Math.Clamp(rect.GetCenter().Y - size.Y / 2, 0, Math.Max(0, screen.Y - size.Y));
-        _panel.GlobalPosition = new Vector2(x, y);
+        var gui = RunPanel.OpenPanel is { } panel ? panel.GetGlobalRect() : (Rect2?)null;
+        var slots = new[] { left - gap - size.X, right + gap }
+            .Where(x => x >= margin && x + size.X <= screen.X - margin).ToList();
+        float chosen = slots.FirstOrDefault(x => gui is not { } g || !g.Intersects(new Rect2(x, y, size)), slots.FirstOrDefault(margin));
+        _panel.GlobalPosition = new Vector2(chosen, y);
     }
 
     private static Texture2D? IconFor(string name) => StatsTable.LoadIcon(name switch
@@ -273,9 +287,14 @@ public static class MapRoomPreview
                 rows.Add(["Rest site", Floor(state, point)]);
                 Rest(rows, state, player);
                 break;
+            case MapPointType.Shop when EntryHeals(state, player, point.PointType).Count > 0:
+                rows.Add(["Shop", Floor(state, point)]);
+                break;
             default:
                 return null;
         }
+        // Soins des reliques en entrant (Pantograph avant un boss…), après l'en-tête
+        rows.InsertRange(1, EntryHeals(state, player, point.PointType));
         return rows;
     }
 
@@ -906,7 +925,35 @@ public static class MapRoomPreview
         decimal heal = creature.MaxHp * 0.3m;
         foreach (var model in Listeners(state))
             heal = model.ModifyRestSiteHealAmount(creature, heal);
-        rows.Add(["Heal", $"+{(int)heal} HP"]);
+        rows.Add(["Heal", $"+{(int)heal} HP (rest)"]);
+    }
+
+    /// <summary>
+    /// Soins des reliques à l'entrée de ce type de salle, une ligne par relique, comme le jeu : Pantograph et Bath
+    /// Robes (pas encore utilisé) au début d'un boss, Eternal Feather au feu de camp (deck actuel), Planisphere dans un
+    /// « ? », Meal Ticket chez le marchand (salle marchand seulement : un « ? » ne l'est que peut-être).
+    /// </summary>
+    private static List<string[]> EntryHeals(RunState state, Player player, MapPointType type)
+    {
+        var rows = new List<string[]>();
+        if (player.Creature.IsDead)
+            return rows;
+        foreach (var relic in player.Relics)
+        {
+            string? heal = (relic, type) switch
+            {
+                (Pantograph p, MapPointType.Boss) => $"+{p.DynamicVars.Heal.IntValue} HP",
+                (BathRobes { WasUsed: false }, MapPointType.Boss) => "Full HP",
+                (EternalFeather f, MapPointType.RestSite) =>
+                    $"+{f.DynamicVars.Heal.IntValue * (player.Deck.Cards.Count / f.DynamicVars.Cards.IntValue)} HP",
+                (Planisphere p, MapPointType.Unknown) => $"+{p.DynamicVars.Heal.IntValue} HP",
+                (MealTicket m, MapPointType.Shop) => $"+{m.DynamicVars.Heal.IntValue} HP",
+                _ => null,
+            };
+            if (heal != null)
+                rows.Add(["Heal", $"{heal} ({relic.Title.GetFormattedText()})"]);
+        }
+        return rows;
     }
 
     // ---- Format ----
