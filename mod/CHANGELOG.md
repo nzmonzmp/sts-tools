@@ -94,6 +94,20 @@ simulation passe maintenant au camp ennemi au même moment que le jeu (`SwitchSi
 correctif s'applique aussi à Rupture et Demon Tongue. Vérifié en partie de test : l'aperçu n'annonce plus rien et le
 Nibbit garde ses PV.
 
+Corrigé : une carte qui tue le dernier ennemi annonçait encore ce que le jeu n'applique plus une fois le combat fini.
+C'était le cas du Block d'Ornamental Fan sur la 3e attaque, et plus généralement de `AfterCardPlayed`, des rejeux, du
+Block gagné et de la fin de tour. La simulation s'arrête maintenant comme le jeu (`CombatManager.IsEnding` : plus
+d'ennemi principal en vie, sauf `ShouldStopCombatFromEnding`) et ne garde que les dégâts évités. Vérifié : la Strike
+qui tue le dernier Nibbit n'annonce plus de Block.
+
+Corrigé : un ennemi tué tout de suite par la carte n'est plus comparé à la fin de tour. Avant, Dualcast qui tuait
+maintenant un ennemi que l'orbe Lightning aurait tué en fin de tour n'annonçait que « Damage 2 » ; il annonce maintenant
+« Damage 8 », les dégâts de l'évocation. Vérifié en partie de test : contre un Nibbit à 3 PV, et contre trois slimes à
+3 PV (chances de mort de 50 à 75 % pour chacun).
+
+Pont de test : la partie de test n'est plus suivie après le retour au menu. Sinon, à la fermeture du jeu,
+`run_card_stats.json` recevait les stats de la partie de test à la place de celles de la vraie partie.
+
 ### GUI
 
 - Déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et sous la

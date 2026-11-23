@@ -576,6 +576,15 @@ public sealed partial class CardRunStats
         }
     }
 
+#if TESTBRIDGE
+    /// <summary>
+    /// Pont de test : la partie de test est finie, plus rien n'est suivi. Sinon la sauvegarde du jeu à sa fermeture
+    /// (<see cref="SaveRunPatch"/>) écrivait les stats de la partie de test à la place de celles de la vraie partie
+    /// (2026-11-23).
+    /// </summary>
+    internal static void Untrack() => (_player, _runState, _runKey) = (null, null, null);
+#endif
+
     /// <summary>
     /// Graine et heure de début de la partie : différentes d'une partie à l'autre, identiques quand on la reprend.
     /// </summary>

@@ -83,6 +83,10 @@ Build de test installée ; commandes déposées dans `user://StsTools/test/` par
   nôtre, les autres n'agissent pas) ; toutes les sauvegardes du jeu et du mod sont bloquées jusqu'au retour au menu.
   La progression du profil en mémoire (victoires par ennemi, cartes vues…) est remise au retour au menu : sans ça,
   le jeu l'écrivait à sa fermeture (bouton Quit, SIGTERM) dans progress.save, et dans le Steam Cloud (2026-11-23).
+  Les stats de la partie suivie par le mod (`StsTools/run_card_stats.json`) sont aussi oubliées au retour au menu :
+  sans ça, la sauvegarde du jeu à sa fermeture y écrivait la partie de test à la place de la vraie (2026-11-23).
+  Clics simulés : un glisser de l'en-tête du GUI resté ouvert a déplacé le GUI et enregistré sa position dans
+  `settings.json` ; faire une copie de ce fichier avant de tester.
   Le GUI du mod garde son état (onglet choisi) dans `StsTools/settings.json` : à comparer et remettre aussi.
 
 Pièges :

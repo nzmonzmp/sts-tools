@@ -651,6 +651,10 @@ public sealed class PlaySimulation
     {
         // Le jeu passe au camp ennemi avant le début de leur tour (Inferno, Rupture… ne réagissent qu'à leur
         // propre tour) : le camp réel est remis après
+        // Combat gagné par la carte : pas de fin de tour, rien n'est plus pris
+        if (CombatEnding())
+            return (0, _combat.Enemies.ToDictionary(e => e, _ => 0), new Outcome(),
+                _combat.Players.Select(p => p.Creature).Where(c => c != me).ToDictionary(c => c, _ => 0));
         var side = _combat.CurrentSide;
         try
         {
@@ -800,12 +804,18 @@ public sealed class PlaySimulation
             // Jusqu'à l'attaque des ennemis : dégâts que le joueur prendra (fin de tour comprise : Burn, Plating…),
             // et attaque de chaque ennemi, sans et avec la carte (ennemi tué, étourdi, affaibli, empoisonné…)
             var me = player.Creature;
+            // Ennemis tués tout de suite par la carte : leur mort est son effet, sans écart avec la fin de tour
+            // (Dualcast qui tue maintenant un ennemi que les orbes auraient tué en fin de tour : ses dégâts, pas 2)
+            var killedNow = sim._dead.Where(c => c != me).ToHashSet();
+            bool won = sim.CombatEnding();
             var (taken, incoming, end, allies) = sim.UntilEnemyAttacks(me, act.Card);
             // Ce que la carte change d'ici l'attaque des ennemis (Howl from Beyond épuisé qui se joue, Block du
             // Plating donné…) : écart avec la même fin de tour sans la carte
             // Fin de tour sans la carte qui dépend du hasard : écarts avec sa moyenne (espérance seulement)
             Action<Creature, string, double> compare = baseline.Random ? sim._outcome.AddCompared : sim._outcome.Add;
-            sim.MergeDifference(end, baseline.End, compare);
+            // Combat gagné : pas de fin de tour à comparer
+            if (!won)
+                sim.MergeDifference(end, baseline.End, compare, killedNow);
             foreach (var (enemy, after) in incoming)
                 if (baseline.Incoming.GetValueOrDefault(enemy) - after is var avoided and not 0)
                     compare(enemy, Stat.Avoided, avoided);
@@ -873,7 +883,7 @@ public sealed class PlaySimulation
         var resultPile = ResultPile(shadowCard, auto, resources);
         for (int i = 0; i < playCount; i++)
         {
-            if (IsDead(player.Creature))
+            if (IsDead(player.Creature) || CombatEnding())
                 break;
             var play = new CardPlay
             {
@@ -897,7 +907,8 @@ public sealed class PlaySimulation
             if (shadowCard.Affliction is { } affliction)
                 Wait("affliction", affliction.OnPlay(context, target));
             AddHistory(new CardPlayFinishedEntry(play, _combat.RoundNumber, _combat.CurrentSide, history, _combat.Players));
-            Event(() => Hook.AfterCardPlayed(_combat, context, play));
+            if (!CombatEnding())
+                Event(() => Hook.AfterCardPlayed(_combat, context, play));
         }
         // Comme le jeu : seulement si la carte est encore jouée ; épuisée par CardCmd.Exhaust, avec ses réactions
         // (Feel No Pain, Dark Embrace…)
@@ -1539,10 +1550,13 @@ public sealed class PlaySimulation
     /// <summary>Ajoute l'écart entre deux fins de tour simulées (avec et sans la carte).</summary>
     /// <param name="add">ajoute un écart à l'effet (<see cref="Outcome.AddCompared"/> si la fin de tour sans la carte
     /// est une moyenne)</param>
-    private void MergeDifference(Outcome with, Outcome without, Action<Creature, string, double> add)
+    /// <param name="skip">créatures mortes avant la fin du tour (rien n'y est comparé)</param>
+    private void MergeDifference(Outcome with, Outcome without, Action<Creature, string, double> add, IReadOnlySet<Creature> skip)
     {
         foreach (var creature in with.Creatures.Keys.Union(without.Creatures.Keys).ToList())
         {
+            if (skip.Contains(creature))
+                continue;
             var a = with.Creatures.GetValueOrDefault(creature);
             var b = without.Creatures.GetValueOrDefault(creature);
             foreach (var stat in (a?.Keys ?? Enumerable.Empty<string>()).Union(b?.Keys ?? Enumerable.Empty<string>()))
@@ -1924,6 +1938,26 @@ public sealed class PlaySimulation
     }
 
     private bool IsDead(Creature creature) => Body(creature)[0] <= 0;
+
+    /// <summary>
+    /// Le combat se termine (comme <c>CombatManager.IsEnding</c>) : plus d'ennemi principal en vie et rien qui
+    /// l'empêche (Phrog Parasite…). Le jeu n'applique alors plus rien : rejeux de la carte, AfterCardPlayed
+    /// (Ornamental Fan, Shuriken…), Block gagné, fin du tour.
+    /// </summary>
+    private bool CombatEnding()
+    {
+        if (_combat.Enemies.Any(e => e.IsPrimaryEnemy && !IsDead(e)))
+            return false;
+        try
+        {
+            return !Hook.ShouldStopCombatFromEnding(_combat);
+        }
+        catch (Exception e)
+        {
+            Fail("combat ending", e);
+            return false;
+        }
+    }
 
     // ---- Commandes interceptées ----
 
@@ -2313,7 +2347,7 @@ public sealed class PlaySimulation
 
     private decimal GainBlock(Creature creature, decimal amount, ValueProp props, CardPlay? cardPlay)
     {
-        if (IsDead(creature))
+        if (IsDead(creature) || CombatEnding())
             return 0;
         // Réactions comme le jeu, avant et après le Block (Juggernaut, Beacon of Hope…)
         Event(() => Hook.BeforeBlockGained(_combat, creature, amount, props, cardPlay?.Card));

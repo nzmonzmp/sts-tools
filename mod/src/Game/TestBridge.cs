@@ -780,6 +780,7 @@ public static class TestBridge
                 Log.Error($"[{ModEntry.Id}] test bridge: cannot restore the profile progress after the test run");
             _progressBefore = null;
             _fakeRun = false;
+            CardRunStats.Untrack();
             CardRunStats.SavesBlocked = false;
             Log.Warn($"[{ModEntry.Id}] test bridge: back to the main menu, game saves restored");
         }
