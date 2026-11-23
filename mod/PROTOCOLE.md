@@ -88,6 +88,9 @@ Pièges :
 - `click <texte>` prend le premier contrôle visible avec ce texte, qui peut être un contrôle du jeu (« Input » a touché
   l'onglet du jeu au lieu du sous-onglet du mod, et le clic suivant a changé le mode clavier de l'auteur). Dans les
   options, utiliser `clickat` avec les coordonnées lues par `tree`.
+- Le GUI ouvert (en haut à gauche) recouvre la première carte des grilles de choix (Transform, Enchant…) : un clic
+  dessus touche le GUI. Choisir une autre carte, ou fermer le GUI. En combat, Échap n'ouvre pas le menu pause :
+  cliquer la roue (1864 40) puis « Save and Quit ».
 - Les cartes de la boutique ne sont pas listées par `cards` (clic par position). Survoler les salles de la carte après
   un `scroll` n'est pas fiable : préférer les salles visibles sans défiler.
 - Profils neufs (réseau) : seul l'Ironclad est débloqué.
