@@ -717,6 +717,9 @@ public static class TestBridge
     /// </summary>
     private static bool _fakeRun;
 
+    /// <summary>Progression du profil au début de la partie de test, remise à la fin.</summary>
+    private static string? _progressBefore;
+
     private static async Task<string> FakeMultiplayer(string[] args)
     {
         if (args.Length < 1)
@@ -729,6 +732,11 @@ public static class TestBridge
         // sauvegardes bloquées pendant que le joueur continuait sa vraie partie (2026-11-22)
         if (MegaCrit.Sts2.Core.Runs.RunManager.Instance.IsInProgress)
             throw new InvalidOperationException("a run is in progress: go back to the main menu first (saves untouched)");
+        // Progression en mémoire (stats des combats gagnés, cartes vues…) : la partie de test la change même sans
+        // l'écrire, et la prochaine vraie sauvegarde l'écrivait (2026-11-23). Remise au retour au menu
+        // En JSON : la forme sérialisable partage des objets avec la progression vivante, qui la changeait aussi
+        _progressBefore = MegaCrit.Sts2.Core.Saves.JsonSerializationUtility.ToJson(
+            MegaCrit.Sts2.Core.Saves.SaveManager.Instance.Progress.ToSerializable());
         _fakeRun = true;
         CardRunStats.SavesBlocked = true;
         Log.Warn($"[{ModEntry.Id}] test bridge: fake multiplayer run, game saves blocked until the game closes");
@@ -763,6 +771,14 @@ public static class TestBridge
         {
             if (!_fakeRun)
                 return;
+            if (_progressBefore is { } before
+                && MegaCrit.Sts2.Core.Saves.JsonSerializationUtility.FromJson<MegaCrit.Sts2.Core.Saves.SerializableProgress>(before)
+                    is { Success: true, SaveData: { } data })
+                MegaCrit.Sts2.Core.Saves.SaveManager.Instance.Progress = MegaCrit.Sts2.Core.Saves.ProgressState.FromSerializable(
+                    data, new MegaCrit.Sts2.Core.Saves.Validation.DeserializationContext());
+            else if (_progressBefore != null)
+                Log.Error($"[{ModEntry.Id}] test bridge: cannot restore the profile progress after the test run");
+            _progressBefore = null;
             _fakeRun = false;
             CardRunStats.SavesBlocked = false;
             Log.Warn($"[{ModEntry.Id}] test bridge: back to the main menu, game saves restored");

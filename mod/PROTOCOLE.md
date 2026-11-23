@@ -81,6 +81,9 @@ Build de test installée ; commandes déposées dans `user://StsTools/test/` par
   puis remettre par `saveput`/`savedel` jeu lancé, redémarrer le jeu et comparer les empreintes (md5).
 - Partie de test : `fakemp <perso> [<perso>…]` lance une partie neuve, seul ou à plusieurs (le premier joueur est le
   nôtre, les autres n'agissent pas) ; toutes les sauvegardes du jeu et du mod sont bloquées jusqu'au retour au menu.
+  La progression du profil en mémoire (victoires par ennemi, cartes vues…) est remise au retour au menu : sans ça,
+  le jeu l'écrivait à sa fermeture (bouton Quit, SIGTERM) dans progress.save, et dans le Steam Cloud (2026-11-23).
+  Le GUI du mod garde son état (onglet choisi) dans `StsTools/settings.json` : à comparer et remettre aussi.
 
 Pièges :
 - Juste après le menu principal ou le chargement d'une partie, l'écran peut rester noir et `tree` vide quelques
