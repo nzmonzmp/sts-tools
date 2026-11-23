@@ -38,7 +38,7 @@ public static class TestBridge
           scroll <x> <y> <up|down> [n]
           key <name> [n]            press a key (Godot names: Escape, Enter, M, F7, Ctrl+Z...), n times
           console <command>         dev console command (solo)
-          gui open|close            the mod's GUI;  gui tab <title>[/<sub-tab>]: select a GUI tab
+          gui open|close|text       the mod's GUI (text: its visible text);  gui tab <title>[/<sub-tab>]: select a GUI tab
           map open|close            the map screen
           points                    map points: coord, type, state, center
           hoverpoint <col> <row>    hover a map point;  clickpoint <col> <row>: click it
@@ -48,6 +48,8 @@ public static class TestBridge
           combat                    player, hand (index, cost, target, playable, text), enemies (index, HP, intents)
           play <card> [enemy]       play the hand card at this index (on this enemy index if it needs a target)
           aim <card> [enemy]        like play, without the last click: the card stays aimed (mod preview); rclick cancels
+          preview                   text of the mod's card/potion preview shown now
+          check <card> [enemy]      play it, printing the mod preview before the last click and the real changes after
           endturn                   click the end turn button
           deletehistory             delete every run history file of the profile (local and Steam Cloud)
           savels <dir>              files of a save folder, through the game's save store (e.g. profile1/saves)
@@ -216,8 +218,17 @@ public static class TestBridge
                         if (!RunPanel.SelectTabByTitle(string.Join(' ', args.Skip(1))))
                             throw new InvalidOperationException("no such tab available");
                         break;
+                    case "text":
+                    {
+                        // Texte visible du panneau, dans l'ordre des nœuds (une ligne par libellé)
+                        var panel = RunPanel.OpenPanel ?? throw new InvalidOperationException("GUI closed");
+                        var lines = All(panel).Where(n => n is Control { } c && c.IsVisibleInTree())
+                            .Select(n => n switch { Label l => l.Text, RichTextLabel r => r.GetParsedText(), Button b => b.Text, _ => "" })
+                            .Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Replace("\n", " / "));
+                        return string.Join("\n", lines);
+                    }
                     default:
-                        throw new ArgumentException("gui open|close|tab <title>[/<sub-tab>]");
+                        throw new ArgumentException("gui open|close|text|tab <title>[/<sub-tab>]");
                 }
                 await Frames(3);
                 return $"GUI {(RunPanel.IsOpen ? "open" : "closed")}";
@@ -324,6 +335,42 @@ public static class TestBridge
                 await Click(to, MouseButton.Left);
                 await Frames(60);
                 return $"played {index} {name}\n{CombatText()}";
+            }
+            case "preview":
+                return TargetPreview.LastPreview.TrimEnd() is { Length: > 0 } shown ? shown : "(no preview)";
+            case "check":
+            {
+                // Comme play, en notant l'aperçu du mod avant le dernier clic et les changements réels après
+                var hand = HandHolders();
+                int index = int.Parse(args[0]);
+                if (index < 0 || index >= hand.Count)
+                    throw new ArgumentException($"no card {index} in hand ({hand.Count} cards)");
+                string name = hand[index].CardNode!.Model!.Title;
+                var before = Snapshot();
+                var box = hand[index].Hitbox.GetGlobalRect();
+                var from = new Vector2(box.GetCenter().X, Math.Min(box.GetCenter().Y, Tree.Root.GetVisibleRect().Size.Y - 90));
+                var to = args.Length > 1 ? Center(Enemies()[int.Parse(args[1])].Hitbox) : new Vector2(960, 420);
+                await Click(from, MouseButton.Left);
+                await Move(to);
+                await Frames(20);
+                string preview = TargetPreview.LastPreview.TrimEnd();
+                await Click(to, MouseButton.Left);
+                // Jusqu'à ce que l'état ne bouge plus (coups multiples, rebonds…)
+                await Frames(60);
+                var after = Snapshot();
+                for (int wait = 0; wait < 40; wait++)
+                {
+                    await Frames(20);
+                    var now = Snapshot();
+                    bool same = now.Count == after.Count && now.All(kv => after.GetValueOrDefault(kv.Key) == kv.Value);
+                    after = now;
+                    if (same)
+                        break;
+                }
+                var changes = before.Keys.Union(after.Keys)
+                    .Where(k => before.GetValueOrDefault(k) != after.GetValueOrDefault(k))
+                    .Select(k => $"  {k}: {before.GetValueOrDefault(k) ?? "-"} -> {after.GetValueOrDefault(k) ?? "-"}");
+                return $"played {index} {name}\npreview:\n{(preview == "" ? "(none)" : preview)}\nreal:\n{string.Join("\n", changes)}";
             }
             case "fakemp":
                 return await FakeMultiplayer(args);
@@ -793,6 +840,22 @@ public static class TestBridge
     private static string Powers(MegaCrit.Sts2.Core.Entities.Creatures.Creature creature) =>
         string.Join(", ", creature.Powers.Select(p => $"{p.Id.Entry} {p.Amount}"));
 
+    /// <summary>État court de chaque créature du combat, par nom (commande check).</summary>
+    private static Dictionary<string, string> Snapshot()
+    {
+        var result = new Dictionary<string, string>();
+        var player = CardRunStats.LocalPlayer;
+        if (player?.Creature.CombatState is not { } combat)
+            return result;
+        foreach (var c in combat.Creatures)
+            result[$"{c.Name}#{c.CombatId}"] = $"HP {c.CurrentHp} block {c.Block} [{Powers(c)}]";
+        if (player.PlayerCombatState is { } pcs)
+            result["player piles"] = $"energy {pcs.Energy} hand {pcs.Hand.Cards.Count} draw {pcs.DrawPile.Cards.Count} discard {pcs.DiscardPile.Cards.Count} exhaust {pcs.ExhaustPile.Cards.Count}";
+        if (player.PlayerCombatState is { OrbQueue: { Capacity: > 0 } orbs })
+            result["player orbs"] = $"{orbs.Orbs.Count}/{orbs.Capacity} [{string.Join(", ", orbs.Orbs.Select(o => o.Id.Entry))}]";
+        return result;
+    }
+
     private static string CombatText()
     {
         var player = CardRunStats.LocalPlayer ?? throw new InvalidOperationException("not in a run");
@@ -801,7 +864,8 @@ public static class TestBridge
         var me = player.Creature;
         var sb = new System.Text.StringBuilder();
         sb.AppendLine($"player HP {me.CurrentHp}/{me.MaxHp} block {me.Block} energy {combat.Energy}/{combat.MaxEnergy}" +
-                      $" powers [{Powers(me)}] draw {combat.DrawPile.Cards.Count} discard {combat.DiscardPile.Cards.Count}");
+                      $" powers [{Powers(me)}] draw {combat.DrawPile.Cards.Count} discard {combat.DiscardPile.Cards.Count}" +
+                      (combat.OrbQueue.Capacity > 0 ? $" orbs {combat.OrbQueue.Orbs.Count}/{combat.OrbQueue.Capacity} [{string.Join(", ", combat.OrbQueue.Orbs.Select(o => o.Id.Entry))}]" : ""));
         var hand = HandHolders();
         for (int i = 0; i < hand.Count; i++)
         {

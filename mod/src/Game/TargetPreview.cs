@@ -263,8 +263,16 @@ public static class TargetPreview
         }
     }
 
+#if TESTBRIDGE
+    /// <summary>Texte de l'aperçu affiché (pont de test, commande check) ; vide : aucun.</summary>
+    internal static string LastPreview = "";
+#endif
+
     public static void Hide()
     {
+#if TESTBRIDGE
+        LastPreview = "";
+#endif
         foreach (var box in Boxes.Values)
             if (GodotObject.IsInstanceValid(box.Panel))
                 box.Panel.Visible = false;
@@ -330,6 +338,9 @@ public static class TargetPreview
                     : outcome.Max.ContainsKey(creature) ? "range: your choice"
                     : outcome.Runs > 1 ? $"average of {outcome.Runs}" : "";
                 rows.Insert(0, [creature == user ? title : creature.Name, note]);
+#if TESTBRIDGE
+                LastPreview += string.Join("; ", rows.Select(r => string.Join(" ", r).Trim())) + "\n";
+#endif
                 ShowBox(room, creature, node, rows, outcome);
             }
         }

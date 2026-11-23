@@ -69,6 +69,10 @@ Build de test installée ; commandes déposées dans `user://StsTools/test/` par
 - Actions : `click <texte>`, `clickat`/`rclick`/`move <x> <y>`, `scroll`, `key <nom> [n]`, `console <commande>`,
   `gui open|close|tab <titre>[/<sous-onglet>]` (`gui tab Combat/End turn`), `map open|close`, `hoverpoint`/`clickpoint <col> <ligne>`, `play`, `aim`, `endturn`, `deletehistory` (supprime tout l'historique du profil, Steam Cloud compris),
   `pickcard`.
+- Combat : `check <carte> [ennemi]` joue la carte et affiche l'aperçu du mod (avant le dernier clic) puis les
+  changements réels (PV, Block, pouvoirs, piles, orbes), une fois l'état stable : le moyen le moins cher de comparer
+  aperçu et jeu. `preview` : texte de l'aperçu affiché (potion visée…). `gui text` : texte visible du GUI (onglet
+  Combat/End turn…). `combat` montre aussi les orbes.
 - Carte : `roompreview <col> <ligne>` (texte de l'aperçu sans survol), `encounterimage <ID>` (image des monstres).
 - Sauvegardes : `savels <dossier>`, `saveput <chemin> <fichier>`, `savedel <chemin>` passent par le magasin de
   sauvegardes du jeu (local et Steam Cloud ; chemins comme `profile1/saves/current_run.save`). Tester dans la vraie

@@ -77,6 +77,13 @@ de 14 avec 2 de Force). Le jeu leur inflige les dégâts déjà calculés avec s
 l'aperçu reprend maintenant ce paramètre de `CreatureCmd.Damage`. Vérifié en partie de test (20 annoncés et infligés aux
 deux Cultistes).
 
+Corrigé (tests de toutes les classes, 2026-11-23) : l'aperçu oubliait
+- les réactions au Block gagné (`BeforeBlockGained`/`AfterBlockGained` : Juggernaut, Beacon of Hope) ;
+- l'épuisement de la carte jouée elle-même (Exhaust, ou Corruption via `ModifyCardPlayResultLocation`) : Feel No Pain,
+  Dark Embrace n'y réagissaient pas (Offering, Fiend Fire, Skills sous Corruption) ;
+- les étoiles dépensées (`AfterStarsSpent` : Child of the Stars).
+Chacun reproduit puis vérifié corrigé en partie de test (aperçu = résultat réel).
+
 ### GUI
 
 - Déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et sous la

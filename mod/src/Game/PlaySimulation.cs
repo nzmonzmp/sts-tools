@@ -844,10 +844,16 @@ public sealed class PlaySimulation
         var context = new BlockingPlayerChoiceContext();
         MoveTo(card, PileType.Play);
         if (!auto)
+        {
             Event(() => Hook.AfterEnergySpent(_combat, shadowCard, energy));
+            // Comme le jeu après l'énergie : les étoiles (Child of the Stars…)
+            if (stars > 0)
+                Event(() => Hook.AfterStarsSpent(_combat, stars, player));
+        }
 
         int playCount = PlayCount(shadowCard, target);
-        var resultPile = ResultPile(shadowCard);
+        var resources = new ResourceInfo { EnergySpent = energy, EnergyValue = cost, StarsSpent = stars, StarValue = stars };
+        var resultPile = ResultPile(shadowCard, auto, resources);
         for (int i = 0; i < playCount; i++)
         {
             if (IsDead(player.Creature))
@@ -858,7 +864,7 @@ public sealed class PlaySimulation
                 Player = player,
                 Target = target,
                 ResultPile = resultPile,
-                Resources = new ResourceInfo { EnergySpent = energy, EnergyValue = cost, StarsSpent = stars, StarValue = stars },
+                Resources = resources,
                 IsAutoPlay = auto,
                 PlayIndex = i,
                 PlayCount = playCount,
@@ -876,7 +882,15 @@ public sealed class PlaySimulation
             AddHistory(new CardPlayFinishedEntry(play, _combat.RoundNumber, _combat.CurrentSide, history, _combat.Players));
             Event(() => Hook.AfterCardPlayed(_combat, context, play));
         }
-        MoveTo(card, resultPile);
+        // Comme le jeu : seulement si la carte est encore jouée ; épuisée par CardCmd.Exhaust, avec ses réactions
+        // (Feel No Pain, Dark Embrace…)
+        if (card.Pile?.Type == PileType.Play)
+        {
+            if (resultPile == PileType.Exhaust)
+                Exhaust(card, causedByEthereal: false);
+            else
+                MoveTo(card, resultPile);
+        }
     }
 
     /// <summary>Créature hors du combat (invoquée pendant la simulation).</summary>
@@ -1571,11 +1585,13 @@ public sealed class PlaySimulation
     private static Task OnPlay(CardModel card, PlayerChoiceContext context, CardPlay play) =>
         (Task)OnPlayMethod.Invoke(card, [context, play])!;
 
-    private static PileType ResultPile(CardModel card)
+    /// <summary>Pile de la carte après son jeu, comme le jeu : la sienne, modifiée par les écouteurs (Corruption…).</summary>
+    private PileType ResultPile(CardModel card, bool auto, ResourceInfo resources)
     {
         try
         {
-            return ((CardLocation)ResultLocationMethod.Invoke(card, [])!).pileType;
+            var location = (CardLocation)ResultLocationMethod.Invoke(card, [])!;
+            return Hook.ModifyCardPlayResultLocation(_combat, card, auto, resources, location, out _).pileType;
         }
         catch (Exception)
         {
@@ -2282,9 +2298,12 @@ public sealed class PlaySimulation
     {
         if (IsDead(creature))
             return 0;
+        // Réactions comme le jeu, avant et après le Block (Juggernaut, Beacon of Hope…)
+        Event(() => Hook.BeforeBlockGained(_combat, creature, amount, props, cardPlay?.Card));
         decimal block = Math.Max(0, Hook.ModifyBlock(_combat, creature, amount, props, cardPlay?.Card, cardPlay, out _));
         Body(creature)[1] += (int)block;
         _outcome.Add(creature, Stat.Block, (int)block);
+        Event(() => Hook.AfterBlockGained(_combat, creature, block, props, cardPlay?.Card));
         return block;
     }
 
