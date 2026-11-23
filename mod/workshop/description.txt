@@ -60,3 +60,10 @@ Discord: https://discord.gg/wEB5NVwZPX
 [*][b]Mod guide[/b] rewritten: shorter, with icons and colors.
 [*][b]Fixed[/b] a crash when aiming at the sleeping Lagavulin Matriarch.
 [/list]
+
+[h2]Version 0.1.5[/h2]
+[list]
+[*][b]Map room preview[/b]: shown beside the map instead of next to the hovered room, so it no longer hides your other choices (and avoids the GUI). Healing on entering a room is shown: Pantograph and Bath Robes before a boss, Eternal Feather at rest sites, Planisphere in "?" rooms, Meal Ticket at merchants.
+[*][b]More accurate previews[/b]: Rain Shot and Omnislice no longer add Strength twice to the other enemies; Juggernaut, Beacon of Hope, Feel No Pain and Dark Embrace (the played card's own exhaust, Corruption) and Child of the Stars now count; Inferno, Rupture and Demon Tongue no longer react to enemy attacks.
+[*][b]Clearer ranges[/b]: damage, draw and HP lost ranges never go below 0.
+[/list]
