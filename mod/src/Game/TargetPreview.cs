@@ -394,12 +394,17 @@ public static class TargetPreview
         var max = outcome.Max.GetValueOrDefault(creature);
         var spread = outcome.Spread.GetValueOrDefault(creature);
         double? MaxOf(string stat) => max != null && max.TryGetValue(stat, out var m) ? m : null;
-        // Valeur ; fourchette si elle dépend d'un choix ; fourchette et espérance si elle dépend du hasard
-        string Value(string stat, double value, Func<double, string> format) =>
-            MaxOf(stat) is { } high ? $"{format(value)}–{format(high)}"
-            : spread != null && spread.TryGetValue(stat, out var range)
-                ? $"{format(range.Low)}–{format(range.High)} ({format(value)})"
-            : format(value);
+        // Valeur ; fourchette si elle dépend d'un choix ; fourchette et espérance si elle dépend du hasard. Une quantité
+        // (dégâts, pioche…) comparée à la fin de tour sans la carte peut passer sous 0 (Dualcast qui retire une orbe) :
+        // bornes ramenées à 0
+        string Value(string stat, double value, Func<double, string> format)
+        {
+            double Floor(double v) => Unsigned.Contains(stat) ? Math.Max(0, v) : v;
+            return MaxOf(stat) is { } high ? $"{format(Floor(value))}–{format(Floor(high))}"
+                : spread != null && spread.TryGetValue(stat, out var range)
+                    ? $"{format(Floor(range.Low))}–{format(Floor(range.High))} ({format(Floor(value))})"
+                : format(value);
+        }
 
         var order = stats.Keys.OrderBy(k => k switch
         {

@@ -84,6 +84,10 @@ Corrigé (tests de toutes les classes, 2026-11-23) : l'aperçu oubliait
 - les étoiles dépensées (`AfterStarsSpent` : Child of the Stars).
 Chacun reproduit puis vérifié corrigé en partie de test (aperçu = résultat réel).
 
+Fourchettes des quantités (dégâts, pioche, PV perdus…) ramenées à 0 au minimum : comparées à la fin de tour sans la
+carte, elles pouvaient passer sous 0 (Dualcast qui retire une orbe Lightning : « Damage -1.5–14.5 », maintenant
+« 0–14.5 »).
+
 ### GUI
 
 - Déplaçable (en-tête), hauteur réglable (poignée du bas, double-clic : automatique), toujours dans l'écran et sous la
