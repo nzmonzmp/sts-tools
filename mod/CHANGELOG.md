@@ -72,6 +72,10 @@ Corrigé : viser la Lagavulin Matriarch endormie fermait le jeu au deuxième ape
 (`Stop` des nœuds `Nodes.Vfx`) sont maintenant bloqués pendant les aperçus, comme les autres animations directes.
 Reproduit puis vérifié corrigé en partie de test (rapport de plantage du 2026-11-22).
 
+Corrigé : viser les Decimillipedes avec une attaque qui tue tous les segments faisait disparaître leurs intentions.
+La mort du dernier segment (Reattach) cache les intentions de tous ; `NCreature.AnimHideIntent` et `SetIsInteractable`
+sont maintenant bloqués pendant les aperçus.
+
 Corrigé : Rain Shot (et Omnislice) annonçaient sur les autres ennemis les dégâts de la cible plus la Force (16 au lieu
 de 14 avec 2 de Force). Le jeu leur inflige les dégâts déjà calculés avec seulement les plafonds (`ModifyDamageHookType.Cap`) ;
 l'aperçu reprend maintenant ce paramètre de `CreatureCmd.Damage`. Vérifié en partie de test (20 annoncés et infligés aux

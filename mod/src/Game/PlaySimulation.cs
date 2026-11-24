@@ -1201,7 +1201,9 @@ public sealed class PlaySimulation
     /// <summary>
     /// Animations lancées directement par le code des monstres et des pouvoirs, sans commande (donc pas interceptées) :
     /// décor animé d'un boss (pinces du Kaiser Crab qui encaissent un coup ou meurent, AfterCurrentHpChanged et
-    /// BeforeDeath du Crusher), animations Spine, flou, taille, retrait du nœud d'une créature (Doom). Pendant la
+    /// BeforeDeath du Crusher), animations Spine, flou, taille, retrait du nœud d'une créature (Doom), intentions
+    /// cachées et créature rendue visable ou non (Reattach : tous les segments de Decimillipede tués par l'aperçu
+    /// cachaient pour de vrai leurs intentions). Pendant la
     /// simulation, ces réactions tournent sur le vrai monstre : sans ce patch, elles se jouaient pour de vrai en
     /// visant une carte.
     /// </summary>
@@ -1226,7 +1228,7 @@ public sealed class PlaySimulation
             foreach (var method in room.GetMethods(BindingFlags.Public | BindingFlags.Instance).Where(m => m.Name == name))
                 yield return method;
         foreach (var method in typeof(MegaCrit.Sts2.Core.Nodes.Combat.NCreature).GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                     .Where(m => m.Name == "SetDefaultScaleTo"))
+                     .Where(m => m.Name is "SetDefaultScaleTo" or "AnimHideIntent" or "SetIsInteractable"))
             yield return method;
         if (AccessTools.Method(typeof(MegaCrit.Sts2.Core.Bindings.MegaSpine.SpineAnimationAccess), "SetAnimation") is { } spine)
             yield return spine;
