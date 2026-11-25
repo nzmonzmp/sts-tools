@@ -1,6 +1,8 @@
 using Godot;
 using HarmonyLib;
 using MegaCrit.Sts2.Core.Entities.Ascension;
+using MegaCrit.Sts2.Core.Entities.Cards;
+using MegaCrit.Sts2.Core.Entities.Merchant;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Logging;
@@ -24,7 +26,7 @@ namespace StsTools.Game;
 /// les combats déjà faits), or, chance de potion, récompenses de cartes et leurs raretés, reliques ;</item>
 /// <item>« ? » : probabilité de chaque issue (événement, combat, marchand, trésor, élite), puis le détail d'un combat
 /// et d'un trésor ;</item>
-/// <item>trésor : or et relique ; feu de camp : soin.</item>
+/// <item>trésor : or et relique ; feu de camp : soin ; marchand : ce qu'il peut vendre et ses prix.</item>
 /// </list>
 /// Lit seulement l'état visible ou déduit de ce qui s'est passé (combats faits, chances courantes de potion, de
 /// rareté et des « ? ») et appelle directement les méthodes des reliques qui changent ces règles, sans passer par
@@ -97,7 +99,8 @@ public static class MapRoomPreview
                 _key = key;
                 var rows = Rows(state, player, point.Point);
                 EnsurePanel(screen);
-                StatsTable.Fill(_grid!, rows ?? [], IconFor);
+                var icons = RowIcons(rows ?? [], player);
+                StatsTable.Fill(_grid!, rows ?? [], IconFor, iconForRow: row => StatsTable.LoadIcon(icons.ElementAtOrDefault(row)));
                 if (rows is { Count: > 0 })
                     AddMonsterImages(rows);
                 _panel!.Visible = rows is { Count: > 0 };
@@ -132,7 +135,7 @@ public static class MapRoomPreview
         float height = _encounterRows.Count <= 8 ? 40 : 30;
         foreach (var (row, encounter) in _encounterRows)
         {
-            int index = row * columns + 1;
+            int index = row * columns + columns - 1;
             if (index >= _grid.GetChildCount())
                 continue;
             var old = _grid.GetChild(index);
@@ -241,14 +244,70 @@ public static class MapRoomPreview
         _panel.GlobalPosition = new Vector2(chosen, y);
     }
 
-    private static Texture2D? IconFor(string name) => StatsTable.LoadIcon(name switch
+    private static Texture2D? IconFor(string name) => StatsTable.LoadIcon(IconPath(name.Trim()));
+
+    private const string MapIcons = "res://images/packed/common_ui/map/icons/";
+
+    /// <summary>Icône d'une ligne ou d'un titre de groupe d'après son nom, ou null.</summary>
+    private static string? IconPath(string name)
     {
-        "Gold" => "res://images/packed/sprite_fonts/gold_icon.png",
-        "Potion" => "res://images/packed/sprite_fonts/potion_icon.png",
-        "Card rewards" => "res://images/packed/sprite_fonts/card_icon.png",
-        "Heal" => "res://images/packed/common_ui/top_bar/top_bar_heart.png",
-        _ => null,
-    });
+        // Titres de catégorie du marchand : « If shop: cards ×5 » → « Cards »
+        if (name.StartsWith("If shop: "))
+            name = char.ToUpperInvariant(name["If shop: ".Length]) + name["If shop: ".Length..][1..];
+        if (name.LastIndexOf(" ×", StringComparison.Ordinal) is var times and > 0)
+            name = name[..times];
+        if (name.StartsWith("Possible enemies") || name.StartsWith("If fight") || name == "Enemy" || name == "Fight")
+            return MapIcons + "map_monster.png";
+        return name switch
+        {
+            "Gold" => "res://images/packed/sprite_fonts/gold_icon.png",
+            "Potion" or "Potions" => "res://images/packed/sprite_fonts/potion_icon.png",
+            "Card rewards" or "Cards" or "Colorless cards" => "res://images/packed/sprite_fonts/card_icon.png",
+            "Heal" => "res://images/packed/common_ui/top_bar/top_bar_heart.png",
+            "Relics" => "res://images/ui/reward_screen/reward_icon_shared_relic.png",
+            "Card removal" or "Services" => "res://images/ui/reward_screen/reward_icon_card_removal.png",
+            "On sale" => "res://images/rooms/merchant_room/shop_sales_tag.png",
+            "Shop" or "Shop relic" or "Offers" or "If shop" => MapIcons + "map_shop.png",
+            "Elite" or "If elite" => MapIcons + "map_elite.png",
+            "Treasure" or "If treasure" => MapIcons + "map_chest.png",
+            "Boss" => MapIcons + "map_chest_boss.png",
+            "Event" or "Unknown" or "Possible rooms" => MapIcons + "map_unknown.png",
+            "Rest site" => MapIcons + "map_rest.png",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Icône de chaque ligne : la sienne (nom connu, relique possédée), sinon celle de la ligne dont elle dépend (ligne
+    /// non décalée au-dessus pour une ligne décalée, sinon titre du groupe ; ennemis d'une élite : icône d'élite).
+    /// </summary>
+    private static List<string?> RowIcons(List<string[]> rows, Player player)
+    {
+        var relics = new Dictionary<string, string>();
+        foreach (var relic in player.Relics)
+            relics.TryAdd(relic.Title.GetFormattedText(), relic.PackedIconPath);
+        var icons = new List<string?>();
+        string? group = rows.Count > 0 ? IconPath(rows[0][0]) : null, parent = group;
+        for (int i = 0; i < rows.Count; i++)
+        {
+            string name = rows[i][0], trimmed = name.Trim();
+            string? own = relics.GetValueOrDefault(trimmed) ?? IconPath(trimmed);
+            if (i > 0 && rows[i].Length == 1)
+            {
+                group = parent = own ?? group;
+                if (trimmed.StartsWith("Possible enemies") && rows[0][0] == "Elite")
+                    group = parent = IconPath("Elite");
+                icons.Add(own == null ? null : group);
+                continue;
+            }
+            bool indented = name.StartsWith("  ");
+            string? icon = own ?? (indented ? parent : group);
+            if (!indented)
+                parent = icon;
+            icons.Add(icon);
+        }
+        return icons;
+    }
 
     // ---- Contenu ----
 
@@ -287,14 +346,28 @@ public static class MapRoomPreview
                 rows.Add(["Rest site", Floor(state, point)]);
                 Rest(rows, state, player);
                 break;
-            case MapPointType.Shop when EntryHeals(state, player, point.PointType).Count > 0:
+            case MapPointType.Shop:
                 rows.Add(["Shop", Floor(state, point)]);
+                Shop(rows, state, player, before);
                 break;
             default:
                 return null;
         }
         // Soins des reliques en entrant (Pantograph avant un boss…), après l'en-tête
-        rows.InsertRange(1, EntryHeals(state, player, point.PointType));
+        var heals = EntryHeals(state, player, point.PointType);
+        rows.InsertRange(1, heals);
+        // Les lignes des rencontres descendent d'autant
+        if (heals.Count > 0)
+            foreach (var (row, encounter) in _encounterRows.OrderByDescending(kv => kv.Key).ToList())
+            {
+                _encounterRows.Remove(row);
+                _encounterRows[row + heals.Count] = encounter;
+            }
+        // Trois colonnes (nom, chance, prix du marchand) : les autres valeurs vont dans la dernière, alignées à droite
+        if (rows.Any(r => r.Length == 3))
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].Length == 2)
+                    rows[i] = [rows[i][0], "", rows[i][1]];
         return rows;
     }
 
@@ -316,10 +389,11 @@ public static class MapRoomPreview
     /// </summary>
     /// <param name="MinCombats">le moins de combats sûrs (combats et élites) sur un même chemin</param>
     /// <param name="MaxCombats">le plus de combats possibles (un « ? » peut en être un) sur un même chemin</param>
+    /// <param name="MaxShops">le plus de marchands possibles (un « ? » peut en être un) sur un même chemin</param>
     private sealed record Before(int MinFights, int MaxFights, int MinElites, int MaxElites, int MinUnknowns, int MaxUnknowns,
-        int MinCombats, int MaxCombats, bool AfterShopOnly, bool AfterShopMaybe);
+        int MinCombats, int MaxCombats, bool AfterShopOnly, bool AfterShopMaybe, int MaxShops);
 
-    private readonly record struct Span(int MinF, int MaxF, int MinE, int MaxE, int MinU, int MaxU, int MinC, int MaxC);
+    private readonly record struct Span(int MinF, int MaxF, int MinE, int MaxE, int MinU, int MaxU, int MinC, int MaxC, int MaxS);
 
     /// <summary>
     /// Salles où l'on peut aller ensuite, avec les sauts libres qui restent (-1 : sans limite) : les salles reliées et,
@@ -343,7 +417,7 @@ public static class MapRoomPreview
         Span? From(MapPoint p, int jumps)
         {
             if (p.coord == target.coord)
-                return new Span(0, 0, 0, 0, 0, 0, 0, 0);
+                return new Span(0, 0, 0, 0, 0, 0, 0, 0, 0);
             if (p.coord.row >= target.coord.row && target.PointType != MapPointType.Boss)
                 return null;
             if (memo.TryGetValue((p.coord, jumps), out var known))
@@ -359,12 +433,13 @@ public static class MapRoomPreview
                     int f = next.PointType == MapPointType.Monster ? 1 : 0;
                     int e = next.PointType == MapPointType.Elite ? 1 : 0;
                     int u = next.PointType == MapPointType.Unknown ? 1 : 0;
+                    int shop = next.PointType == MapPointType.Shop ? 1 : 0;
                     s = new Span(s.MinF + f, s.MaxF + f, s.MinE + e, s.MaxE + e, s.MinU + u, s.MaxU + u,
-                        s.MinC + f + e, s.MaxC + f + e + u);
+                        s.MinC + f + e, s.MaxC + f + e + u, s.MaxS + shop + u);
                 }
                 best = best is not { } b ? s : new Span(Math.Min(b.MinF, s.MinF), Math.Max(b.MaxF, s.MaxF),
                     Math.Min(b.MinE, s.MinE), Math.Max(b.MaxE, s.MaxE), Math.Min(b.MinU, s.MinU), Math.Max(b.MaxU, s.MaxU),
-                    Math.Min(b.MinC, s.MinC), Math.Max(b.MaxC, s.MaxC));
+                    Math.Min(b.MinC, s.MinC), Math.Max(b.MaxC, s.MaxC), Math.Max(b.MaxS, s.MaxS));
             }
             memo[(p.coord, jumps)] = best;
             return best;
@@ -397,10 +472,10 @@ public static class MapRoomPreview
         bool shopMaybe = shopOnly || currentShop || all.Any(t => t is MapPointType.Shop or MapPointType.Unknown);
         if (From(start, startJumps) is { } span)
             return new Before(span.MinF, span.MaxF, span.MinE, span.MaxE, span.MinU, span.MaxU, span.MinC, span.MaxC,
-                shopOnly, shopMaybe);
+                shopOnly, shopMaybe, span.MaxS);
         // Hors d'atteinte (salle d'une autre branche) : bornes larges
         int rows = Math.Max(0, target.coord.row - (state.CurrentMapPoint?.coord.row ?? 0) - 1);
-        return new Before(0, rows, 0, rows, 0, rows, 0, rows, shopOnly, true);
+        return new Before(0, rows, 0, rows, 0, rows, 0, rows, shopOnly, true, rows);
     }
 
     // ---- Combats ----
@@ -689,19 +764,7 @@ public static class MapRoomPreview
         float rareBase = type == RoomType.Elite ? CardRarityOdds.EliteRareOdds : CardRarityOdds.RegularRareOdds;
         float uncommonBase = type == RoomType.Elite ? CardRarityOdds.eliteUncommonOdds : CardRarityOdds.regularUncommonOdds;
         double Rare(float baseRare, float offset) => Math.Clamp(baseRare + offset, 0, 1);
-        // Décalage après une carte : au plus bas après une rare, sinon un peu plus haut
-        Dictionary<float, double> Card(Dictionary<float, double> offsets, float baseRare)
-        {
-            var next = new Dictionary<float, double>();
-            foreach (var (o, p) in offsets)
-            {
-                double rare = Rare(baseRare, o);
-                float up = MathF.Round(Math.Min(o + growth, 0.4f), 4);
-                next[-0.05f] = next.GetValueOrDefault(-0.05f) + p * rare;
-                next[up] = next.GetValueOrDefault(up) + p * (1 - rare);
-            }
-            return next;
-        }
+        Dictionary<float, double> Card(Dictionary<float, double> offsets, float baseRare) => NextCard(offsets, baseRare, growth);
         var offsets = new Dictionary<float, double> { [MathF.Round(odds.CurrentValue, 4)] = 1 };
         var counts = CombatCounts(before).ToHashSet();
         var results = new List<(double Rare, double Uncommon)>();
@@ -730,6 +793,20 @@ public static class MapRoomPreview
         rows.Add(["  Rare", Of(r => r.Rare)]);
         rows.Add(["  Uncommon", Of(r => r.Uncommon)]);
         rows.Add(["  Common", Of(r => 1 - r.Rare - r.Uncommon)]);
+    }
+
+    /// <summary>Décalage de rareté après une carte proposée : au plus bas après une rare, sinon un peu plus haut.</summary>
+    private static Dictionary<float, double> NextCard(Dictionary<float, double> offsets, float baseRare, float growth)
+    {
+        var next = new Dictionary<float, double>();
+        foreach (var (o, p) in offsets)
+        {
+            double rare = Math.Clamp(baseRare + o, 0, 1);
+            float up = MathF.Round(Math.Min(o + growth, 0.4f), 4);
+            next[-0.05f] = next.GetValueOrDefault(-0.05f) + p * rare;
+            next[up] = next.GetValueOrDefault(up) + p * (1 - rare);
+        }
+        return next;
     }
 
     /// <summary>Rareté d'une relique de récompense ou de coffre : 50 % commune, 33 % peu commune, 17 % rare.</summary>
@@ -764,6 +841,10 @@ public static class MapRoomPreview
         {
             rows.Add(["If treasure"]);
             Treasure(rows, state, player);
+        }
+        if (chances.Any(c => c.Type == RoomType.Shop && c.High > 0))
+        {
+            Shop(rows, state, player, before, "If shop: ");
         }
     }
 
@@ -918,6 +999,168 @@ public static class MapRoomPreview
         }
         // En Blitz, deux tours de choix : deux reliques par joueur (en coop aussi depuis la v0.114)
         RelicRarities(rows, state.GameMode == GameMode.Blitz ? "2" : "1");
+    }
+
+    // ---- Marchand ----
+
+    /// <summary>Cartes de personnage du marchand, une par type, dans l'ordre du jeu.</summary>
+    private static readonly CardType[] ShopCardTypes = [CardType.Attack, CardType.Attack, CardType.Skill, CardType.Skill, CardType.Power];
+
+    /// <summary>
+    /// Marchand : ce qu'il peut vendre et à quels prix, jamais ce qu'il vendra (tiré en entrant, avec l'aléa des
+    /// boutiques, que le mod ne lit pas). 5 cartes du personnage (2 attaques, 2 compétences, 1 pouvoir ; une à moitié
+    /// prix), 2 incolores (peu commune, rare), 2 reliques au hasard et 1 de boutique, 3 potions, retrait de carte. Prix
+    /// de base à ±5 % (reliques ±15 %), puis réductions des reliques (Membership Card, The Courier). Rareté des cartes :
+    /// chances du marchand décalées par la chance courante du joueur (comme une récompense, sans la changer), qui bouge
+    /// avec les combats d'ici là (fourchette) ; un type sans carte de la rareté tirée prend la suivante, comme le jeu.
+    /// En Blitz, marchand à choix (6 offres, 3 choix).
+    /// </summary>
+    /// <param name="prefix">devant le titre de chaque catégorie (« ? » : « If shop: »)</param>
+    private static void Shop(List<string[]> rows, RunState state, Player player, Before before, string prefix = "")
+    {
+        if (state.GameMode == GameMode.Blitz)
+        {
+            if (prefix != "")
+                rows.Add(["If shop"]);
+            rows.Add(["Offers", "6, pick 3"]);
+            return;
+        }
+        string Title(string name) => prefix == "" ? name : prefix + name.ToLowerInvariant();
+        // Entrée témoin pour les méthodes de prix des reliques (elles ne regardent que le joueur)
+        var probe = new MerchantCardRemovalEntry(player);
+        int Price(int cost)
+        {
+            decimal value = cost;
+            foreach (var model in Listeners(state))
+                value = model.ModifyMerchantPrice(player, probe, value);
+            return (int)value;
+        }
+        string Cost(int min, int max) => $"{Range(Price(min), Price(max))} gold";
+        string CardCost(int cost, bool colorless = false)
+        {
+            if (colorless)
+                cost = Mathf.RoundToInt(cost * 1.15f);
+            return Cost(Mathf.RoundToInt(cost * 0.95f), Mathf.RoundToInt(cost * 1.05f));
+        }
+
+        // Cartes du personnage : nom, chance, prix (trois colonnes alignées)
+        var chances = ShopCardRarities(state, player, before);
+        string Of(Func<(double Common, double Uncommon, double Rare), double> f) =>
+            Percent((float)chances.Min(f), (float)chances.Max(f));
+        rows.Add([Title("Cards") + " ×5"]);
+        rows.Add(["Common", Of(c => c.Common), CardCost(50)]);
+        rows.Add(["Uncommon", Of(c => c.Uncommon), CardCost(75)]);
+        rows.Add(["Rare", Of(c => c.Rare), CardCost(150)]);
+        rows.Add(["On sale", "1 card", "half price"]);
+        foreach (var relic in player.Relics)
+        {
+            string? effect = relic switch
+            {
+                MoltenEgg => "Attacks upgraded",
+                ToxicEgg => "Skills upgraded",
+                FrozenEgg => "Powers upgraded",
+                FresnelLens => "Nimble",
+                _ => null,
+            };
+            if (effect != null)
+                rows.Add([relic.Title.GetFormattedText(), "", effect]);
+        }
+
+        rows.Add([Title("Colorless cards") + " ×2"]);
+        rows.Add(["Uncommon", "1", CardCost(75, true)]);
+        rows.Add(["Rare", "1", CardCost(150, true)]);
+
+        // Reliques : 2 de rareté tirée, 1 de boutique
+        string RelicCost(int cost) => Cost((int)Math.Round(cost * 0.85f), (int)Math.Round(cost * 1.15f));
+        rows.Add([Title("Relics") + " ×3"]);
+        rows.Add(["Common", "50%", RelicCost(175)]);
+        rows.Add(["Uncommon", "33%", RelicCost(225)]);
+        rows.Add(["Rare", "17%", RelicCost(275)]);
+        rows.Add(["Shop relic", "1", RelicCost(200)]);
+
+        // Potions
+        string PotionCost(int cost) => Cost((int)Mathf.Round(cost * 0.95f), (int)Mathf.Round(cost * 1.05f));
+        rows.Add([Title("Potions") + " ×3"]);
+        rows.Add(["Common", "65%", PotionCost(50)]);
+        rows.Add(["Uncommon", "25%", PotionCost(75)]);
+        rows.Add(["Rare", "10%", PotionCost(100)]);
+
+        // Retrait : plus cher à chaque retrait fait chez un marchand (ceux d'ici là compris) ; reliques du marchand
+        rows.Add([Title("Services")]);
+        if (Listeners(state).Any(m => !m.ShouldAllowMerchantCardRemoval(player)))
+            rows.Add(["Card removal", "", "Not available"]);
+        else
+        {
+            int baseCost = AscensionHelper.GetValueIfAscension(AscensionLevel.Inflation, 100, 75);
+            int increase = MerchantCardRemovalEntry.PriceIncrease;
+            int used = player.ExtraFields.CardShopRemovalsUsed;
+            rows.Add(["Card removal", "", Cost(baseCost + increase * used, baseCost + increase * (used + before.MaxShops))]);
+        }
+        foreach (var relic in player.Relics)
+        {
+            string? effect = relic switch
+            {
+                MembershipCard m => $"−{100 - m.DynamicVars["Discount"].IntValue}% prices",
+                TheCourier c => $"−{c.DynamicVars["Discount"].IntValue}% prices, restocks",
+                _ => null,
+            };
+            if (effect != null)
+                rows.Add([relic.Title.GetFormattedText(), "", effect]);
+        }
+    }
+
+    /// <summary>
+    /// Chances de rareté d'une carte du personnage chez le marchand, en moyenne sur ses 5 cartes, pour chaque nombre de
+    /// combats d'ici là (3 cartes proposées par combat font bouger la chance courante du joueur).
+    /// </summary>
+    private static List<(double Common, double Uncommon, double Rare)> ShopCardRarities(RunState state, Player player, Before before)
+    {
+        var pool = player.Character.CardPool.GetUnlockedCards(player.UnlockState, ((IRunState)state).CardMultiplayerConstraint);
+        foreach (var model in Listeners(state))
+            pool = model.ModifyMerchantCardPool(player, pool);
+        var cards = pool.Where(c => c.Rarity != CardRarity.Basic && c.IsAllowedInRun(state)).ToList();
+        // Rareté vraiment donnée à un type : la suivante (avec retour aux communes) si le type n'en a aucune
+        CardRarity Allowed(CardRarity rarity, CardType type)
+        {
+            var first = rarity;
+            while (!cards.Any(c => c.Rarity == rarity && c.Type == type))
+            {
+                rarity = rarity.GetNextHighestRarityWithWrapping();
+                if (rarity == first || rarity == CardRarity.None)
+                    return first;
+            }
+            return rarity;
+        }
+        var odds = player.PlayerOdds.CardRarity;
+        (double, double, double) Chances(Dictionary<float, double> offsets)
+        {
+            var total = new Dictionary<CardRarity, double>();
+            foreach (var (o, p) in offsets)
+            {
+                double rare = Math.Clamp(CardRarityOdds.ShopRareOdds + o, 0, 1);
+                double uncommon = Math.Clamp(CardRarityOdds.shopUncommonOdds + CardRarityOdds.ShopRareOdds + o, 0, 1) - rare;
+                foreach (var type in ShopCardTypes)
+                    foreach (var (rarity, chance) in new[] { (CardRarity.Rare, rare), (CardRarity.Uncommon, uncommon),
+                                 (CardRarity.Common, 1 - rare - uncommon) })
+                    {
+                        var given = Allowed(rarity, type);
+                        total[given] = total.GetValueOrDefault(given) + p * chance / ShopCardTypes.Length;
+                    }
+            }
+            return (total.GetValueOrDefault(CardRarity.Common), total.GetValueOrDefault(CardRarity.Uncommon),
+                total.GetValueOrDefault(CardRarity.Rare));
+        }
+        var current = new Dictionary<float, double> { [MathF.Round(odds.CurrentValue, 4)] = 1 };
+        var counts = CombatCounts(before).ToHashSet();
+        var results = new List<(double, double, double)>();
+        for (int step = 0; step <= counts.Max(); step++)
+        {
+            if (counts.Contains(step))
+                results.Add(Chances(current));
+            for (int card = 0; card < 3; card++)
+                current = NextCard(current, CardRarityOdds.RegularRareOdds, odds.RarityGrowth);
+        }
+        return results;
     }
 
     /// <summary>Feu de camp : soin de 30 % des PV max, modifié par les reliques comme le jeu.</summary>

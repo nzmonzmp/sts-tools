@@ -30,8 +30,9 @@ public static class StatsTable
     }
 
     /// <summary>Remplace le contenu de <paramref name="grid"/> par <paramref name="rows"/>.</summary>
+    /// <param name="iconForRow">icône d'une ligne d'après sa place, avant <paramref name="iconFor"/></param>
     public static void Fill(GridContainer grid, IReadOnlyList<string[]> rows, Func<string, Texture2D?>? iconFor = null,
-        Func<string, Color?>? colorFor = null)
+        Func<string, Color?>? colorFor = null, Func<int, Texture2D?>? iconForRow = null)
     {
         iconFor ??= CardRunStats.IconFor;
         foreach (var child in grid.GetChildren())
@@ -51,7 +52,16 @@ public static class StatsTable
                 var title = Label(rows[r][0], StsColors.gold);
                 title.CustomMinimumSize = new Vector2(0, FontSize + 14);
                 title.VerticalAlignment = VerticalAlignment.Bottom;
-                grid.AddChild(title);
+                // Icône du titre seulement si l'appelant en donne une par ligne
+                if (iconForRow?.Invoke(r) is { } titleIcon)
+                {
+                    // Icône en bas, avec le texte (l'espace au-dessus du titre reste vide)
+                    var withIcon = WithIcon(titleIcon, title);
+                    withIcon.GetChild<TextureRect>(0).SizeFlagsVertical = Control.SizeFlags.ShrinkEnd;
+                    grid.AddChild(withIcon);
+                }
+                else
+                    grid.AddChild(title);
                 for (int c = 1; c < columns; c++)
                     grid.AddChild(new Control { MouseFilter = Control.MouseFilterEnum.Ignore });
                 continue;
@@ -65,7 +75,7 @@ public static class StatsTable
                     : StsColors.cream;
                 var label = Label(text, color);
                 label.HorizontalAlignment = c == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-                grid.AddChild(c == 0 && r > 0 ? WithIcon(iconFor(text), label) : label);
+                grid.AddChild(c == 0 && r > 0 ? WithIcon(iconForRow?.Invoke(r) ?? iconFor(text), label) : label);
             }
         }
     }

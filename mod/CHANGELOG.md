@@ -148,7 +148,17 @@ arriver (rien n'est lu de la graine ni des listes tirées par le jeu en début d
 - « ? » : chance de chaque issue (événement, combat, marchand, trésor, élite) avec les règles du jeu (marchand exclu
   après un marchand ou avant des marchands seulement, Juzu Bracelet, Golden Compass, Lantern Key, Dowsing, première
   partie), puis les ennemis et gains d'un combat et d'un trésor ;
-- trésor : or et relique ; feu de camp : soin.
+- trésor : or et relique ; feu de camp : soin ;
+- marchand (et « Si marchand » d'un « ? ») : ce qu'il peut vendre et à quels prix, jamais ce qu'il vendra (tiré en
+  entrant) : 5 cartes du personnage (rareté avec la chance courante du joueur et les combats d'ici là ; un type sans
+  carte de la rareté tirée prend la suivante, comme le jeu ; une carte à moitié prix), 2 incolores, 2 reliques au
+  hasard et 1 de boutique, 3 potions, retrait de carte (plus cher après chaque retrait, fourchette s'il peut y avoir
+  des marchands d'ici là ; Hoarder : pas de retrait). Prix de base ±5 % (reliques ±15 %), réduits par Membership
+  Card et The Courier (remise en stock) ; œufs et Fresnel Lens. Blitz : 6 offres, 3 choix.
+
+Marchand en catégories (cartes, incolores, reliques, potions, services) et trois colonnes (nom, chance, prix). Une
+icône par ligne et par titre de catégorie : la sienne (salles de la carte, or, potion, carte, relique, retrait, solde,
+reliques possédées), sinon celle de la ligne ou du groupe dont elle dépend.
 
 Chances moyennées sur tous les résultats possibles des salles d'ici là ; fourchette selon les chemins ; déplacement
 libre (Winged Boots, Flight) pris en compte. Cartes proposées : Lasting Candy, amélioration à partir de l'acte 2,
