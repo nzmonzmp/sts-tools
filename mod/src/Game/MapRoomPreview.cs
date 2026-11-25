@@ -900,7 +900,8 @@ public static class MapRoomPreview
 
     // ---- Autres salles ----
 
-    /// <summary>Coffre : 42 à 52 pièces d'or (moins en Poverty), modifiées comme tout or gagné, et une relique.</summary>
+    /// <summary>Coffre : 42 à 52 pièces d'or (moins en Poverty, aucune en Blitz), modifiées comme tout or gagné, et une
+    /// relique (deux en Blitz).</summary>
     private static void Treasure(List<string[]> rows, RunState state, Player player)
     {
         if (Listeners(state).Any(m => !m.ShouldGenerateTreasure(player)))
@@ -915,7 +916,8 @@ public static class MapRoomPreview
                 (min, max) = (min * 0.75m, max * 0.75m);
             rows.Add(["Gold", Range(Gold(state, player, (int)min), Gold(state, player, (int)max))]);
         }
-        RelicRarities(rows, "1");
+        // En Blitz, deux tours de choix : deux reliques par joueur (en coop aussi depuis la v0.114)
+        RelicRarities(rows, state.GameMode == GameMode.Blitz ? "2" : "1");
     }
 
     /// <summary>Feu de camp : soin de 30 % des PV max, modifié par les reliques comme le jeu.</summary>

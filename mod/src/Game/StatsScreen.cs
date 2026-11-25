@@ -42,6 +42,8 @@ public sealed class StatsScreen
     private readonly CheckBox _ancientRelics = new() { Text = "Ancient relics", ButtonPressed = true };
     private readonly SpinBox _min = new() { MinValue = 1, MaxValue = 999, Value = 1 };
     private readonly Dictionary<Control, Tab[]> _filterTabs = new();
+    /// <summary>Filtre d'ascension, masqué en mode Dread (pas d'ascension)</summary>
+    private Control? _ascensionFilter;
     private Tab _tab = Tab.Winrate;
     private readonly List<(Tab Tab, TabButton Button)> _tabButtons = new();
 
@@ -246,7 +248,7 @@ public sealed class StatsScreen
         _root.Resized += Place;
         header.Resized += Place;
         AddFilter(filters, "Party", _mode, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
-        AddFilter(filters, "Ascension", _ascension, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
+        _ascensionFilter = AddFilter(filters, "Ascension", _ascension, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Character", _character, [Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Mode", _gameMode, [Tab.Winrate, Tab.Cards, Tab.Relics, Tab.Ancients, Tab.Deaths]);
         AddFilter(filters, "Min. runs", _min, [Tab.Cards, Tab.Relics, Tab.Deaths]);
@@ -373,7 +375,7 @@ public sealed class StatsScreen
     }
 
     /// <param name="label">libellé devant le contrôle, ou null (case à cocher, qui a son propre texte)</param>
-    private void AddFilter(HBoxContainer box, string? label, Control control, Tab[] tabs)
+    private Control AddFilter(HBoxContainer box, string? label, Control control, Tab[] tabs)
     {
         var item = new HBoxContainer();
         item.AddThemeConstantOverride("separation", 8);
@@ -390,6 +392,7 @@ public sealed class StatsScreen
         item.AddChild(new Control { CustomMinimumSize = new Vector2(16, 0) });
         box.AddChild(item);
         _filterTabs[item] = tabs;
+        return item;
     }
 
     // ---- style des filtres : listes déroulantes des paramètres du jeu (scenes/screens/settings_dropdown.tscn) ----
@@ -556,7 +559,7 @@ public sealed class StatsScreen
             _game ??= new GameInfo();
             var (dirs, playerId) = GameInfo.HistorySource();
             var errors = new List<string>();
-            _runs = RunLoader.Load(dirs, playerId, errors);
+            _runs = RunLoader.Load(dirs, playerId, errors, GameInfo.HistoryRenames());
             foreach (var e in errors)
                 Log.Warn($"[{ModEntry.Id}] skipped file: {e}");
             _loadError = null;
@@ -599,6 +602,8 @@ public sealed class StatsScreen
             selected is { } a ? Math.Min(a, max) + 1 : 0);
     }
 
+    private bool DreadSelected() => SelectedGameMode() == "dread";
+
     private string? SelectedGameMode() => _gameMode.Selected > 0 ? _gameModes[_gameMode.Selected - 1] : null;
 
     private int? SelectedAscension(int index) => index > 0 && index <= _ascensions.Count ? _ascensions[index - 1] : null;
@@ -622,7 +627,7 @@ public sealed class StatsScreen
         var f = CurrentFilters();
         _saved.Tab = _tab.ToString();
         _saved.Coop = f.Coop;
-        _saved.Ascension = f.Ascension?.ToString() ?? "all";
+        _saved.Ascension = SelectedAscension(_ascension.Selected)?.ToString() ?? "all";
         _saved.Character = f.Character;
         _saved.GameMode = f.GameMode;
         _saved.Min = f.Min;
@@ -635,7 +640,7 @@ public sealed class StatsScreen
     private Filters CurrentFilters() => new()
     {
         Coop = _mode.Selected == 1,
-        Ascension = SelectedAscension(_ascension.Selected),
+        Ascension = DreadSelected() ? null : SelectedAscension(_ascension.Selected),
         Character = _character.Selected > 0 ? _characters[_character.Selected - 1] : null,
         GameMode = SelectedGameMode(),
         Min = (int)_min.Value,
@@ -665,7 +670,7 @@ public sealed class StatsScreen
         foreach (var child in _sticky.GetChildren())
             child.QueueFree();
         foreach (var (item, tabs) in _filterTabs)
-            item.Visible = tabs.Contains(_tab);
+            item.Visible = tabs.Contains(_tab) && (item != _ascensionFilter || !DreadSelected());
         foreach (var child in _content.GetChildren())
         {
             _content.RemoveChild(child);

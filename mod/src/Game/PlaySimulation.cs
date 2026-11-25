@@ -1070,12 +1070,16 @@ public sealed class PlaySimulation
 
     /// <summary>
     /// Comme le jeu : l'attaque de la flèche, puis Impaled sur la cible (une flèche de plus si elle l'est déjà),
-    /// réactions ; flèche détruite, ou retirée si la cible est morte.
+    /// réactions ; flèche retirée si la cible est morte et qu'elle y est encore.
     /// </summary>
     private void Impale(Creature target, ArrowSlot slot, Func<Task>? action, AttackCommand? attack, CardModel? card)
     {
         if (IsDead(target))
+        {
+            // Comme le jeu (v0.114) : cible morte avant l'impact (réactions au tir), la flèche revient à son tireur
+            _arrows[slot.owner] = _arrows.GetValueOrDefault(slot.owner) + 1;
             return;
+        }
         var context = new BlockingPlayerChoiceContext();
         if (attack != null)
             Wait("arrow attack", attack.Execute(context));
@@ -1092,17 +1096,11 @@ public sealed class PlaySimulation
             return;
         impaled.AddArrow(slot);
         Event(() => Hook.AfterArrowImpaled(_combat, impaled, slot, context, card));
-        if (slot.DestroyAfterImpaled)
-        {
-            impaled.RemoveFirstArrow();
-            if (impaled.Arrows.Count == 0)
-                Remove(impaled);
-        }
-        else if (IsDead(target))
+        if (IsDead(target) && impaled.Arrows.Contains(slot))
             Dislodge(impaled, card);
     }
 
-    /// <summary>Comme le jeu : la première flèche quitte Impaled et revient à son tireur (sauf détruite), réactions.</summary>
+    /// <summary>Comme le jeu : la première flèche quitte Impaled et revient à son tireur, réactions.</summary>
     private void Dislodge(ImpaledPower power, CardModel? source)
     {
         var impaled = (ImpaledPower)ShadowOf(power);
@@ -1111,8 +1109,6 @@ public sealed class PlaySimulation
         // Copie : une vraie flèche (déjà plantée avant l'aperçu) ne doit pas changer
         var arrow = (ArrowSlot)Copy.Object(impaled.RemoveFirstArrow())!;
         Copy.ClearEvents(arrow);
-        if (arrow.DestroyAfterImpaled)
-            return;
         _arrows[arrow.owner] = _arrows.GetValueOrDefault(arrow.owner) + 1;
         _outcome.Add(arrow.owner.Creature, Stat.ArrowsRetrieved, 1);
         Event(() => Hook.AfterArrowDislodged(_combat, impaled, arrow, new BlockingPlayerChoiceContext(), source));

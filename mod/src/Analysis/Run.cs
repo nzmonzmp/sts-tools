@@ -19,7 +19,9 @@ public sealed class Run
     public bool Coop => Data.GetProperty("players").GetArrayLength() > 1;
     public bool Win => Bool(Data, "win");
     public bool Abandoned => Bool(Data, "was_abandoned");
-    public int? Ascension => Data.TryGetProperty("ascension", out var a) && a.ValueKind == JsonValueKind.Number ? a.GetInt32() : null;
+    /// <summary>null en mode Dread, qui n'a pas d'ascension (l'historique y garde pourtant un niveau)</summary>
+    public int? Ascension => GameMode != "dread" && Data.TryGetProperty("ascension", out var a) && a.ValueKind == JsonValueKind.Number
+        ? a.GetInt32() : null;
     public string GameMode => Str(Data, "game_mode") ?? "standard";
     public string Character => Ids.Short(Str(Me, "character") ?? "?");
 

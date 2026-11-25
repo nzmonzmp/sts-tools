@@ -33,7 +33,7 @@ public static class Stats
         var parts = new List<string?>
         {
             f.Coop ? "Coop" : "Solo",
-            AscensionLabel(f.Ascension),
+            f.GameMode == "dread" ? null : AscensionLabel(f.Ascension),
             f.GameMode,
             f.Character == null ? null : game.CharacterName(f.Character),
         };
@@ -62,7 +62,7 @@ public static class Stats
                 rows.Count == 0 ? ["(no runs)"] : [],
                 rows.Count == 0 ? [] : [new Table(null, ["Character", "W", "L", "Winrate"], rows, groups.Select(g => (ItemRef?)new ItemRef(ItemKind.Character, g.Character)).ToList())]));
         }
-        var label = string.Join(", ", new[] { AscensionLabel(f.Ascension), f.GameMode }.Where(p => p != null));
+        var label = string.Join(", ", new[] { f.GameMode == "dread" ? null : AscensionLabel(f.Ascension), f.GameMode }.Where(p => p != null));
         return new Report($"Wins - {label}", [], sections);
     }
 

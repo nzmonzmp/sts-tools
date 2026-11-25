@@ -339,4 +339,18 @@ public sealed class GameInfo : IGameInfo
 #endif
         return (dirs, PlatformUtil.GetLocalPlayerId(PlatformUtil.PrimaryPlatform));
     }
+
+    /// <summary>
+    /// Identifiants renommés par le jeu (v100Renames, v110Renames, v114Renames…), dans l'ordre de ses migrations :
+    /// lus dans le jeu pour suivre les prochains renommages sans changer le mod.
+    /// </summary>
+    public static List<IReadOnlyDictionary<string, string>> HistoryRenames() =>
+        typeof(MegaCrit.Sts2.Core.Saves.Migrations.Shared.SharedMigrationHelper)
+            .GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Where(f => f.Name.EndsWith("Renames", StringComparison.Ordinal)
+                && typeof(IReadOnlyDictionary<string, string>).IsAssignableFrom(f.FieldType))
+            .OrderBy(f => f.MetadataToken)
+            .Select(f => (IReadOnlyDictionary<string, string>?)f.GetValue(null))
+            .OfType<IReadOnlyDictionary<string, string>>()
+            .ToList();
 }

@@ -203,14 +203,14 @@ public sealed partial class CardRunStats
         }
     }
 
-    /// <summary>Flèche retirée d'un ennemi (et rendue au joueur, sauf détruite).</summary>
+    /// <summary>Flèche retirée d'un ennemi (et rendue au joueur).</summary>
     [HarmonyPatch(typeof(ArrowCmd), nameof(ArrowCmd.DislodgeArrow), [typeof(ICombatState), typeof(MegaCrit.Sts2.Core.Models.Powers.ImpaledPower),
         typeof(PlayerChoiceContext), typeof(CardModel)])]
     public static class ArrowDislodgedPatch
     {
         public static void Prefix(MegaCrit.Sts2.Core.Models.Powers.ImpaledPower impaledArrow)
         {
-            if (impaledArrow.Arrows.FirstOrDefault() is { DestroyAfterImpaled: false })
+            if (impaledArrow.Arrows.Count > 0)
                 Current?.Add(ArrowsRetrieved, 1);
         }
     }
