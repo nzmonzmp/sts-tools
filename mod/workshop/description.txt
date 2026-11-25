@@ -80,3 +80,10 @@ Discord: https://discord.gg/wEB5NVwZPX
 [*][b]Stats[/b]: no ascension filter in Dread mode, which has no ascension.
 [*][b]Fixed[/b] killing every Decimillipede segment in a preview hiding their intents for real.
 [/list]
+
+[h2]Version 0.1.8[/h2]
+[list]
+[*][b]Map room preview of shops[/b] (and of "?" rooms that can be a shop): what the merchant can sell and at what price, never what he will sell. Card rarity chances (with your current rare chance and the fights before it), card, colorless card, relic and potion prices, the card on sale, card removal price (higher after each removal, Hoarder), Membership Card and The Courier discounts, eggs and Fresnel Lens.
+[*][b]Map room preview[/b]: grouped in categories, with an icon on every line.
+[*][b]Fixed[/b] enemy pictures shifted by one line in a boss preview with Pantograph or Bath Robes.
+[/list]
