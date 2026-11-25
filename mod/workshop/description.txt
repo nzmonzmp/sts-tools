@@ -72,3 +72,11 @@ Discord: https://discord.gg/wEB5NVwZPX
 [list]
 [*][b]More accurate previews[/b]: a card that wins the fight no longer shows effects the game skips once the fight is over (Ornamental Fan's Block, end of turn). A card that kills an enemy right now shows its damage, instead of only the difference with the end of the turn (Dualcast killing an enemy your Lightning orb would have killed at the end of the turn).
 [/list]
+
+[h2]Version 0.1.7[/h2]
+[list]
+[*][b]Updated for game version 0.114[/b] (beta): Arrows are never destroyed any more (Quietus) and come back when the target dies before the hit, in previews and stats. Older runs with Rapid Shot count it as Twin Shot in the stats.
+[*][b]Map room preview[/b]: chests show 2 relics in Blitz.
+[*][b]Stats[/b]: no ascension filter in Dread mode, which has no ascension.
+[*][b]Fixed[/b] killing every Decimillipede segment in a preview hiding their intents for real.
+[/list]
