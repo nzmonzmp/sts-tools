@@ -100,6 +100,12 @@ public static class ModSettingsOptions
                 Feature("feature.relics", "Relic stats in tooltips", () => ModOptions.RelicStats, (s, v) => s.RelicStats = v),
                 Feature("feature.rooms", "Map room previews", () => ModOptions.RoomPreview, (s, v) => s.RoomPreview = v),
             ]),
+            ("Path finder", [
+                Feature("path.focus", "Keyboard only: focus the next room of the path", () => ModOptions.MapPathFocus,
+                    (s, v) => s.MapPathFocus = v),
+                Feature("path.travel", "Follow the path automatically", () => ModOptions.MapPathAutoTravel,
+                    (s, v) => s.MapPathAutoTravel = v),
+            ]),
             ("Mod guide (? buttons)", [
                 Feature("help.gui", "Show the ? button in the GUI", () => ModOptions.HelpInGui, (s, v) => s.HelpInGui = v),
                 Feature("help.stats", "Show the ? button in the Stats screen", () => ModOptions.HelpInStats, (s, v) => s.HelpInStats = v),

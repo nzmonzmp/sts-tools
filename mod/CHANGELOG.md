@@ -197,6 +197,14 @@ Couleurs dans l'onglet : nom de chaque type dans sa couleur (celle du tracé), b
 rangées « Count » et « Where », choix en surbrillance dans sa couleur (Any en cyan), types Any atténués, noms du tableau
 de composition de l'acte colorés (coffres en or).
 
+Deux options (onglet Mod, section Path finder, décochées par défaut), seulement quand le chercheur tourne (carte et GUI
+ouverts, onglet affiché) : en clavier seul, focus sur la prochaine salle du chemin choisi (quand les chemins changent,
+si le focus est sur la carte, et chaque fois que le jeu remet son focus par défaut) ; chemin suivi tout seul : seulement
+quand la carte s'ouvre par Continuer (pas en l'ouvrant pour la regarder, même chez un marchand où le départ est permis
+dès l'entrée), vote pour la prochaine salle du chemin choisi comme un clic, une fois par salle ;
+en solo, le choix est sauté (départ aussitôt), à plusieurs le vote est immédiat (pas si le joueur a déjà voté, s'il
+dessine, ni avant le tutoriel de la carte).
+
 ### Écran Stats (menu principal)
 
 Bouton « Stats » sous Compendium : historique des parties (taux de victoire, cartes, reliques, défaites, rencontres avec
@@ -214,6 +222,7 @@ suite :
   bord gauche fixe ; None, largeur fixe et défilement horizontal) ;
 - GUI ouvert : aperçu des cartes et des potions, têtes de mort, stats des reliques, aperçu des salles ; Path finder
   caché : chemins plus tracés ;
+- Path finder : focus sur la prochaine salle en clavier seul, chemin suivi tout seul (décochées par défaut) ;
 - « Simulations for random effects » : nombre de simulations moyennées quand le hasard intervient (aperçus, têtes de
   mort, dégâts annoncés) : 4, 8, 12 (par défaut), 16 ou 24 ; plus, c'est plus précis mais plus lent ;
 - rapports de plantage : Ask, Always, Never ; rapports de bug : nom par défaut, logs et partie joints par défaut ;

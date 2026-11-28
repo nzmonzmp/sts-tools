@@ -63,6 +63,15 @@ public sealed class SavedSettings
     /// </summary>
     public Dictionary<string, string>? MapPathPlacements { get; set; }
 
+    /// <summary>
+    /// Chercheur de chemins, en clavier seul : le focus de la carte va sur la prochaine salle du chemin tracé (par
+    /// défaut : celui du jeu)
+    /// </summary>
+    public bool MapPathFocus { get; set; }
+
+    /// <summary>Chercheur de chemins : le chemin tracé est suivi tout seul (vote pour sa prochaine salle)</summary>
+    public bool MapPathAutoTravel { get; set; }
+
     /// <summary>Rapports de plantage : « ask » (demander au menu principal), « always » (envoyer sans demander) ou « never »</summary>
     public string CrashReports { get; set; } = "ask";
 

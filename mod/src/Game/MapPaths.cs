@@ -1,10 +1,14 @@
 using Godot;
+using HarmonyLib;
+using MegaCrit.Sts2.Core.ControllerInput;
 using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Helpers;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Map;
 using MegaCrit.Sts2.Core.Nodes.Screens.Map;
 using MegaCrit.Sts2.Core.Runs;
+using MegaCrit.Sts2.Core.Saves;
+using MegaCrit.Sts2.Core.Nodes.Screens.ScreenContext;
 
 namespace StsTools.Game;
 
@@ -15,8 +19,9 @@ namespace StsTools.Game;
 /// possible (Min), exactement n ou au moins n salles sur tout l'acte, puis, au même rang, où les placer (tôt, tard,
 /// groupées, éloignées) ; les autres (Any) ne départagent pas les chemins.
 /// Déplacement libre (Winged Boots, Flight) pris en compte à chaque étape, avec les sauts qui restent. Seulement la carte
-/// telle qu'elle est affichée : rien n'est lu de la graine. Ne touche à rien dans la partie (aucun vote, aucun
-/// déplacement).
+/// telle qu'elle est affichée : rien n'est lu de la graine. Ne touche à rien dans la partie, sauf avec les options du
+/// mod (décochées par défaut) : en clavier seul, focus sur la prochaine salle du chemin (<see cref="ModOptions.MapPathFocus"/>) ;
+/// chemin suivi tout seul, par le vote du joueur comme un clic (<see cref="ModOptions.MapPathAutoTravel"/>).
 /// </summary>
 public static class MapPaths
 {
@@ -133,6 +138,9 @@ public static class MapPaths
 
     private static string? _key, _drawKey;
 
+    /// <summary>Le chercheur tourne à cette image : carte et GUI ouverts, onglet affiché, pas d'erreur.</summary>
+    private static bool _running;
+
     /// <summary>Branché une fois, au début d'une partie : vérifié à chaque image (peu coûteux), recalculé seulement si besoin.</summary>
     public static void Install()
     {
@@ -176,10 +184,14 @@ public static class MapPaths
             if (mapOpen != _mapOpen)
             {
                 _mapOpen = mapOpen;
+                // Carte fermée : la rouvrir pour la regarder (barre du haut) ne fait plus partir
+                if (!mapOpen)
+                    _proceeded = false;
                 RunPanel.TabsChanged();
             }
             // Onglet Path finder caché dans les options du mod : ni recherche ni chemins tracés
-            if (!mapOpen || !RunPanel.IsOpen || _failed || ModOptions.IsTabHidden("Path finder"))
+            _running = mapOpen && RunPanel.IsOpen && !_failed && !ModOptions.IsTabHidden("Path finder");
+            if (!_running)
             {
                 Hide();
                 return;
@@ -198,6 +210,8 @@ public static class MapPaths
                 Index = selected == null ? 0 : Math.Max(0, IndexOf(selected, state.CurrentMapPoint));
                 _drawKey = null;
             }
+            FocusNext(screen!);
+            Follow(screen!, state);
             string drawKey = $"{ShowAll}|{Index}";
             if (drawKey == _drawKey)
                 return;
@@ -210,6 +224,7 @@ public static class MapPaths
             // Une erreur par image remplirait le log : arrêté jusqu'au prochain changement de choix
             Log.Error($"[{ModEntry.Id}] map paths: {e}");
             _failed = true;
+            _running = false;
             Hide();
         }
     }
@@ -219,6 +234,105 @@ public static class MapPaths
         if (NMapScreen.Instance is { } screen && GodotObject.IsInstanceValid(screen)
             && screen.GetNodeOrNull<Control>("TheMap/Paths")?.GetNodeOrNull<Node2D>(LinesName) is { } lines)
             lines.Visible = false;
+    }
+
+    // ---- Focus et déplacement (options du mod) ----
+
+    /// <summary>Position (acte, salles visitées) d'où le chemin a déjà été suivi : un seul vote par salle.</summary>
+    private static string? _followKey;
+
+    /// <summary>
+    /// Le joueur a appuyé sur Continuer (Proceed), et la carte ouverte par là n'a pas été fermée : seulement alors le
+    /// chemin est suivi ; pas quand il ouvre la carte pour la regarder (barre du haut), même si le départ est permis
+    /// (chez un marchand, dès l'entrée).
+    /// </summary>
+    private static bool _proceeded;
+
+    [HarmonyPatch(typeof(RunManager), nameof(RunManager.Proceed))]
+    public static class ProceedPatch
+    {
+        public static void Prefix() => _proceeded = true;
+    }
+
+    /// <summary>Chemins et chemin choisi pour lesquels le focus a été placé : une fois par changement.</summary>
+    private static string? _focusKey;
+
+    /// <summary>
+    /// Prochaine salle du chemin choisi (◀ ▶ ; avec Show all, le premier : les chemins à égalité se valent) ; null sans
+    /// chemin.
+    /// </summary>
+    internal static MapPoint? NextRoom()
+    {
+        if (!_running || Best.Count == 0)
+            return null;
+        var selected = Best[Math.Clamp(Index, 0, Best.Count - 1)];
+        return selected.Count > 0 ? selected[0] : null;
+    }
+
+    /// <summary>Salle du jeu (bouton de la carte) de ce point, si elle est cliquable.</summary>
+    private static NMapPoint? EnabledNode(NMapScreen screen, MapPoint point) =>
+        screen.GetNodeOrNull<Control>("TheMap/Points")?.GetChildren().OfType<NMapPoint>()
+            .FirstOrDefault(n => GodotObject.IsInstanceValid(n) && n.Point.coord == point.coord && n.IsEnabled);
+
+    private static bool FocusWanted => ModOptions.MapPathFocus && ModHotkeys.CurrentMode == InputType.KeyboardOnlyMode;
+
+    /// <summary>
+    /// Clavier seul : focus sur la prochaine salle du chemin quand les chemins ou le choix changent, si le focus est sur
+    /// la carte (pas dans le GUI ni la légende). Le jeu, quand il remet lui-même le focus, le met aussi là
+    /// (<see cref="DefaultFocusPatch"/>).
+    /// </summary>
+    private static void FocusNext(NMapScreen screen)
+    {
+        if (!FocusWanted)
+            return;
+        string key = $"{_key}|{Index}|{ShowAll}";
+        if (key == _focusKey || !ActiveScreenContext.Instance.IsCurrent(screen))
+            return;
+        var owner = screen.GetViewport().GuiGetFocusOwner();
+        if (owner != null && owner != screen && owner is not NMapPoint)
+            return;
+        _focusKey = key;
+        if (NextRoom() is { } next && EnabledNode(screen, next) is { } node && owner != node)
+            node.GrabFocus();
+    }
+
+    /// <summary>
+    /// Chemin suivi tout seul, dès que la carte s'ouvre par Continuer (<see cref="_proceeded"/>) : vote
+    /// pour la prochaine salle comme un clic, une fois par salle. En solo, le vote part tout de suite en voyage : le
+    /// choix est sauté ; à plusieurs, c'est le vote du joueur, aussitôt. Rien si le joueur a déjà voté (à plusieurs),
+    /// s'il dessine, ou avant le tutoriel de la carte.
+    /// </summary>
+    private static void Follow(NMapScreen screen, IRunState state)
+    {
+        string key = $"{state.CurrentActIndex}|{state.VisitedMapCoords.Count}";
+        if (!ModOptions.MapPathAutoTravel || !_proceeded || !screen.IsTravelEnabled || screen.IsTraveling
+            || screen.Drawings.GetLocalDrawingMode() != DrawingMode.None || key == _followKey || NextRoom() is not { } next
+            || next.coord.row == 0 && !SaveManager.Instance.SeenFtue("map_select_ftue")
+            || CardRunStats.LocalPlayer is not { } me || RunManager.Instance.MapSelectionSynchronizer.GetVote(me).HasValue
+            || EnabledNode(screen, next) is not { } node)
+            return;
+        _followKey = key;
+        _proceeded = false;
+        BugReport.Note($"Path finder: followed the path to {next.coord.col},{next.coord.row} ({next.PointType})");
+        screen.OnMapPointSelectedLocally(node);
+    }
+
+    /// <summary>Clavier seul, option cochée : le focus par défaut de la carte est la prochaine salle du chemin.</summary>
+    [HarmonyPatch(typeof(NMapScreen), nameof(NMapScreen.DefaultFocusedControl), MethodType.Getter)]
+    public static class DefaultFocusPatch
+    {
+        public static void Postfix(NMapScreen __instance, ref Control __result)
+        {
+            try
+            {
+                if (FocusWanted && NextRoom() is { } next && EnabledNode(__instance, next) is { } node)
+                    __result = node;
+            }
+            catch (Exception e)
+            {
+                Log.Warn($"[{ModEntry.Id}] path finder focus: {e.Message}");
+            }
+        }
     }
 
     // ---- Choix du joueur (onglet Path finder) ----

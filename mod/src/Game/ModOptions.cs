@@ -31,6 +31,8 @@ public static class ModOptions
     public static int RandomDraws => RandomDrawChoices.Contains(Current.RandomDraws) ? Current.RandomDraws : 12;
     public static bool RelicStats => Current.RelicStats;
     public static bool RoomPreview => Current.RoomPreview;
+    public static bool MapPathFocus => Current.MapPathFocus;
+    public static bool MapPathAutoTravel => Current.MapPathAutoTravel;
     public static string? OpenTab => Current.OpenTab;
     public static string? TabOnCombatStart => Current.TabOnCombatStart;
     public static string? TabOnCombatEnd => Current.TabOnCombatEnd;
